@@ -8,6 +8,12 @@ pub(in crate::app) struct RemoteBrowseEntry {
     pub(in crate::app) is_dir: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::app) struct FilePickerRenameDraft {
+    pub(in crate::app) path: String,
+    pub(in crate::app) name: String,
+}
+
 static ACTIVE_SETTINGS_SNAPSHOT: OnceLock<std::sync::Mutex<SettingsSummary>> = OnceLock::new();
 
 pub(crate) fn set_active_settings_snapshot(settings: SettingsSummary) {
@@ -92,6 +98,7 @@ pub struct CoduxApp {
     pub(in crate::app) file_picker_target: FilePickerTarget,
     pub(in crate::app) file_picker_filename: String,
     pub(in crate::app) file_picker_selected: Option<String>,
+    pub(in crate::app) file_picker_active_path: Option<String>,
     pub(in crate::app) project_editor_window: Option<AnyWindowHandle>,
     pub(in crate::app) terminal_tab_editor_window: Option<AnyWindowHandle>,
     pub(in crate::app) worktree_creator_window: Option<AnyWindowHandle>,
@@ -246,6 +253,7 @@ pub struct CoduxApp {
     pub(in crate::app) ai_global_history_refreshing: bool,
     pub(in crate::app) ai_global_history_refresh_pending: bool,
     pub(in crate::app) project_switch_generation: u64,
+    pub(in crate::app) terminal_restore_epoch: u64,
     pub(in crate::app) scheduled_work_in_flight: HashSet<String>,
     pub(in crate::app) scheduled_work_last_started_at: HashMap<String, f64>,
     pub(in crate::app) scheduled_work_last_finished_at: HashMap<String, f64>,
@@ -357,6 +365,8 @@ pub struct CoduxApp {
     pub(in crate::app) project_editor_browse_entries: Vec<RemoteBrowseEntry>,
     pub(in crate::app) project_editor_browse_error: Option<String>,
     pub(in crate::app) project_editor_browse_new_folder: String,
+    pub(in crate::app) project_editor_browse_generation: u64,
+    pub(in crate::app) file_picker_rename_draft: Option<FilePickerRenameDraft>,
     /// When the file picker is showing an inline "new folder" name editor in the
     /// listing (triggered by the footer button).
     pub(in crate::app) file_picker_new_folder_active: bool,

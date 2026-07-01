@@ -21,8 +21,8 @@ use codux_protocol::{
     REMOTE_MEMORY_READ, REMOTE_MEMORY_RESULT, REMOTE_PAIRING_CONFIRMED, REMOTE_PAIRING_REJECTED,
     REMOTE_PAIRING_REQUEST, REMOTE_PROJECT_LIST, REMOTE_TERMINAL_CLOSE, REMOTE_TERMINAL_CLOSED,
     REMOTE_TERMINAL_CREATE, REMOTE_TERMINAL_CREATED, REMOTE_TERMINAL_INPUT, REMOTE_TERMINAL_OUTPUT,
-    REMOTE_TERMINAL_RESIZE, REMOTE_TRANSPORT_IROH, REMOTE_WORKTREE_CREATE, REMOTE_WORKTREE_LIST,
-    REMOTE_WORKTREE_MERGE, REMOTE_WORKTREE_REMOVE, REMOTE_WORKTREE_UPDATED,
+    REMOTE_TERMINAL_VIEWPORT_RESIZE, REMOTE_TRANSPORT_IROH, REMOTE_WORKTREE_CREATE,
+    REMOTE_WORKTREE_LIST, REMOTE_WORKTREE_MERGE, REMOTE_WORKTREE_REMOVE, REMOTE_WORKTREE_UPDATED,
 };
 use codux_remote_transport::{
     RemoteControllerTransportConfig, RemoteTransport, RemoteTransportCandidate,
@@ -239,6 +239,10 @@ impl ControllerInner {
             }
             let session_id = envelope.get("sessionId").and_then(Value::as_str);
             let data = payload.get("data").and_then(Value::as_str).unwrap_or("");
+            let screen_data = payload
+                .get("screenData")
+                .and_then(Value::as_str)
+                .unwrap_or("");
             // Feed ONLY the live byte stream into the emulator — exactly like a
             // local PTY relay. The host also emits full-screen `screenData`
             // keyframes (on attach and on every resize), but our desktop emulator
@@ -249,10 +253,18 @@ impl ControllerInner {
             // live stream, just as it is for a local terminal. (The keyframe stays
             // in the protocol for grid-reconciling clients; this emulator isn't
             // one — see the tmux-style notes in the remote terminal design.)
-            if let Some(session_id) = session_id.filter(|_| !data.is_empty()) {
+            let bytes = if !data.is_empty() || !screen_data.is_empty() {
+                let mut bytes = Vec::with_capacity(data.len() + screen_data.len());
+                bytes.extend_from_slice(data.as_bytes());
+                bytes.extend_from_slice(screen_data.as_bytes());
+                Some(bytes)
+            } else {
+                None
+            };
+            if let (Some(session_id), Some(bytes)) = (session_id, bytes) {
                 if let Ok(forwarders) = self.terminal_outputs.lock() {
                     if let Some(forwarder) = forwarders.get(session_id) {
-                        forwarder(data.as_bytes().to_vec());
+                        forwarder(bytes);
                     }
                 }
             }
@@ -520,8 +532,12 @@ impl RemoteController {
     }
 
     /// List a remote directory and parse it into a typed listing.
-    pub fn browse_directory(&self, path: Option<&str>) -> Result<RemoteDirectoryListing, String> {
-        let value = self.file_list(path, Some("projectFiles"))?;
+    pub fn browse_directory(
+        &self,
+        path: Option<&str>,
+        purpose: Option<&str>,
+    ) -> Result<RemoteDirectoryListing, String> {
+        let value = self.file_list(path, purpose.or(Some("projectFiles")))?;
         Ok(RemoteDirectoryListing {
             path: value
                 .get("path")
@@ -914,8 +930,12 @@ impl RemoteController {
     }
 
     pub fn terminal_resize(&self, session_id: &str, cols: u16, rows: u16) -> bool {
+        self.terminal_viewport_resize(session_id, cols, rows)
+    }
+
+    pub fn terminal_viewport_resize(&self, session_id: &str, cols: u16, rows: u16) -> bool {
         self.fire(
-            REMOTE_TERMINAL_RESIZE,
+            REMOTE_TERMINAL_VIEWPORT_RESIZE,
             json!({ "sessionId": session_id, "cols": cols, "rows": rows }),
         )
     }
@@ -1538,6 +1558,23 @@ mod e2e {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use async_trait::async_trait;
+    use codux_protocol::RemoteTransportKind;
+
+    struct NoopTransport;
+
+    #[async_trait]
+    impl RemoteTransport for NoopTransport {
+        fn kind(&self) -> RemoteTransportKind {
+            RemoteTransportKind::Iroh
+        }
+
+        fn send(&self, _data: Vec<u8>, _device_id: Option<&str>) -> bool {
+            false
+        }
+
+        async fn shutdown(&self) {}
+    }
 
     fn waiter(inner: &ControllerInner, expect: &str) -> mpsc::Receiver<Result<Value, String>> {
         let (tx, rx) = mpsc::channel();
@@ -1585,6 +1622,87 @@ mod tests {
         // No sink, no matching forwarder: the frame is dropped, never queued.
         inner.route(br#"{"type":"terminal.output","payload":{"data":"x"}}"#);
         assert!(inner.events.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn unregister_terminal_output_stops_forwarding_session_bytes() {
+        let inner = Arc::new(ControllerInner::default());
+        let controller = RemoteController {
+            transport: Arc::new(NoopTransport),
+            device_id: "device-1".to_string(),
+            inner: Arc::clone(&inner),
+            next_id: AtomicU64::new(1),
+        };
+        let (tx, rx) = mpsc::channel();
+        controller.register_terminal_output(
+            "session-1",
+            Box::new(move |bytes| {
+                let _ = tx.send(bytes);
+            }),
+        );
+
+        inner
+            .route(br#"{"type":"terminal.output","sessionId":"session-1","payload":{"data":"x"}}"#);
+        assert_eq!(rx.recv_timeout(Duration::from_secs(1)).unwrap(), b"x");
+
+        controller.unregister_terminal_output("session-1");
+        inner
+            .route(br#"{"type":"terminal.output","sessionId":"session-1","payload":{"data":"y"}}"#);
+        assert!(rx.recv_timeout(Duration::from_millis(100)).is_err());
+    }
+
+    #[test]
+    fn terminal_output_forwards_screen_data_when_live_data_is_empty() {
+        let inner = Arc::new(ControllerInner::default());
+        let controller = RemoteController {
+            transport: Arc::new(NoopTransport),
+            device_id: "device-1".to_string(),
+            inner: Arc::clone(&inner),
+            next_id: AtomicU64::new(1),
+        };
+        let (tx, rx) = mpsc::channel();
+        controller.register_terminal_output(
+            "session-1",
+            Box::new(move |bytes| {
+                let _ = tx.send(bytes);
+            }),
+        );
+
+        inner.route(
+            br#"{"type":"terminal.output","sessionId":"session-1","payload":{"data":"","screenData":"\u001b[2J\u001b[Hready"}}"#,
+        );
+
+        assert_eq!(
+            rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+            b"\x1b[2J\x1b[Hready"
+        );
+    }
+
+    #[test]
+    fn terminal_output_appends_screen_data_after_history_data() {
+        let inner = Arc::new(ControllerInner::default());
+        let controller = RemoteController {
+            transport: Arc::new(NoopTransport),
+            device_id: "device-1".to_string(),
+            inner: Arc::clone(&inner),
+            next_id: AtomicU64::new(1),
+        };
+        let (tx, rx) = mpsc::channel();
+        controller.register_terminal_output(
+            "session-1",
+            Box::new(move |bytes| {
+                let _ = tx.send(bytes);
+            }),
+        );
+
+        inner.route(
+            br#"{"type":"terminal.output","sessionId":"session-1","payload":{"data":"history\n","screenData":"\u001b[2J\u001b[Htui"}}"#,
+        );
+
+        assert_eq!(
+            rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+            b"history\n\x1b[2J\x1b[Htui"
+        );
     }
 
     #[test]

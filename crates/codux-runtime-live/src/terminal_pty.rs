@@ -18,7 +18,10 @@ use std::{
     fs,
     io::{Read, Write},
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 #[cfg(not(windows))]
@@ -234,6 +237,33 @@ pub struct TerminalOutputSnapshot {
 }
 
 pub type EventSink = Arc<dyn Fn(TerminalEvent) -> bool + Send + Sync + 'static>;
+type EventSubscriberKey = Arc<str>;
+static TERMINAL_EVENT_SUBSCRIBER_GENERATION: AtomicU64 = AtomicU64::new(1);
+
+#[derive(Clone)]
+struct EventSubscriber {
+    key: Option<EventSubscriberKey>,
+    generation: u64,
+    sink: EventSink,
+}
+
+impl EventSubscriber {
+    fn anonymous(sink: EventSink) -> Self {
+        Self {
+            key: None,
+            generation: 0,
+            sink,
+        }
+    }
+
+    fn keyed(key: EventSubscriberKey, sink: EventSink) -> Self {
+        Self {
+            key: Some(key),
+            generation: TERMINAL_EVENT_SUBSCRIBER_GENERATION.fetch_add(1, Ordering::Relaxed),
+            sink,
+        }
+    }
+}
 
 /// Resolves the next viewport owner when a remote lease expires. Called with
 /// `(session_id, expired_owner)`; returns another owner string to hand off to
@@ -327,6 +357,18 @@ impl TerminalManager {
         Ok(id)
     }
 
+    pub fn create_with_event_key(
+        &self,
+        config: TerminalPtyConfig,
+        event_key: impl Into<String>,
+        emit: EventSink,
+    ) -> Result<String> {
+        let (session, _) =
+            self.attach_or_create_with_context_and_event_key(config, None, event_key, emit)?;
+        let id = session.id().to_string();
+        Ok(id)
+    }
+
     pub fn ensure_session_with_context(
         &self,
         config: TerminalPtyConfig,
@@ -367,17 +409,44 @@ impl TerminalManager {
         context: Option<&TerminalLaunchContext>,
         emit: EventSink,
     ) -> Result<(Arc<TerminalPtySession>, flume::Receiver<Vec<u8>>)> {
+        self.attach_or_create_with_context_internal(config, context, None, emit)
+    }
+
+    pub fn attach_or_create_with_context_and_event_key(
+        &self,
+        config: TerminalPtyConfig,
+        context: Option<&TerminalLaunchContext>,
+        event_key: impl Into<String>,
+        emit: EventSink,
+    ) -> Result<(Arc<TerminalPtySession>, flume::Receiver<Vec<u8>>)> {
+        self.attach_or_create_with_context_internal(config, context, Some(event_key.into()), emit)
+    }
+
+    fn attach_or_create_with_context_internal(
+        &self,
+        config: TerminalPtyConfig,
+        context: Option<&TerminalLaunchContext>,
+        event_key: Option<String>,
+        emit: EventSink,
+    ) -> Result<(Arc<TerminalPtySession>, flume::Receiver<Vec<u8>>)> {
         let requested_id = config
             .terminal_id
             .clone()
             .filter(|value| !value.trim().is_empty());
+        let event_key = event_key
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
         let requested_identity = RequestedTerminalIdentity::from_config(&config, context);
         if let Some(session) = requested_id
             .as_deref()
             .and_then(|id| self.sessions.lock().get(id).cloned())
         {
             if session.matches_requested_identity(&requested_identity) {
-                session.subscribe_events(emit);
+                if let Some(event_key) = event_key {
+                    session.subscribe_events_keyed(event_key, emit);
+                } else {
+                    session.subscribe_events(emit);
+                }
                 let rx = session.subscribe_output(true);
                 return Ok((session, rx));
             }
@@ -388,7 +457,7 @@ impl TerminalManager {
             ai_runtime.ensure_started().map_err(anyhow::Error::msg)?;
         }
         let (session, _writer, reader) =
-            TerminalPtySession::spawn(config, context, Some(emit.clone()))?;
+            TerminalPtySession::spawn(config, context, Some((event_key, emit.clone())))?;
         let session = Arc::new(session);
         let id = session.id().to_string();
         self.register_ai_runtime_terminal(&session);
@@ -527,6 +596,16 @@ impl TerminalManager {
 
     pub fn subscribe_events(&self, session_id: &str, emit: EventSink) -> Result<()> {
         self.session(session_id)?.subscribe_events(emit);
+        Ok(())
+    }
+
+    pub fn subscribe_events_keyed(
+        &self,
+        session_id: &str,
+        key: impl Into<String>,
+        emit: EventSink,
+    ) -> Result<()> {
+        self.session(session_id)?.subscribe_events_keyed(key, emit);
         Ok(())
     }
 
@@ -764,7 +843,7 @@ pub struct TerminalPtySession {
     history: Arc<parking_lot::Mutex<RingHistory>>,
     screen: Arc<parking_lot::Mutex<HeadlessTerminalScreen>>,
     output_subscribers: Arc<parking_lot::Mutex<Vec<flume::Sender<Vec<u8>>>>>,
-    event_subscribers: Arc<parking_lot::Mutex<Vec<EventSink>>>,
+    event_subscribers: Arc<parking_lot::Mutex<Vec<EventSubscriber>>>,
     info: Arc<parking_lot::Mutex<TerminalSessionSnapshot>>,
     ai_runtime_binding: AIRuntimeTerminalBinding,
     pty_control: LocalPtyProcessHandle,
@@ -776,7 +855,7 @@ pub struct TerminalPtySessionHandle {
     pty_control: LocalPtyProcessHandle,
     info: Arc<parking_lot::Mutex<TerminalSessionSnapshot>>,
     viewport: Arc<parking_lot::Mutex<TerminalViewportLease>>,
-    event_subscribers: Arc<parking_lot::Mutex<Vec<EventSink>>>,
+    event_subscribers: Arc<parking_lot::Mutex<Vec<EventSubscriber>>>,
     screen: Arc<parking_lot::Mutex<HeadlessTerminalScreen>>,
 }
 
@@ -784,7 +863,7 @@ impl TerminalPtySession {
     pub fn spawn(
         config: TerminalPtyConfig,
         context: Option<&TerminalLaunchContext>,
-        event_sink: Option<EventSink>,
+        event_sink: Option<(Option<String>, EventSink)>,
     ) -> Result<(Self, Box<dyn Write + Send>, Box<dyn Read + Send>)> {
         let id = config
             .terminal_id
@@ -793,7 +872,11 @@ impl TerminalPtySession {
             .unwrap_or_else(|| Uuid::new_v4().to_string());
         let cols = config.cols.unwrap_or(100).max(20);
         let rows = config.rows.unwrap_or(32).max(8);
-        let shell = config.shell.clone().unwrap_or_else(default_shell);
+        let shell = config
+            .shell
+            .as_deref()
+            .and_then(normalize_terminal_shell)
+            .unwrap_or_else(default_shell);
         let cwd = requested_terminal_cwd(&config, context);
         let initial_command = config
             .command
@@ -832,8 +915,14 @@ impl TerminalPtySession {
         )));
         let output_subscribers = Arc::new(parking_lot::Mutex::new(Vec::new()));
         let event_subscribers = Arc::new(parking_lot::Mutex::new(Vec::new()));
-        if let Some(event_sink) = event_sink {
-            event_subscribers.lock().push(event_sink);
+        if let Some((event_key, event_sink)) = event_sink {
+            if let Some(event_key) = event_key {
+                insert_keyed_event_subscriber(&event_subscribers, event_key, event_sink);
+            } else {
+                event_subscribers
+                    .lock()
+                    .push(EventSubscriber::anonymous(event_sink));
+            }
         }
         let now = rfc3339_now();
         let project_path = context
@@ -1036,7 +1125,13 @@ impl TerminalPtySession {
     }
 
     pub fn subscribe_events(&self, emit: EventSink) {
-        self.event_subscribers.lock().push(emit);
+        self.event_subscribers
+            .lock()
+            .push(EventSubscriber::anonymous(emit));
+    }
+
+    pub fn subscribe_events_keyed(&self, key: impl Into<String>, emit: EventSink) {
+        insert_keyed_event_subscriber(&self.event_subscribers, key.into(), emit);
     }
 
     pub fn kill(&self) -> Result<()> {
@@ -1382,7 +1477,7 @@ struct CaptureReader {
     history: Arc<parking_lot::Mutex<RingHistory>>,
     screen: Arc<parking_lot::Mutex<HeadlessTerminalScreen>>,
     output_subscribers: Arc<parking_lot::Mutex<Vec<flume::Sender<Vec<u8>>>>>,
-    event_subscribers: Arc<parking_lot::Mutex<Vec<EventSink>>>,
+    event_subscribers: Arc<parking_lot::Mutex<Vec<EventSubscriber>>>,
     info: Arc<parking_lot::Mutex<TerminalSessionSnapshot>>,
     pending_utf8: Vec<u8>,
 }
@@ -1395,7 +1490,7 @@ impl CaptureReader {
         history: Arc<parking_lot::Mutex<RingHistory>>,
         screen: Arc<parking_lot::Mutex<HeadlessTerminalScreen>>,
         output_subscribers: Arc<parking_lot::Mutex<Vec<flume::Sender<Vec<u8>>>>>,
-        event_subscribers: Arc<parking_lot::Mutex<Vec<EventSink>>>,
+        event_subscribers: Arc<parking_lot::Mutex<Vec<EventSubscriber>>>,
         info: Arc<parking_lot::Mutex<TerminalSessionSnapshot>>,
     ) -> Self {
         Self {
@@ -1757,7 +1852,7 @@ fn spawn_waiter(
     id: String,
     control: LocalPtyProcessHandle,
     info: Arc<parking_lot::Mutex<TerminalSessionSnapshot>>,
-    event_subscribers: Arc<parking_lot::Mutex<Vec<EventSink>>>,
+    event_subscribers: Arc<parking_lot::Mutex<Vec<EventSubscriber>>>,
 ) {
     std::thread::Builder::new()
         .name(format!("codux-terminal-waiter-{id}"))
@@ -1781,7 +1876,7 @@ fn spawn_waiter(
 fn spawn_headless_reader(
     id: String,
     mut reader: Box<dyn Read + Send>,
-    event_subscribers: Arc<parking_lot::Mutex<Vec<EventSink>>>,
+    event_subscribers: Arc<parking_lot::Mutex<Vec<EventSubscriber>>>,
 ) {
     std::thread::Builder::new()
         .name(format!("codux-terminal-reader-{id}"))
@@ -1808,12 +1903,42 @@ fn spawn_headless_reader(
 }
 
 fn emit_terminal_event(
-    subscribers: &Arc<parking_lot::Mutex<Vec<EventSink>>>,
+    subscribers: &Arc<parking_lot::Mutex<Vec<EventSubscriber>>>,
     event: TerminalEvent,
 ) {
+    let mut subscribers = subscribers.lock();
+    let mut latest_by_key = HashMap::new();
+    for subscriber in subscribers.iter() {
+        if let Some(key) = subscriber.key.as_ref() {
+            latest_by_key.insert(key.clone(), subscriber.generation);
+        }
+    }
+    subscribers.retain(|subscriber| {
+        if subscriber
+            .key
+            .as_ref()
+            .and_then(|key| latest_by_key.get(key).copied())
+            .is_some_and(|latest| latest != subscriber.generation)
+        {
+            return false;
+        }
+        (subscriber.sink)(event.clone())
+    });
+}
+
+fn insert_keyed_event_subscriber(
+    subscribers: &Arc<parking_lot::Mutex<Vec<EventSubscriber>>>,
+    key: String,
+    sink: EventSink,
+) {
+    let key = key.trim();
+    if key.is_empty() {
+        subscribers.lock().push(EventSubscriber::anonymous(sink));
+        return;
+    }
     subscribers
         .lock()
-        .retain(|subscriber| subscriber(event.clone()));
+        .push(EventSubscriber::keyed(Arc::<str>::from(key), sink));
 }
 
 fn attach_ai_runtime_terminal_output_watcher(
@@ -2152,9 +2277,7 @@ pub fn terminal_environment(
             .to_string();
         path = prepend_path_component(&wrapper_bin, &path);
         values.insert("DMUX_WRAPPER_BIN".to_string(), wrapper_bin);
-        if matches!(shell_name(shell).as_deref(), Some("zsh"))
-            && zsh_runtime_hook_ready(runtime_root)
-        {
+        if is_zsh_shell(shell) && zsh_runtime_hook_ready(runtime_root) {
             let user_zdotdir = values
                 .get("ZDOTDIR")
                 .cloned()
@@ -2796,6 +2919,21 @@ pub fn default_shell() -> String {
 }
 
 #[cfg(not(target_os = "windows"))]
+fn normalize_terminal_shell(shell: &str) -> Option<String> {
+    let trimmed = shell.trim();
+    if trimmed.is_empty() || is_terminal_integration_shell(trimmed) {
+        return None;
+    }
+    Some(trimmed.to_string())
+}
+
+#[cfg(target_os = "windows")]
+fn normalize_terminal_shell(shell: &str) -> Option<String> {
+    let trimmed = shell.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
+}
+
+#[cfg(not(target_os = "windows"))]
 fn default_unix_login_shell() -> Option<String> {
     #[cfg(target_os = "macos")]
     {
@@ -2813,7 +2951,27 @@ fn default_unix_login_shell() -> Option<String> {
 
 fn valid_shell_path(shell: &str) -> bool {
     let trimmed = shell.trim();
-    !trimmed.is_empty() && !matches!(trimmed, "/bin/sh" | "sh") && Path::new(trimmed).is_file()
+    !trimmed.is_empty()
+        && !matches!(trimmed, "/bin/sh" | "sh")
+        && !is_terminal_integration_shell(trimmed)
+        && Path::new(trimmed).is_file()
+}
+
+#[cfg(not(target_os = "windows"))]
+fn is_terminal_integration_shell(shell: &str) -> bool {
+    let Some(name) = Path::new(shell)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| name.to_ascii_lowercase())
+    else {
+        return false;
+    };
+    name.contains("(kiro-cli-term)") || name == "kiro-cli-term"
+}
+
+#[cfg(target_os = "windows")]
+fn is_terminal_integration_shell(_shell: &str) -> bool {
+    false
 }
 
 #[cfg(target_os = "macos")]
@@ -3025,6 +3183,20 @@ fn shell_name(shell: &str) -> Option<String> {
         .file_name()
         .and_then(|name| name.to_str())
         .map(|name| name.trim_start_matches('-').to_ascii_lowercase())
+}
+
+fn is_zsh_shell(shell: &str) -> bool {
+    let Some(name) = shell_name(shell) else {
+        return false;
+    };
+    let Some(rest) = name.strip_prefix("zsh") else {
+        return false;
+    };
+    rest.is_empty()
+        || rest
+            .chars()
+            .next()
+            .is_some_and(|ch| !ch.is_ascii_alphanumeric())
 }
 
 fn zsh_runtime_hook_ready(runtime_root: &Path) -> bool {
@@ -3389,6 +3561,87 @@ mod tests {
             )
         );
         let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn terminal_environment_treats_named_zsh_wrapper_as_zsh() {
+        let temp = std::env::temp_dir().join(format!(
+            "codux-terminal-runtime-root-named-zsh-{}",
+            Uuid::new_v4()
+        ));
+        let runtime_root = temp.join("runtime-root");
+        fs::create_dir_all(runtime_root.join("scripts/shell-hooks/zsh")).unwrap();
+        fs::write(runtime_root.join("scripts/shell-hooks/zsh/.zshenv"), "# test\n").unwrap();
+        fs::write(runtime_root.join("scripts/shell-hooks/zsh/.zprofile"), "# test\n").unwrap();
+        fs::write(runtime_root.join("scripts/shell-hooks/zsh/.zshrc"), "# test\n").unwrap();
+        fs::write(
+            runtime_root.join("scripts/shell-hooks/dmux-ai-hook.zsh"),
+            "# test\n",
+        )
+        .unwrap();
+        let context = TerminalLaunchContext {
+            project_id: "project-1".to_string(),
+            project_name: "Codux".to_string(),
+            project_path: PathBuf::from("/workspace/codux"),
+            support_dir: PathBuf::from("/support/Codux"),
+            runtime_root: runtime_root.clone(),
+            terminal_id: Some("gpui-term-1".to_string()),
+            slot_id: None,
+            session_key: None,
+            session_title: None,
+            session_cwd: Some(PathBuf::from("/workspace/codux")),
+            session_instance_id: None,
+            tool_permissions_file: None,
+            memory_workspace_root: None,
+            memory_prompt_file: None,
+            memory_index_file: None,
+            host_device_id: None,
+        };
+
+        let env = terminal_environment(
+            "/Users/example/.local/bin/zsh (kiro-cli-term)",
+            Some("/workspace/codux"),
+            "gpui-term-1",
+            &context.to_config(),
+            Some(&context),
+        );
+
+        assert_eq!(
+            env.get("ZDOTDIR").map(String::as_str),
+            Some(
+                runtime_root
+                    .join("scripts/shell-hooks/zsh")
+                    .to_str()
+                    .unwrap()
+            )
+        );
+        assert_eq!(
+            env.get("DMUX_ZSH_HOOK_SCRIPT").map(String::as_str),
+            Some(
+                runtime_root
+                    .join("scripts/shell-hooks/dmux-ai-hook.zsh")
+                    .to_str()
+                    .unwrap()
+            )
+        );
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn terminal_shell_normalization_rejects_nested_integration_shells() {
+        assert_eq!(
+            normalize_terminal_shell("/Users/example/.local/bin/zsh (kiro-cli-term)"),
+            None
+        );
+        assert_eq!(
+            normalize_terminal_shell("/Users/example/.local/bin/kiro-cli-term"),
+            None
+        );
+        assert_eq!(
+            normalize_terminal_shell("/bin/zsh"),
+            Some("/bin/zsh".to_string())
+        );
     }
 
     #[test]
@@ -3944,12 +4197,14 @@ mod tests {
 
     #[test]
     fn terminal_event_subscribers_are_pruned_when_sink_is_closed() {
-        let subscribers: Arc<parking_lot::Mutex<Vec<EventSink>>> =
+        let subscribers: Arc<parking_lot::Mutex<Vec<EventSubscriber>>> =
             Arc::new(parking_lot::Mutex::new(Vec::new()));
         let (tx, rx) = std::sync::mpsc::channel::<()>();
         subscribers
             .lock()
-            .push(Arc::new(move |_| tx.send(()).is_ok()));
+            .push(EventSubscriber::anonymous(Arc::new(move |_| {
+                tx.send(()).is_ok()
+            })));
 
         emit_terminal_event(
             &subscribers,
@@ -3969,6 +4224,74 @@ mod tests {
             },
         );
         assert!(subscribers.lock().is_empty());
+    }
+
+    #[test]
+    fn keyed_terminal_event_subscribers_replace_stale_sinks() {
+        let subscribers: Arc<parking_lot::Mutex<Vec<EventSubscriber>>> =
+            Arc::new(parking_lot::Mutex::new(Vec::new()));
+        let anonymous_hits = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let stale_hits = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let latest_hits = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let other_hits = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+
+        {
+            let anonymous_hits = anonymous_hits.clone();
+            subscribers
+                .lock()
+                .push(EventSubscriber::anonymous(Arc::new(move |_| {
+                    anonymous_hits.fetch_add(1, Ordering::SeqCst);
+                    true
+                })));
+        }
+        {
+            let stale_hits = stale_hits.clone();
+            insert_keyed_event_subscriber(
+                &subscribers,
+                "remote-terminal:session-1".to_string(),
+                Arc::new(move |_| {
+                    stale_hits.fetch_add(1, Ordering::SeqCst);
+                    true
+                }),
+            );
+        }
+        {
+            let latest_hits = latest_hits.clone();
+            insert_keyed_event_subscriber(
+                &subscribers,
+                "remote-terminal:session-1".to_string(),
+                Arc::new(move |_| {
+                    latest_hits.fetch_add(1, Ordering::SeqCst);
+                    true
+                }),
+            );
+        }
+        {
+            let other_hits = other_hits.clone();
+            insert_keyed_event_subscriber(
+                &subscribers,
+                "remote-terminal:session-2".to_string(),
+                Arc::new(move |_| {
+                    other_hits.fetch_add(1, Ordering::SeqCst);
+                    true
+                }),
+            );
+        }
+
+        emit_terminal_event(
+            &subscribers,
+            TerminalEvent::Output {
+                session_id: "session-1".to_string(),
+                text: "hello".to_string(),
+                bytes: b"hello".to_vec(),
+            },
+        );
+
+        assert_eq!(anonymous_hits.load(Ordering::SeqCst), 1);
+        assert_eq!(stale_hits.load(Ordering::SeqCst), 0);
+        assert_eq!(latest_hits.load(Ordering::SeqCst), 1);
+        assert_eq!(other_hits.load(Ordering::SeqCst), 1);
+        assert_eq!(subscribers.lock().len(), 3);
     }
 
     #[cfg(unix)]

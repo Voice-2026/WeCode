@@ -57,6 +57,14 @@ pub fn file_delete(request: FilePathRequest) -> Result<(), String> {
     FilesService::delete(&request.root_path, &request.path)
 }
 
+pub fn delete_absolute_path(path: &str) -> Result<(), String> {
+    FilesService::delete_absolute(path)
+}
+
+pub fn rename_absolute_path(path: &str, new_path: &str) -> Result<(), String> {
+    FilesService::rename_absolute(path, new_path)
+}
+
 pub fn file_copy(request: FileCopyRequest) -> Result<FileEntry, String> {
     FilesService::copy_to_directory(
         &request.root_path,
@@ -246,6 +254,26 @@ impl FilesService {
         move_to_trash(&target)
     }
 
+    pub fn delete_absolute(path: &str) -> Result<(), String> {
+        let target = PathBuf::from(path.trim());
+        if target.as_os_str().is_empty() {
+            return Err("Path is empty.".to_string());
+        }
+        move_to_trash(&target)
+    }
+
+    pub fn rename_absolute(path: &str, new_path: &str) -> Result<(), String> {
+        let source = PathBuf::from(path.trim());
+        let destination = PathBuf::from(new_path.trim());
+        if source.as_os_str().is_empty() || destination.as_os_str().is_empty() {
+            return Err("Path is empty.".to_string());
+        }
+        if destination.exists() && !same_file_path(&source, &destination) {
+            return Err("A file with this name already exists.".to_string());
+        }
+        fs::rename(&source, &destination).map_err(|error| error.to_string())
+    }
+
     pub fn rename(root_path: &str, path: &str, new_name: &str) -> Result<FileEntry, String> {
         let root = canonical_root(root_path)?;
         let source = resolve_existing_path(&root, path)?;
@@ -254,7 +282,7 @@ impl FilesService {
             .ok_or_else(|| "Cannot rename project root.".to_string())?
             .join(clean_child_name(new_name)?);
         ensure_within_root(&root, &destination)?;
-        if destination.exists() {
+        if destination.exists() && !same_file_path(&source, &destination) {
             return Err("A file with this name already exists.".to_string());
         }
         fs::rename(&source, &destination).map_err(|error| error.to_string())?;
@@ -359,4 +387,55 @@ impl FilesService {
         let target = resolve_existing_path(&root, path)?;
         open_path(&target)
     }
+}
+
+fn same_file_path(left: &Path, right: &Path) -> bool {
+    if same_file_metadata(left, right) {
+        return true;
+    }
+    match (left.canonicalize(), right.canonicalize()) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => false,
+    }
+}
+
+#[cfg(unix)]
+fn same_file_metadata(left: &Path, right: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+
+    let Ok(left_metadata) = fs::metadata(left) else {
+        return false;
+    };
+    let Ok(right_metadata) = fs::metadata(right) else {
+        return false;
+    };
+    left_metadata.dev() == right_metadata.dev() && left_metadata.ino() == right_metadata.ino()
+}
+
+#[cfg(windows)]
+fn same_file_metadata(left: &Path, right: &Path) -> bool {
+    use std::os::windows::fs::MetadataExt;
+
+    let Ok(left_metadata) = fs::metadata(left) else {
+        return false;
+    };
+    let Ok(right_metadata) = fs::metadata(right) else {
+        return false;
+    };
+    match (
+        left_metadata.volume_serial_number(),
+        right_metadata.volume_serial_number(),
+        left_metadata.file_index(),
+        right_metadata.file_index(),
+    ) {
+        (Some(left_volume), Some(right_volume), Some(left_index), Some(right_index)) => {
+            left_volume == right_volume && left_index == right_index
+        }
+        _ => false,
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
+fn same_file_metadata(_left: &Path, _right: &Path) -> bool {
+    false
 }

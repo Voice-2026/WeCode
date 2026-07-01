@@ -98,13 +98,14 @@ impl RuntimeService {
         &self,
         device_id: &str,
         path: Option<&str>,
+        purpose: Option<&str>,
     ) -> Result<crate::remote::RemoteDirectoryListing, String> {
         // Runs on the blocking pool from an explicit user click: wait (bounded)
         // for the host to connect so the first browse after launch shows the
         // listing, rather than an empty pane until a second click.
         self.remote_controllers
             .controller_for_blocking(device_id, REMOTE_CONNECT_TIMEOUT)?
-            .browse_directory(path)
+            .browse_directory(path, purpose)
     }
 
     /// Create a directory on a remote host (for the add-project remote flow).
@@ -118,18 +119,39 @@ impl RuntimeService {
             .create_directory(path)
     }
 
+    pub fn remote_delete_path(&self, device_id: &str, path: &str) -> Result<(), String> {
+        self.remote_controllers
+            .controller_for_blocking(device_id, REMOTE_CONNECT_TIMEOUT)?
+            .delete_path(path)
+            .map(|_| ())
+    }
+
+    pub fn remote_rename_path(
+        &self,
+        device_id: &str,
+        path: &str,
+        new_path: &str,
+    ) -> Result<(), String> {
+        self.remote_controllers
+            .controller_for_blocking(device_id, REMOTE_CONNECT_TIMEOUT)?
+            .rename_path(path, new_path)
+            .map(|_| ())
+    }
+
     /// List a local directory for the in-app file picker — same shape as the
     /// remote browser, so the picker UI is unified for local and remote. Hidden
     /// entries are skipped; directories sort first.
     pub fn browse_local_directory(
         &self,
         path: Option<&str>,
+        purpose: Option<&str>,
     ) -> Result<crate::remote::RemoteDirectoryListing, String> {
         use codux_runtime_core::path::{FILE_LIST_DRIVES_SENTINEL, display_path};
+        let show_hidden = purpose == Some("sshKey");
         // Volume list (the Windows "all drives" root): reuse the shared core
         // listing so local and remote browsing expose drives identically.
         if path.map(str::trim) == Some(FILE_LIST_DRIVES_SENTINEL) {
-            let value = codux_runtime_core::file::file_list_payload(path, None);
+            let value = codux_runtime_core::file::file_list_payload(path, purpose);
             return Ok(local_directory_listing_from_payload(&value));
         }
         let dir = match path {
@@ -149,7 +171,7 @@ impl RuntimeService {
             .flatten()
         {
             let name = entry.file_name().to_string_lossy().to_string();
-            if name.starts_with('.') {
+            if !show_hidden && name.starts_with('.') {
                 continue;
             }
             let entry_path = entry.path();
@@ -175,6 +197,14 @@ impl RuntimeService {
     /// Create a local directory (the picker's "New folder" for local browsing).
     pub fn create_local_directory(&self, path: &str) -> Result<(), String> {
         std::fs::create_dir_all(path).map_err(|error| error.to_string())
+    }
+
+    pub fn delete_local_path(&self, path: &str) -> Result<(), String> {
+        crate::files::delete_absolute_path(path)
+    }
+
+    pub fn rename_local_path(&self, path: &str, new_path: &str) -> Result<(), String> {
+        crate::files::rename_absolute_path(path, new_path)
     }
 
     /// Fetch a remote host's identity/capabilities (also a reachability check).

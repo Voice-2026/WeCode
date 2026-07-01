@@ -47,7 +47,13 @@
       "project.remove.success_format": "Projekt (project.name) entfernt.",
       "project.remove.title": "Projekt entfernen",
       "project.reveal.finder.success": "Revealed project in Finder.",
-      "project.update.success_format": "Aktualisiertes Projekt (updatedProject.name)."
+      "project.update.success_format": "Aktualisiertes Projekt (updatedProject.name).",
+      "file.picker.loading": "Ordner wird geladen…",
+      "file.picker.empty": "Dieser Ordner ist leer.",
+      "file.picker.rename.placeholder": "Neuer Name",
+      "file.picker.rename.invalid": "Geben Sie einen gültigen Namen ohne Pfadtrennzeichen ein.",
+      "file.picker.delete.confirm_format": "„%@“ löschen?",
+      "file.picker.delete.confirm.message": "Gelöschte Elemente werden nach Möglichkeit in den Papierkorb verschoben."
     },
     "en": {
       "project.activity.generic_input_request_format": "%@ is waiting for your input in %@",
@@ -108,7 +114,13 @@
       "file.picker.save.title": "Save As",
       "file.picker.save.confirm": "Save",
       "device.type.android": "Android",
-      "device.type.unknown": "Remote device"
+      "device.type.unknown": "Remote device",
+      "file.picker.loading": "Loading folder…",
+      "file.picker.empty": "This folder is empty.",
+      "file.picker.rename.placeholder": "New name",
+      "file.picker.rename.invalid": "Enter a valid name without path separators.",
+      "file.picker.delete.confirm_format": "Delete \"%@\"?",
+      "file.picker.delete.confirm.message": "Deleted items will be moved to Trash when possible."
     },
     "es": {
       "project.activity.generic_input_request_format": "%@ espera tu respuesta en %@",
@@ -157,7 +169,25 @@
       "project.remove.success_format": "Proyecto eliminado (project.name).",
       "project.remove.title": "Eliminar proyecto",
       "project.reveal.finder.success": "Revealed project in Finder.",
-      "project.update.success_format": "Proyecto actualizado (updatedProject.name)."
+      "project.update.success_format": "Proyecto actualizado (updatedProject.name).",
+      "project.editor.browse.title": "Elegir carpeta",
+      "project.editor.browse.use": "Usar esta carpeta",
+      "project.editor.browse.new_folder": "Nueva carpeta",
+      "project.editor.browse.new_folder_placeholder": "Nombre de la nueva carpeta",
+      "project.editor.device.local": "Local",
+      "project.editor.device.remote": "Dispositivo",
+      "file.picker.open.title": "Abrir archivo",
+      "file.picker.open.confirm": "Abrir",
+      "file.picker.save.title": "Guardar como",
+      "file.picker.save.confirm": "Guardar",
+      "device.type.android": "Android",
+      "device.type.unknown": "Dispositivo remoto",
+      "file.picker.loading": "Cargando carpeta…",
+      "file.picker.empty": "Esta carpeta está vacía.",
+      "file.picker.rename.placeholder": "Nuevo nombre",
+      "file.picker.rename.invalid": "Introduce un nombre válido sin separadores de ruta.",
+      "file.picker.delete.confirm_format": "¿Eliminar \"%@\"?",
+      "file.picker.delete.confirm.message": "Los elementos eliminados se moverán a la papelera cuando sea posible."
     },
     "fr": {
       "project.activity.generic_input_request_format": "%@ attend votre saisie dans %@",
@@ -206,7 +236,13 @@
       "project.remove.success_format": "Projet (project.name) supprimé.",
       "project.remove.title": "Supprimer le projet",
       "project.reveal.finder.success": "Revealed project in Finder.",
-      "project.update.success_format": "Projet mis à jour (updatedProject.name)."
+      "project.update.success_format": "Projet mis à jour (updatedProject.name).",
+      "file.picker.loading": "Chargement du dossier…",
+      "file.picker.empty": "Ce dossier est vide.",
+      "file.picker.rename.placeholder": "Nouveau nom",
+      "file.picker.rename.invalid": "Saisissez un nom valide sans séparateur de chemin.",
+      "file.picker.delete.confirm_format": "Supprimer « %@ » ?",
+      "file.picker.delete.confirm.message": "Les éléments supprimés seront placés dans la corbeille si possible."
     },
     "ja": {
       "project.activity.generic_input_request_format": "%@ は %@ で入力待ちです",
@@ -255,7 +291,13 @@
       "project.remove.success_format": "プロジェクト (project.name) を削除しました。",
       "project.remove.title": "プロジェクトを削除",
       "project.reveal.finder.success": "Revealed project in Finder.",
-      "project.update.success_format": "プロジェクト (updatedProject.name) を更新しました。"
+      "project.update.success_format": "プロジェクト (updatedProject.name) を更新しました。",
+      "file.picker.loading": "フォルダを読み込み中…",
+      "file.picker.empty": "このフォルダは空です。",
+      "file.picker.rename.placeholder": "新しい名前",
+      "file.picker.rename.invalid": "パス区切り文字を含まない有効な名前を入力してください。",
+      "file.picker.delete.confirm_format": "「%@」を削除しますか？",
+      "file.picker.delete.confirm.message": "削除した項目は可能な場合はゴミ箱に移動されます。"
     },
     "ko": {
       "project.activity.generic_input_request_format": "%@이 %@에서 입력을 기다립니다",
@@ -304,7 +346,13 @@
       "project.remove.success_format": "프로젝트 (project.name)을 제거했습니다.",
       "project.remove.title": "프로젝트 제거",
       "project.reveal.finder.success": "Revealed project in Finder.",
-      "project.update.success_format": "프로젝트 (updatedProject.name)을 업데이트했습니다."
+      "project.update.success_format": "프로젝트 (updatedProject.name)을 업데이트했습니다.",
+      "file.picker.loading": "폴더를 불러오는 중…",
+      "file.picker.empty": "이 폴더는 비어 있습니다.",
+      "file.picker.rename.placeholder": "새 이름",
+      "file.picker.rename.invalid": "경로 구분자가 없는 올바른 이름을 입력하세요.",
+      "file.picker.delete.confirm_format": "“%@”을(를) 삭제할까요?",
+      "file.picker.delete.confirm.message": "삭제된 항목은 가능한 경우 휴지통으로 이동됩니다."
     },
     "pt-BR": {
       "project.activity.generic_input_request_format": "%@ aguarda sua entrada em %@",
@@ -353,7 +401,13 @@
       "project.remove.success_format": "Projeto (project.name) removido.",
       "project.remove.title": "Remover projeto",
       "project.reveal.finder.success": "Revealed project in Finder.",
-      "project.update.success_format": "Projeto (updatedProject.name) atualizado."
+      "project.update.success_format": "Projeto (updatedProject.name) atualizado.",
+      "file.picker.loading": "Carregando pasta…",
+      "file.picker.empty": "Esta pasta está vazia.",
+      "file.picker.rename.placeholder": "Novo nome",
+      "file.picker.rename.invalid": "Insira um nome válido sem separadores de caminho.",
+      "file.picker.delete.confirm_format": "Excluir “%@”?",
+      "file.picker.delete.confirm.message": "Os itens excluídos serão movidos para a Lixeira quando possível."
     },
     "ru": {
       "project.activity.generic_input_request_format": "%@ ждет вашего ввода в %@",
@@ -402,7 +456,13 @@
       "project.remove.success_format": "Удален проект (project.name).",
       "project.remove.title": "Удалить проект",
       "project.reveal.finder.success": "Revealed project in Finder.",
-      "project.update.success_format": "Обновлен проект (updatedProject.name)."
+      "project.update.success_format": "Обновлен проект (updatedProject.name).",
+      "file.picker.loading": "Загрузка папки…",
+      "file.picker.empty": "Эта папка пуста.",
+      "file.picker.rename.placeholder": "Новое имя",
+      "file.picker.rename.invalid": "Введите допустимое имя без разделителей пути.",
+      "file.picker.delete.confirm_format": "Удалить «%@»?",
+      "file.picker.delete.confirm.message": "Удаленные элементы будут перемещены в корзину, если это возможно."
     },
     "zh-Hans": {
       "project.activity.generic_input_request_format": "%@ 正在等待你输入（项目：%@）",
@@ -463,7 +523,13 @@
       "file.picker.save.title": "另存为",
       "file.picker.save.confirm": "保存",
       "device.type.android": "安卓",
-      "device.type.unknown": "远程设备"
+      "device.type.unknown": "远程设备",
+      "file.picker.loading": "正在加载文件夹…",
+      "file.picker.empty": "此文件夹为空。",
+      "file.picker.rename.placeholder": "新名称",
+      "file.picker.rename.invalid": "请输入不包含路径分隔符的有效名称。",
+      "file.picker.delete.confirm_format": "删除“%@”？",
+      "file.picker.delete.confirm.message": "删除的项目会尽可能移到废纸篓。"
     },
     "zh-Hant": {
       "project.activity.generic_input_request_format": "%@ 正在等待你輸入（專案：%@）",
@@ -524,7 +590,13 @@
       "file.picker.save.title": "另存新檔",
       "file.picker.save.confirm": "儲存",
       "device.type.android": "Android",
-      "device.type.unknown": "遠端裝置"
+      "device.type.unknown": "遠端裝置",
+      "file.picker.loading": "正在載入資料夾…",
+      "file.picker.empty": "此資料夾是空的。",
+      "file.picker.rename.placeholder": "新名稱",
+      "file.picker.rename.invalid": "請輸入不包含路徑分隔符的有效名稱。",
+      "file.picker.delete.confirm_format": "刪除「%@」？",
+      "file.picker.delete.confirm.message": "刪除的項目會盡可能移到垃圾桶。"
     }
   }
 }

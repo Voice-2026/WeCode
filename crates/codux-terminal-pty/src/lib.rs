@@ -751,7 +751,7 @@ fn powershell_quote(value: &str) -> String {
 fn build_interactive_login_shell_command(shell: &str, command: Option<&str>) -> CommandBuilder {
     let shell_name = shell_name(shell);
     let mut builder = CommandBuilder::new(shell);
-    if matches!(shell_name.as_deref(), Some("zsh")) {
+    if is_zsh_shell_name(shell_name.as_deref()) {
         if let Some(command) = command {
             builder.args(["+o", "prompt_sp", "-i", "-l", "-c", command]);
         } else {
@@ -804,6 +804,20 @@ fn shell_name(shell: &str) -> Option<String> {
     } else {
         Some(file_name.to_ascii_lowercase())
     }
+}
+
+fn is_zsh_shell_name(name: Option<&str>) -> bool {
+    let Some(name) = name else {
+        return false;
+    };
+    let Some(rest) = name.trim_start_matches('-').strip_prefix("zsh") else {
+        return false;
+    };
+    rest.is_empty()
+        || rest
+            .chars()
+            .next()
+            .is_some_and(|ch| !ch.is_ascii_alphanumeric())
 }
 
 fn default_shell() -> String {
@@ -1003,6 +1017,34 @@ mod tests {
             argv,
             vec![
                 "/bin/zsh".to_string(),
+                "+o".to_string(),
+                "prompt_sp".to_string(),
+                "-i".to_string(),
+                "-l".to_string(),
+                "-c".to_string(),
+                "printf codux".to_string(),
+            ]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn interactive_login_command_mode_treats_named_zsh_wrapper_as_zsh() {
+        let command = build_shell_command(
+            "/Users/example/.local/bin/zsh (kiro-cli-term)",
+            Some("printf codux"),
+            LocalPtyCommandMode::InteractiveLogin,
+        );
+        let argv: Vec<_> = command
+            .get_argv()
+            .iter()
+            .map(|value| value.to_string_lossy().to_string())
+            .collect();
+
+        assert_eq!(
+            argv,
+            vec![
+                "/Users/example/.local/bin/zsh (kiro-cli-term)".to_string(),
                 "+o".to_string(),
                 "prompt_sp".to_string(),
                 "-i".to_string(),

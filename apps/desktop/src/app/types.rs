@@ -27,6 +27,8 @@ pub(in crate::app) enum FilePickerTarget {
         source_path: String,
         device_id: Option<String>,
     },
+    /// SSH profile editor: choose the private key file path.
+    SshPrivateKeyPath,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

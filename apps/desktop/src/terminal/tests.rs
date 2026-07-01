@@ -477,10 +477,7 @@ mod tests {
     #[test]
     fn maps_modified_navigation_and_function_keys() {
         assert_eq!(
-            bytes(
-                modified_key("up", true, false, false, false),
-                normal_mode()
-            ),
+            bytes(modified_key("up", true, false, false, false), normal_mode()),
             b"\x1b[1;2A"
         );
         assert_eq!(
@@ -500,10 +497,7 @@ mod tests {
         assert_eq!(bytes(keystroke("f12"), normal_mode()), b"\x1b[24~");
         assert_eq!(bytes(keystroke("f20"), normal_mode()), b"\x1b[34~");
         assert_eq!(
-            bytes(
-                modified_key("f5", false, false, true, false),
-                normal_mode()
-            ),
+            bytes(modified_key("f5", false, false, true, false), normal_mode()),
             b"\x1b[15;5~"
         );
         assert_eq!(
@@ -635,8 +629,11 @@ mod tests {
                 .is_none()
         );
         assert!(
-            keystroke_to_bytes(&modified_key("tab", true, false, false, true), normal_mode())
-                .is_none()
+            keystroke_to_bytes(
+                &modified_key("tab", true, false, false, true),
+                normal_mode()
+            )
+            .is_none()
         );
     }
 
@@ -742,10 +739,8 @@ mod tests {
         assert!(did_scroll);
         assert_eq!(content.display_offset, 2);
 
-        let scrolled_top = selection_point_from_cell(
-            TerminalCellPoint { row: 0, col: 0 },
-            &content,
-        );
+        let scrolled_top =
+            selection_point_from_cell(TerminalCellPoint { row: 0, col: 0 }, &content);
         state.update_selection(scrolled_top);
 
         assert_eq!(
@@ -997,6 +992,18 @@ mod tests {
     }
 
     #[test]
+    fn text_input_channel_drops_control_and_paste_echoes() {
+        assert!(terminal_text_input_should_drop(""));
+        assert!(terminal_text_input_should_drop("\u{3}"));
+        assert!(terminal_text_input_should_drop(
+            "\u{1b}[200~echo hi\u{1b}[201~"
+        ));
+        assert!(terminal_text_input_should_drop("\u{1b}[A"));
+        assert!(!terminal_text_input_should_drop("echo hi"));
+        assert!(!terminal_text_input_should_drop("你好"));
+    }
+
+    #[test]
     fn key_input_uses_live_cursor_mode_before_snapshot_publish() {
         let mut state = TerminalModel::new_for_test(20, 4, 100);
         state.process_output_bytes_for_test(b"\x1b[?1h");
@@ -1031,8 +1038,7 @@ mod tests {
         );
 
         // After the throttle window the deferred target applies.
-        state.last_engine_resize_at =
-            Some(Instant::now() - TERMINAL_ENGINE_RESIZE_THROTTLE);
+        state.last_engine_resize_at = Some(Instant::now() - TERMINAL_ENGINE_RESIZE_THROTTLE);
         state.apply_model_events();
         assert_eq!(*state.handle.engine_dims.lock(), (40, 8));
         assert!(state.events.is_empty());

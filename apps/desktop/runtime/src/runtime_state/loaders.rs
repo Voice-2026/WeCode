@@ -221,7 +221,7 @@ fn load_performance() -> PerformanceSummary {
 }
 
 fn load_tool_permissions(support_dir: &Path) -> ToolPermissionsSummary {
-    ToolPermissionsService::new(support_dir.to_path_buf()).summary()
+    ToolPermissionsService::new(support_dir.to_path_buf()).sync()
 }
 
 fn read_json_or_default(path: PathBuf) -> Value {

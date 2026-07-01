@@ -1119,16 +1119,31 @@ impl CoduxApp {
         true
     }
 
-    pub(in crate::app) fn update_terminal_workspace_view(&mut self, cx: &mut Context<Self>) {
-        let Some(view) = self
-            .workspace_body_view
-            .as_ref()
-            .and_then(|view| view.read(cx).terminal_workspace_view.clone())
-        else {
-            return;
+    pub(in crate::app) fn update_terminal_workspace_view(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(body_view) = self.workspace_body_view.as_ref().cloned() else {
+            return false;
+        };
+        let Some(view) = body_view.read(cx).terminal_workspace_view.clone() else {
+            body_view.update(cx, |_view, cx| cx.notify());
+            return true;
         };
         let snapshot = self.terminal_workspace_snapshot();
         view.update(cx, |view, cx| view.set_snapshot(snapshot, cx));
+        true
+    }
+
+    pub(in crate::app) fn rebuild_terminal_workspace_view(&mut self, cx: &mut Context<Self>) {
+        if let Some(body_view) = self.workspace_body_view.as_ref().cloned() {
+            body_view.update(cx, |view, cx| {
+                view.terminal_workspace_view = None;
+                cx.notify();
+            });
+        } else {
+            cx.notify();
+        }
     }
 
     pub(in crate::app) fn terminal_workspace_snapshot(&self) -> TerminalWorkspaceSnapshot {

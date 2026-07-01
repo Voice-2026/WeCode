@@ -252,26 +252,39 @@ impl TerminalPane {
         terminal_config: TerminalConfig,
         pending: PendingTerminalAttach,
     ) -> Result<String> {
+        let initial_layout = pending.wait_for_initial_layout();
         let config = terminal_pty_config_with_view(pty_config, &terminal_config);
+        let mut remote_config = config.clone();
+        if let Some((cols, rows)) = initial_layout {
+            remote_config.cols = Some(cols);
+            remote_config.rows = Some(rows);
+        }
         // Wire the output forwarder under our stable terminal id (== the host's
         // session id) BEFORE creating. The host sends the seed buffer (history +
         // current screen, so a re-attached terminal repaints its last content)
         // immediately after `terminal.created`; registering only after the reply
         // races that send on another thread and drops the seed.
-        if let Some(terminal_id) = config.terminal_id.as_deref() {
+        let pre_registered_terminal_id = config.terminal_id.clone();
+        if let Some(terminal_id) = pre_registered_terminal_id.as_deref() {
             register_remote_output(&controller, terminal_id, &pending.output_tx);
         }
         let session_id = controller
             .open_terminal(
-                config.cwd.as_deref(),
-                config.command.as_deref(),
-                config.cols,
-                config.rows,
-                config.project_id.as_deref(),
-                config.title.as_deref(),
-                config.terminal_id.as_deref(),
+                remote_config.cwd.as_deref(),
+                remote_config.command.as_deref(),
+                remote_config.cols,
+                remote_config.rows,
+                remote_config.project_id.as_deref(),
+                remote_config.title.as_deref(),
+                remote_config.terminal_id.as_deref(),
             )
             .map_err(anyhow::Error::msg)?;
+        if let Some(terminal_id) = pre_registered_terminal_id
+            .as_deref()
+            .filter(|terminal_id| *terminal_id != session_id)
+        {
+            controller.unregister_terminal_output(terminal_id);
+        }
         pending
             .session
             .attach_remote(controller, session_id.clone(), pending.output_tx.clone());
@@ -473,9 +486,19 @@ impl TerminalSessionBinding {
         session_id: String,
         output_tx: flume::Sender<Vec<u8>>,
     ) {
-        register_remote_output(&controller, &session_id, &output_tx);
         let (pending_writes, last_resize) = {
             let mut inner = self.inner.lock();
+            if let Some(remote) = &inner.remote {
+                if !Arc::ptr_eq(&remote.controller, &controller) || remote.session_id != session_id
+                {
+                    remote
+                        .controller
+                        .unregister_terminal_output(&remote.session_id);
+                    register_remote_output(&controller, &session_id, &output_tx);
+                }
+            } else {
+                register_remote_output(&controller, &session_id, &output_tx);
+            }
             inner.remote = Some(RemoteTerminalBackend {
                 controller: controller.clone(),
                 session_id: session_id.clone(),
@@ -505,9 +528,18 @@ impl TerminalSessionBinding {
             let Some(remote) = inner.remote.as_mut() else {
                 return false;
             };
+            if !Arc::ptr_eq(&remote.controller, &controller) {
+                remote
+                    .controller
+                    .unregister_terminal_output(&remote.session_id);
+            }
             register_remote_output(&controller, &remote.session_id, &remote.output_tx);
             remote.controller = controller.clone();
-            (controller.clone(), remote.session_id.clone(), inner.last_resize)
+            (
+                controller.clone(),
+                remote.session_id.clone(),
+                inner.last_resize,
+            )
         };
         let (controller, session_id, last_resize) = last_resize;
         if let Some((cols, rows)) = last_resize {
@@ -523,11 +555,18 @@ impl TerminalSessionBinding {
             return false;
         };
         remote.controller.close_terminal_fire(&remote.session_id);
+        remote
+            .controller
+            .unregister_terminal_output(&remote.session_id);
         true
     }
 
     fn write(&self, bytes: &[u8]) -> Result<()> {
-        if let Some(remote) = self.inner.lock().remote.clone() {
+        let remote = {
+            let inner = self.inner.lock();
+            inner.remote.clone()
+        };
+        if let Some(remote) = remote {
             remote
                 .controller
                 .terminal_input(&remote.session_id, &String::from_utf8_lossy(bytes));
@@ -560,7 +599,9 @@ impl TerminalSessionBinding {
             let _ = tx.send((cols, rows));
         }
         if let Some(remote) = remote {
-            remote.controller.terminal_resize(&remote.session_id, cols, rows);
+            remote
+                .controller
+                .terminal_resize(&remote.session_id, cols, rows);
             return Ok(());
         }
         if let Some(session) = session {

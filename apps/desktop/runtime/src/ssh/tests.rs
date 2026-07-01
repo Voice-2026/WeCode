@@ -135,10 +135,46 @@ fn codux_ssh_remote_command_exits_after_noninteractive_password_auth() {
     )
     .unwrap();
 
-    let wrapper = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    let source_wrappers = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap()
-        .join("runtime-assets/scripts/wrappers/bin/codux-ssh");
+        .join("runtime-assets/scripts/wrappers");
+    let staged_wrappers = dir.join("runtime-assets/scripts/wrappers");
+    let staged_bin = staged_wrappers.join("bin");
+    fs::create_dir_all(&staged_bin).unwrap();
+    let wrapper = staged_bin.join("codux-ssh");
+    fs::copy(source_wrappers.join("bin/codux-ssh"), &wrapper).unwrap();
+    fs::copy(
+        source_wrappers.join("codux-ssh-expect.exp"),
+        staged_wrappers.join("codux-ssh-expect.exp"),
+    )
+    .unwrap();
+    let helper = staged_wrappers.join("codux-wrapper-helper");
+    fs::write(
+        &helper,
+        "#!/bin/sh\n\
+         if [ \"$1\" != \"--codux-wrapper-helper\" ]; then exit 64; fi\n\
+         case \"$2\" in\n\
+           ssh-profile-shell)\n\
+             printf '%s\\n' 'ssh_password=secret' \"ssh_key_passphrase=''\" 'ssh_args=(ssh -p 22 root@example.com)'\n\
+             ;;\n\
+           ssh-list-profiles)\n\
+             printf '%s\\n' '{\"profiles\":[{\"id\":\"profile-1\",\"name\":\"Test\",\"host\":\"example.com\",\"port\":22,\"username\":\"root\",\"endpoint\":\"root@example.com:22\",\"credential\":\"password\"}]}'\n\
+             ;;\n\
+           *) exit 64 ;;\n\
+         esac\n",
+    )
+    .unwrap();
+    for executable in [
+        &fake_ssh,
+        &wrapper,
+        &helper,
+        &staged_wrappers.join("codux-ssh-expect.exp"),
+    ] {
+        let mut permissions = fs::metadata(executable).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(executable, permissions).unwrap();
+    }
 
     let output = Command::new("zsh")
         .arg(wrapper)

@@ -28,12 +28,14 @@ fn stats_view_owns_display_token_mode_and_project_filtering() {
             total_tokens: 100,
             cached_input_tokens: 40,
             request_count: 2,
+            usage_amounts: Vec::new(),
         }],
         model_breakdown: vec![AIUsageBreakdownItem {
             key: "gpt-5".to_string(),
             total_tokens: 80,
             cached_input_tokens: 20,
             request_count: 1,
+            usage_amounts: Vec::new(),
         }],
         ..Default::default()
     };
@@ -148,6 +150,9 @@ fn runtime_session(terminal_id: &str) -> AIRuntimeSessionSummary {
         raw_cached_input_tokens: 0,
         baseline_total_tokens: 0,
         baseline_cached_input_tokens: 0,
+        usage_amounts: Vec::new(),
+        raw_usage_amounts: Vec::new(),
+        baseline_usage_amounts: Vec::new(),
         source: "test".to_string(),
         plan: None,
     }

@@ -192,6 +192,7 @@ fn send_terminal_baseline(
     let screen_data = driver
         .screen_snapshot(session_id)
         .ok()
+        .filter(|snapshot| snapshot.input_mode.alternate_screen)
         .map(|snapshot| snapshot.data)
         .filter(|data| !data.is_empty());
     let output_seq = fanout_state.current_seq(session_id);
@@ -465,7 +466,24 @@ impl RemoteTerminalDispatch for AgentTerminalCtx<'_> {
             }
             _ => {}
         };
-        match self.driver.create(config, emit) {
+        let event_key = config
+            .terminal_id
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .map(|terminal_id| format!("remote-terminal:{terminal_id}"));
+        let create_result = if let Some(event_key) = event_key {
+            self.driver.create_with_event_key(
+                config,
+                event_key,
+                Arc::new(move |event| {
+                    emit(event);
+                    true
+                }),
+            )
+        } else {
+            self.driver.create(config, emit)
+        };
+        match create_result {
             Ok(session_id) => {
                 if let Some(device_id) = device_id {
                     self.fanout.add_viewer(&session_id, device_id);

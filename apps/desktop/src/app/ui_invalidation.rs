@@ -67,7 +67,11 @@ impl CoduxApp {
             UiRegion::WorkspaceBody => {
                 self.record_ui_performance_event("invalidate", region.label());
                 if self.workspace_view == WorkspaceView::Terminal {
-                    self.update_terminal_workspace_view(cx);
+                    if !self.update_terminal_workspace_view(cx) {
+                        if let Some(view) = &self.workspace_body_view {
+                            view.update(cx, |_view, cx| cx.notify());
+                        }
+                    }
                 } else if self.workspace_view == WorkspaceView::Files {
                     if !self.update_file_editor_workspace_view(cx) {
                         if let Some(view) = &self.workspace_body_view {
@@ -220,6 +224,15 @@ impl CoduxApp {
             return;
         }
         self.invalidate_ui(cx, [UiRegion::WorkspaceBody, UiRegion::StatusBar]);
+    }
+
+    pub(in crate::app) fn invalidate_terminal_workspace_rebuild(&mut self, cx: &mut Context<Self>) {
+        if self.window_mode != AppWindowMode::Main {
+            self.invalidate_ui_region(cx, UiRegion::Root);
+            return;
+        }
+        self.rebuild_terminal_workspace_view(cx);
+        self.invalidate_ui_region(cx, UiRegion::StatusBar);
     }
 
     pub(in crate::app) fn invalidate_file_panel(&mut self, cx: &mut Context<Self>) {

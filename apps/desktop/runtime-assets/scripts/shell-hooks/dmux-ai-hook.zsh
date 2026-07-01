@@ -116,6 +116,33 @@ _dmux_prepend_wrapper_bin() {
   export PATH
 }
 
+_dmux_exec_wrapped_tool() {
+  local tool="$1"
+  shift
+  _dmux_prepend_wrapper_bin
+  local wrapper="${DMUX_WRAPPER_BIN:-}/${tool}"
+  if [[ -n "${DMUX_WRAPPER_BIN:-}" && -x "${wrapper}" ]]; then
+    "${wrapper}" "$@"
+    return $?
+  fi
+  command "${tool}" "$@"
+}
+
+_dmux_define_tool_shims() {
+  [[ -n "${DMUX_WRAPPER_BIN:-}" && -d "${DMUX_WRAPPER_BIN}" ]] || return 0
+  codex() { _dmux_exec_wrapped_tool codex "$@"; }
+  claude() { _dmux_exec_wrapped_tool claude "$@"; }
+  claude-code() { _dmux_exec_wrapped_tool claude-code "$@"; }
+  reclaude() { _dmux_exec_wrapped_tool reclaude "$@"; }
+  opencode() { _dmux_exec_wrapped_tool opencode "$@"; }
+  agy() { _dmux_exec_wrapped_tool agy "$@"; }
+  kiro-cli() { _dmux_exec_wrapped_tool kiro-cli "$@"; }
+  codewhale() { _dmux_exec_wrapped_tool codewhale "$@"; }
+  kimi() { _dmux_exec_wrapped_tool kimi "$@"; }
+  kimi-code() { _dmux_exec_wrapped_tool kimi-code "$@"; }
+  mimo() { _dmux_exec_wrapped_tool mimo "$@"; }
+}
+
 _dmux_resolve_tool_from_command() {
   local command_line="$1"
   local -a words
@@ -165,9 +192,12 @@ _dmux_ai_preexec() {
   export DMUX_ACTIVE_AI_INVOCATION_ID
   export DMUX_ACTIVE_AI_RESOLVED_PATH
   _dmux_prepend_wrapper_bin
+  _dmux_define_tool_shims
 }
 
 _dmux_ai_precmd() {
+  _dmux_prepend_wrapper_bin
+  _dmux_define_tool_shims
   [[ -n "${DMUX_ACTIVE_AI_TOOL}" ]] || return 0
   _dmux_reset_terminal_input_modes
   DMUX_ACTIVE_AI_TOOL=""
@@ -199,5 +229,6 @@ add-zsh-hook precmd _dmux_ai_precmd
 add-zsh-hook zshexit _dmux_ai_zshexit
 
 _dmux_prepend_wrapper_bin
+_dmux_define_tool_shims
 _dmux_bind_cursor_keys
 _dmux_reset_terminal_input_modes

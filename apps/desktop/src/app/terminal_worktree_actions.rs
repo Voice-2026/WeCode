@@ -660,6 +660,7 @@ impl CoduxApp {
     }
 
     pub(super) fn sync_terminal_state_after_layout_change(&mut self, _cx: &mut Context<Self>) {
+        self.terminal_restore_epoch = self.terminal_restore_epoch.saturating_add(1);
         self.refresh_terminal_slot_snapshots();
         let owner_id = super::ai_runtime_status::terminal_layout_owner_id(&self.state);
         let storage_key =
@@ -760,7 +761,7 @@ impl CoduxApp {
 
     pub(super) fn spawn_attach_pending_terminals(
         &mut self,
-        generation: Option<u64>,
+        restore_token: Option<(u64, u64)>,
         pending_terminals: Vec<(TerminalPtyConfig, crate::terminal::PendingTerminalAttach)>,
         cx: &mut Context<Self>,
     ) {
@@ -788,9 +789,13 @@ impl CoduxApp {
             })
             .collect();
         if pending_terminals.is_empty() {
-            if generation.is_some() {
+            if let Some((expected_generation, expected_restore_epoch)) = restore_token
+                && self.project_switch_generation == expected_generation
+                && self.terminal_restore_epoch == expected_restore_epoch
+            {
                 self.terminal_layout_loading = false;
                 self.sync_terminal_state_for_project_switch();
+                self.terminal_restore_epoch = self.terminal_restore_epoch.saturating_add(1);
                 self.invalidate_terminal_workspace(cx);
             }
             return;
@@ -895,15 +900,17 @@ impl CoduxApp {
                         error.as_deref().unwrap_or("none")
                     ),
                 );
-                if let Some(expected_generation) = generation
-                    && app.project_switch_generation != expected_generation
+                if let Some((expected_generation, expected_restore_epoch)) = restore_token
+                    && (app.project_switch_generation != expected_generation
+                        || app.terminal_restore_epoch != expected_restore_epoch)
                 {
                     return;
                 }
-                if generation.is_some() {
+                if restore_token.is_some() {
                     app.terminal_layout_loading = false;
                     if error.is_none() {
                         app.sync_terminal_state_for_project_switch();
+                        app.terminal_restore_epoch = app.terminal_restore_epoch.saturating_add(1);
                     }
                 } else if error.is_none() {
                     let scope_unchanged =
@@ -920,14 +927,14 @@ impl CoduxApp {
                 }
                 if let Some(error) = error {
                     app.status_message = format!("failed to prepare terminal: {error}");
-                } else if generation.is_some() {
+                } else if restore_token.is_some() {
                     app.status_message = format!(
                         "terminal layout reloaded · {} tab{}",
                         app.terminals.len(),
                         if app.terminals.len() == 1 { "" } else { "s" }
                     );
                 }
-                app.invalidate_terminal_workspace(cx);
+                app.invalidate_terminal_workspace_rebuild(cx);
             });
         })
         .detach();

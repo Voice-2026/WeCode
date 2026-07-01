@@ -158,6 +158,7 @@ impl CoduxApp {
             file_picker_target: FilePickerTarget::ProjectEditorPath,
             file_picker_filename: String::new(),
             file_picker_selected: None,
+            file_picker_active_path: None,
             project_editor_window: None,
             terminal_tab_editor_window: None,
             worktree_creator_window: None,
@@ -295,6 +296,7 @@ impl CoduxApp {
             ai_global_history_refreshing: false,
             ai_global_history_refresh_pending: false,
             project_switch_generation: 0,
+            terminal_restore_epoch: 0,
             scheduled_work_in_flight: HashSet::new(),
             scheduled_work_last_started_at: HashMap::new(),
             scheduled_work_last_finished_at: HashMap::new(),
@@ -386,6 +388,8 @@ impl CoduxApp {
             project_editor_browse_entries: Vec::new(),
             project_editor_browse_error: None,
             project_editor_browse_new_folder: String::new(),
+            project_editor_browse_generation: 0,
+            file_picker_rename_draft: None,
             file_picker_new_folder_active: false,
             terminal_tab_editor_id: None,
             terminal_tab_editor_label: String::new(),
@@ -953,6 +957,11 @@ impl CoduxApp {
         }
 
         if self.handle_terminal_close_shortcut(event, window, cx) {
+            cx.stop_propagation();
+            return;
+        }
+
+        if self.handle_file_picker_key(event, window, cx) {
             cx.stop_propagation();
             return;
         }

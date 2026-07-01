@@ -1,5 +1,7 @@
 use super::*;
-use gpui_component::input::{Input, InputEvent, InputState};
+use crate::app::app_state::RemoteBrowseEntry;
+use gpui::Focusable;
+use gpui_component::input::{Input, InputEvent, InputState, SelectAll};
 
 impl CoduxApp {
     pub(in crate::app) fn project_editor_workspace(
@@ -183,27 +185,53 @@ impl CoduxApp {
             ));
         }
 
-        // Right: breadcrumb + listing + new-folder/filename rows.
+        // Right: breadcrumb + listing + new-folder/filename rows. The listing
+        // lives in a separately constrained scroll body so it cannot grow under
+        // the fixed dialog footer when a folder has many entries.
         let mut list = div()
             .min_h_0()
-            .flex_1()
             .flex()
             .flex_col()
             .gap(px(2.0))
             .px(px(16.0))
             .pt(px(10.0))
-            .pb(px(12.0))
-            .overflow_y_scrollbar();
+            .pb(px(12.0));
+        let visible_entries = self.project_editor_browse_entries.len()
+            + usize::from(self.project_editor_browse_parent.is_some())
+            + usize::from(self.file_picker_new_folder_active);
         if let Some(parent) = self.project_editor_browse_parent.clone() {
             list = list.child(file_picker_entry_row(
-                "file-picker-up".to_string(),
-                "..".to_string(),
+                RemoteBrowseEntry {
+                    name: "..".to_string(),
+                    path: parent.clone(),
+                    is_dir: true,
+                },
+                self.file_picker_active_path.as_deref() == Some(parent.as_str()),
+                mode,
+                tr("common.open", "Open"),
+                tr("common.choose", "Choose"),
+                tr("common.rename", "Rename"),
+                tr("common.delete", "Delete"),
+                cx,
+                false,
+            ));
+        }
+        if self.project_editor_browse_busy && visible_entries == 0 {
+            list = list.child(file_picker_status_state(
+                HeroIconName::ArrowPath,
+                tr("file.picker.loading", "Loading folder…"),
                 true,
+                cx,
+            ));
+        } else if !self.project_editor_browse_busy
+            && visible_entries == 0
+            && self.project_editor_browse_error.is_none()
+        {
+            list = list.child(file_picker_status_state(
+                HeroIconName::FolderOpen,
+                tr("file.picker.empty", "This folder is empty."),
                 false,
                 cx,
-                move |app, window, cx| {
-                    app.project_editor_browse_navigate(Some(parent.clone()), window, cx)
-                },
             ));
         }
         if self.file_picker_new_folder_active {
@@ -218,19 +246,37 @@ impl CoduxApp {
             ));
         }
         for entry in &self.project_editor_browse_entries {
-            let path = entry.path.clone();
-            let is_dir = entry.is_dir;
-            let selected = !is_dir && self.file_picker_selected.as_deref() == Some(path.as_str());
-            list = list.child(file_picker_entry_row(
-                format!("file-picker-{path}"),
-                entry.name.clone(),
-                is_dir,
-                selected,
-                cx,
-                move |app, window, cx| {
-                    app.file_picker_choose_entry(path.clone(), is_dir, window, cx)
-                },
-            ));
+            if self
+                .file_picker_rename_draft
+                .as_ref()
+                .is_some_and(|draft| draft.path == entry.path)
+            {
+                list = list.child(file_picker_rename_row(
+                    entry.is_dir,
+                    self.file_picker_rename_draft
+                        .as_ref()
+                        .map(|draft| draft.name.as_str())
+                        .unwrap_or(entry.name.as_str()),
+                    tr("file.picker.rename.placeholder", "New name"),
+                    window,
+                    cx,
+                ));
+            } else {
+                let selected = self.file_picker_active_path.as_deref() == Some(entry.path.as_str())
+                    || (!entry.is_dir
+                        && self.file_picker_selected.as_deref() == Some(entry.path.as_str()));
+                list = list.child(file_picker_entry_row(
+                    entry.clone(),
+                    selected,
+                    mode,
+                    tr("common.open", "Open"),
+                    tr("common.choose", "Choose"),
+                    tr("common.rename", "Rename"),
+                    tr("common.delete", "Delete"),
+                    cx,
+                    true,
+                ));
+            }
         }
 
         let root_label = match &active_device {
@@ -252,26 +298,46 @@ impl CoduxApp {
         let mut right = div()
             .min_h_0()
             .flex_1()
+            .flex_basis(px(0.0))
             .flex()
             .flex_col()
             .child(
                 div()
                     .flex()
-                    .items_start()
+                    .items_center()
                     .border_b_1()
                     .border_color(color(theme::BORDER_SOFT))
-                    .child(div().flex_1().min_w_0().child(file_picker_breadcrumb(
-                        &current,
-                        &root_label,
-                        active_device.is_some(),
-                        cx,
-                    )))
-                    .child(file_picker_refresh_button(cx)),
+                    .child(
+                        gpui_component::scroll::ScrollableElement::overflow_x_scrollbar(
+                            div().flex_1().min_w_0(),
+                        )
+                        .child(file_picker_breadcrumb(
+                            &current,
+                            &root_label,
+                            active_device.is_some(),
+                            cx,
+                        )),
+                    )
+                    .child(
+                        div()
+                            .flex_none()
+                            .px(px(12.0))
+                            .child(file_picker_refresh_button(
+                                self.project_editor_browse_busy,
+                                tr("common.refresh", "Refresh"),
+                                cx,
+                            )),
+                    ),
             )
-            .child(list);
+            .child(
+                crate::app::scroll_compat::ScrollableElement::overflow_y_scrollbar(
+                    div().min_h_0().flex_1().flex_basis(px(0.0)),
+                )
+                .child(list),
+            );
         // Save mode: a filename row (prefilled when an existing file is clicked).
         if mode == FilePickerMode::Save {
-            right = right.child(div().min_w_0().px(px(16.0)).pb(px(12.0)).child(
+            right = right.child(div().flex_none().min_w_0().px(px(16.0)).pb(px(12.0)).child(
                 project_editor_input(
                     "file-picker-filename",
                     &self.file_picker_filename,
@@ -285,6 +351,7 @@ impl CoduxApp {
         if let Some(error) = self.project_editor_browse_error.as_ref() {
             right = right.child(
                 div()
+                    .flex_none()
                     .px(px(16.0))
                     .pb(px(12.0))
                     .text_size(rems(0.8125))
@@ -293,7 +360,13 @@ impl CoduxApp {
             );
         }
 
-        let body = div().min_h_0().flex_1().flex().child(devices).child(right);
+        let body = div()
+            .min_h_0()
+            .flex_1()
+            .overflow_hidden()
+            .flex()
+            .child(devices)
+            .child(right);
 
         let new_folder_disabled =
             self.project_editor_browse_busy || self.project_editor_browse_path.trim().is_empty();
@@ -309,18 +382,11 @@ impl CoduxApp {
                         Button::new("file-picker-new-folder")
                             .secondary()
                             .compact()
-                            .text_color(cx.theme().secondary_foreground)
-                            .child(
-                                div()
-                                    .flex()
-                                    .items_center()
-                                    .gap(px(6.0))
-                                    .child(Icon::new(HeroIconName::FolderPlus).size_4())
-                                    .child(dialog_button_label(tr(
-                                        "project.editor.browse.new_folder",
-                                        "New folder",
-                                    ))),
-                            )
+                            .icon(Icon::new(HeroIconName::FolderPlus).size_3p5())
+                            .child(dialog_button_label(tr(
+                                "project.editor.browse.new_folder",
+                                "New folder",
+                            )))
                             .disabled(new_folder_disabled)
                             .on_click(cx.listener(|app, _event, _window, cx| {
                                 app.begin_file_picker_new_folder(cx);
@@ -371,8 +437,14 @@ fn file_picker_new_folder_row(
             move |window, cx| InputState::new(window, cx).placeholder(placeholder.clone())
         });
     input_state.update(cx, |state, cx| {
-        if state.value().as_ref() != value {
-            state.set_value(value.clone(), window, cx);
+        if !state.focus_handle(cx).is_focused(window) {
+            if state.value().as_ref() != value {
+                state.set_value(value.clone(), window, cx);
+            }
+            state.focus(window, cx);
+            if state.selected_range().is_empty() {
+                window.dispatch_action(Box::new(SelectAll), cx);
+            }
         }
     });
     cx.subscribe_in(
@@ -417,14 +489,98 @@ fn file_picker_new_folder_row(
         .into_any_element()
 }
 
-fn file_picker_entry_row(
-    id: String,
-    label: String,
+fn file_picker_rename_row(
     is_dir: bool,
-    selected: bool,
+    value: &str,
+    placeholder: String,
+    window: &mut Window,
     cx: &mut Context<CoduxApp>,
-    on_click: impl Fn(&mut CoduxApp, &mut Window, &mut Context<CoduxApp>) + 'static,
 ) -> AnyElement {
+    let value = value.to_string();
+    let input_state =
+        window.use_keyed_state(SharedString::from("file-picker-rename-inline"), cx, {
+            let placeholder = placeholder.clone();
+            move |window, cx| InputState::new(window, cx).placeholder(placeholder.clone())
+        });
+    input_state.update(cx, |state, cx| {
+        if !state.focus_handle(cx).is_focused(window) {
+            if state.value().as_ref() != value {
+                state.set_value(value.clone(), window, cx);
+            }
+            state.focus(window, cx);
+            if state.selected_range().is_empty() {
+                window.dispatch_action(Box::new(SelectAll), cx);
+            }
+        }
+    });
+    cx.subscribe_in(
+        &input_state,
+        window,
+        move |app, state, event, window, cx| match event {
+            InputEvent::Change => {
+                app.set_file_picker_rename_name(state.read(cx).value().to_string(), window, cx)
+            }
+            InputEvent::PressEnter { .. } => app.confirm_file_picker_rename(window, cx),
+            InputEvent::Blur => {
+                if app
+                    .file_picker_rename_draft
+                    .as_ref()
+                    .is_some_and(|draft| draft.name.trim().is_empty())
+                {
+                    app.cancel_file_picker_rename(cx);
+                } else {
+                    app.confirm_file_picker_rename(window, cx);
+                }
+            }
+            _ => {}
+        },
+    )
+    .detach();
+
+    div()
+        .flex()
+        .items_center()
+        .gap_2()
+        .px(px(8.0))
+        .py(px(4.0))
+        .child(
+            Icon::new(if is_dir {
+                HeroIconName::Folder
+            } else {
+                HeroIconName::Document
+            })
+            .size_4()
+            .text_color(color(if is_dir {
+                theme::ACCENT
+            } else {
+                theme::TEXT_MUTED
+            })),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .child(Input::new(&input_state).with_size(gpui_component::Size::Small)),
+        )
+        .into_any_element()
+}
+
+fn file_picker_entry_row(
+    entry: RemoteBrowseEntry,
+    selected: bool,
+    mode: FilePickerMode,
+    open_label: String,
+    choose_label: String,
+    rename_label: String,
+    delete_label: String,
+    cx: &mut Context<CoduxApp>,
+    allow_mutations: bool,
+) -> AnyElement {
+    let id = format!("file-picker-{}", entry.path);
+    let label = entry.name.clone();
+    let is_dir = entry.is_dir;
+    let click_path = entry.path.clone();
+    let right_click_entry = entry.clone();
     let mut row = div()
         .id(SharedString::from(id))
         .flex()
@@ -435,7 +591,15 @@ fn file_picker_entry_row(
         .rounded(px(6.0))
         .cursor_pointer()
         .hover(|style| style.bg(cx.theme().secondary_hover))
-        .on_click(cx.listener(move |app, _event, window, cx| on_click(app, window, cx)))
+        .on_mouse_down(
+            MouseButton::Right,
+            cx.listener(move |app, _event, _window, cx| {
+                app.select_file_picker_context_entry(right_click_entry.clone(), cx);
+            }),
+        )
+        .on_click(cx.listener(move |app, _event, window, cx| {
+            app.file_picker_choose_entry(click_path.clone(), is_dir, window, cx)
+        }))
         .child(
             Icon::new(if is_dir {
                 HeroIconName::Folder
@@ -459,7 +623,105 @@ fn file_picker_entry_row(
     if selected {
         row = row.bg(cx.theme().secondary);
     }
-    row.into_any_element()
+    let app_entity = cx.entity();
+    row.context_menu(move |menu, _window, _cx| {
+        let open_entity = app_entity.clone();
+        let rename_entity = app_entity.clone();
+        let delete_entity = app_entity.clone();
+        let open_entry = entry.clone();
+        let rename_entry = entry.clone();
+        let delete_entry = entry.clone();
+        let primary_label = if is_dir || mode == FilePickerMode::OpenFile {
+            open_label.clone()
+        } else {
+            choose_label.clone()
+        };
+        let menu = menu.item(
+            PopupMenuItem::new(primary_label)
+                .icon(if is_dir {
+                    HeroIconName::FolderOpen
+                } else {
+                    HeroIconName::Check
+                })
+                .on_click(move |_, window, cx| {
+                    cx.update_entity(&open_entity, |app: &mut CoduxApp, cx| {
+                        app.file_picker_choose_entry(
+                            open_entry.path.clone(),
+                            open_entry.is_dir,
+                            window,
+                            cx,
+                        );
+                    });
+                }),
+        );
+        if !allow_mutations {
+            return menu;
+        }
+        menu.separator()
+            .item(
+                PopupMenuItem::new(rename_label.clone())
+                    .icon(HeroIconName::PencilSquare)
+                    .on_click(move |_, _window, cx| {
+                        cx.update_entity(&rename_entity, |app: &mut CoduxApp, cx| {
+                            app.start_file_picker_rename(rename_entry.clone(), cx);
+                        });
+                    }),
+            )
+            .item(
+                PopupMenuItem::new(delete_label.clone())
+                    .icon(HeroIconName::Trash)
+                    .on_click(move |_, _window, cx| {
+                        cx.update_entity(&delete_entity, |app: &mut CoduxApp, cx| {
+                            app.request_delete_file_picker_entry(delete_entry.clone(), cx);
+                        });
+                    }),
+            )
+    })
+    .into_any_element()
+}
+
+fn file_picker_status_state(
+    icon: HeroIconName,
+    label: String,
+    loading: bool,
+    cx: &mut Context<CoduxApp>,
+) -> AnyElement {
+    div()
+        .min_h(px(180.0))
+        .flex_1()
+        .flex()
+        .flex_col()
+        .items_center()
+        .justify_center()
+        .gap_2()
+        .text_color(cx.theme().muted_foreground)
+        .child(
+            div()
+                .size(px(32.0))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(8.0))
+                .bg(cx.theme().secondary.opacity(0.6))
+                .child(if loading {
+                    Spinner::new()
+                        .small()
+                        .color(cx.theme().muted_foreground)
+                        .into_any_element()
+                } else {
+                    Icon::new(icon)
+                        .size_4()
+                        .text_color(cx.theme().muted_foreground)
+                        .into_any_element()
+                }),
+        )
+        .child(
+            div()
+                .text_size(rems(0.8125))
+                .line_height(rems(1.125))
+                .child(label),
+        )
+        .into_any_element()
 }
 
 /// A device row in the file picker's left sidebar (This Mac / a host).
@@ -503,8 +765,8 @@ fn file_picker_breadcrumb(
 ) -> AnyElement {
     let bar = div()
         .flex()
-        .flex_wrap()
         .items_center()
+        .whitespace_nowrap()
         .gap(px(2.0))
         .px(px(16.0))
         .pt(px(16.0))
@@ -542,36 +804,27 @@ fn file_picker_breadcrumb(
     row.into_any_element()
 }
 
-/// A fixed refresh button at the top-right of the file picker: re-lists the
-/// current directory. Remote browsing never auto-refreshes (the watcher is
-/// host-side), so this is the manual reload.
-fn file_picker_refresh_button(cx: &mut Context<CoduxApp>) -> AnyElement {
-    div()
-        .flex_none()
-        .pt(px(12.0))
-        .pr(px(12.0))
-        .child(
-            div()
-                .id("file-picker-refresh")
-                .flex()
-                .items_center()
-                .justify_center()
-                .size(px(28.0))
-                .rounded(px(6.0))
-                .cursor_pointer()
-                .hover(|style| style.bg(cx.theme().secondary))
-                .child(
-                    Icon::new(HeroIconName::ArrowPath)
-                        .size_4()
-                        .text_color(color(theme::TEXT_MUTED)),
-                )
-                .on_click(cx.listener(|app, _event, window, cx| {
-                    let current = app.project_editor_browse_path.clone();
-                    if !current.trim().is_empty() {
-                        app.project_editor_browse_navigate(Some(current), window, cx);
-                    }
-                })),
-        )
+/// Re-list the current directory. Remote browsing never auto-refreshes (the
+/// watcher is host-side), so this is the manual reload in the footer actions.
+fn file_picker_refresh_button(
+    loading: bool,
+    tooltip: String,
+    cx: &mut Context<CoduxApp>,
+) -> AnyElement {
+    Button::new("file-picker-refresh")
+        .ghost()
+        .compact()
+        .with_size(Size::Small)
+        .icon(Icon::new(HeroIconName::ArrowPath).size_3p5())
+        .tooltip(tooltip)
+        .loading(loading)
+        .disabled(loading)
+        .on_click(cx.listener(|app, _event, window, cx| {
+            let current = app.project_editor_browse_path.clone();
+            if !current.trim().is_empty() {
+                app.project_editor_browse_navigate(Some(current), window, cx);
+            }
+        }))
         .into_any_element()
 }
 
@@ -599,6 +852,7 @@ fn file_picker_breadcrumb_model(path: &str) -> (String, Vec<FilePickerCrumb>) {
 fn file_picker_crumb_separator() -> AnyElement {
     Icon::new(HeroIconName::ChevronRight)
         .size_3()
+        .flex_shrink_0()
         .text_color(color(theme::TEXT_DIM))
         .into_any_element()
 }
@@ -615,6 +869,7 @@ fn file_picker_root_crumb(
     div()
         .id("file-picker-crumb-root")
         .flex()
+        .flex_shrink_0()
         .items_center()
         .gap(px(5.0))
         .px(px(6.0))
@@ -653,6 +908,7 @@ fn file_picker_crumb(
     let target = target.to_string();
     div()
         .id(SharedString::from(id.to_string()))
+        .flex_shrink_0()
         .px(px(6.0))
         .py(px(2.0))
         .rounded(px(5.0))

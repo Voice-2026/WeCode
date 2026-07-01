@@ -133,6 +133,15 @@ fn stage_embedded_runtime_bootstrap_assets(staged_root: &Path) -> Result<(), Str
     ] {
         stage_runtime_asset(relative_path, &staged_root.join(relative_path), false)?;
     }
+    stage_wrapper_helper(staged_root)?;
+    Ok(())
+}
+
+fn stage_wrapper_helper(staged_root: &Path) -> Result<(), String> {
+    let helper_path = staged_root.join("scripts/wrappers/codux-wrapper-helper");
+    let current_exe = std::env::current_exe().map_err(|error| error.to_string())?;
+    write_if_changed_from_file(&helper_path, &current_exe)?;
+    set_executable(&helper_path);
     Ok(())
 }
 
@@ -162,6 +171,57 @@ fn copy_file_preserving_permissions(source: &Path, destination: &Path) -> Result
         .permissions();
     fs::set_permissions(destination, permissions).map_err(|error| error.to_string())
 }
+
+#[cfg(unix)]
+fn write_if_changed_from_file(destination: &Path, source: &Path) -> Result<(), String> {
+    use std::os::unix::fs::symlink;
+
+    if matches!(fs::read_link(destination), Ok(existing) if existing == source) {
+        return Ok(());
+    }
+    if let Some(parent) = destination.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    let tmp = destination.with_extension(format!(
+        "{}tmp",
+        destination
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .map(|extension| format!("{extension}."))
+            .unwrap_or_default()
+    ));
+    let _ = fs::remove_file(&tmp);
+    symlink(source, &tmp)
+        .or_else(|_| fs::copy(source, &tmp).map(|_| ()))
+        .map_err(|error| error.to_string())?;
+    fs::rename(&tmp, destination).map_err(|error| error.to_string())
+}
+
+#[cfg(windows)]
+fn write_if_changed_from_file(destination: &Path, source: &Path) -> Result<(), String> {
+    if matches!(fs::read(destination), Ok(existing) if matches!(fs::read(source), Ok(source_bytes) if existing == source_bytes))
+    {
+        return Ok(());
+    }
+    if let Some(parent) = destination.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    fs::copy(source, destination)
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(unix)]
+fn set_executable(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    if fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
+        return;
+    }
+    let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o755));
+}
+
+#[cfg(windows)]
+fn set_executable(_path: &Path) {}
 
 fn count_files(path: PathBuf) -> usize {
     let Ok(entries) = fs::read_dir(path) else {
@@ -227,6 +287,7 @@ mod tests {
                 .join("scripts/shell-hooks/dmux-ai-hook.zsh")
                 .is_file()
         );
+        assert!(target.join("scripts/wrappers/codux-wrapper-helper").exists());
 
         fs::remove_dir_all(temp).unwrap();
     }

@@ -168,6 +168,48 @@ wrapper_helper_available() {
   return 1
 }
 
+run_wrapper_helper() {
+  wrapper_helper_available || return 1
+  "${wrapper_helper}" --codux-wrapper-helper "$@" 2>/dev/null
+}
+
+json_string_key_fallback() {
+  local config_path="$1"
+  local config_key="$2"
+  [[ -f "${config_path}" && -n "${config_key}" ]] || return 0
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "${config_path}" "${config_key}" <<'PY'
+import json
+import sys
+path, key = sys.argv[1], sys.argv[2]
+try:
+    with open(path, "r", encoding="utf-8") as handle:
+        value = json.load(handle).get(key, "")
+except Exception:
+    value = ""
+if isinstance(value, str):
+    value = value.strip()
+    if value:
+        print(value)
+PY
+    return 0
+  fi
+  /usr/bin/sed -n 's/.*"'"${config_key}"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "${config_path}" | /usr/bin/head -n 1
+}
+
+configured_json_string_key() {
+  local config_path="$1"
+  local config_key="$2"
+  local value=""
+  if wrapper_helper_available; then
+    value="$(CONFIG_PATH="${config_path}" CONFIG_KEY="${config_key}" run_wrapper_helper json-string-key || true)"
+  fi
+  if [[ -z "${value}" ]]; then
+    value="$(json_string_key_fallback "${config_path}" "${config_key}" || true)"
+  fi
+  [[ -n "${value}" ]] && print -r -- "${value}"
+}
+
 memory_prompt_file() {
   [[ -n "${DMUX_AI_MEMORY_PROMPT_FILE:-}" && -f "${DMUX_AI_MEMORY_PROMPT_FILE}" ]] || return 1
   print -r -- "${DMUX_AI_MEMORY_PROMPT_FILE}"
@@ -176,8 +218,7 @@ memory_prompt_file() {
 tool_memory_injection_strategy() {
   local config_path="${wrapper_dir}/tool-drivers.json"
   [[ -f "${config_path}" ]] || return 0
-  wrapper_helper_available || return 0
-  TOOL_NAME="${tool_name}" CONFIG_PATH="${config_path}" "${wrapper_helper}" --codux-wrapper-helper tool-memory-injection
+  TOOL_NAME="${tool_name}" CONFIG_PATH="${config_path}" run_wrapper_helper tool-memory-injection || true
 }
 
 tool_uses_memory_injection() {
@@ -225,8 +266,7 @@ configured_permission_mode() {
       ;;
   esac
 
-  wrapper_helper_available || return 0
-  CONFIG_PATH="${config_path}" CONFIG_KEY="${config_key}" "${wrapper_helper}" --codux-wrapper-helper json-string-key
+  configured_json_string_key "${config_path}" "${config_key}"
 }
 
 
@@ -266,8 +306,7 @@ configured_tool_model() {
       ;;
   esac
 
-  wrapper_helper_available || return 0
-  CONFIG_PATH="${config_path}" CONFIG_KEY="${config_key}" "${wrapper_helper}" --codux-wrapper-helper json-string-key
+  configured_json_string_key "${config_path}" "${config_key}"
 }
 
 configured_codex_effort() {
@@ -275,8 +314,18 @@ configured_codex_effort() {
   config_path="$(tool_permission_settings_path)"
   [[ -f "${config_path}" ]] || return 0
 
-  wrapper_helper_available || return 0
-  CONFIG_PATH="${config_path}" "${wrapper_helper}" --codux-wrapper-helper codex-effort
+  local configured_effort
+  if wrapper_helper_available; then
+    configured_effort="$(CONFIG_PATH="${config_path}" run_wrapper_helper codex-effort || true)"
+  fi
+  if [[ -z "${configured_effort}" ]]; then
+    configured_effort="$(json_string_key_fallback "${config_path}" "codexEffort" || true)"
+  fi
+  case "${configured_effort}" in
+    none|minimal|low|medium|high|xhigh)
+      print -r -- "${configured_effort}"
+      ;;
+  esac
 }
 
 apply_configured_model_arg() {
@@ -388,8 +437,18 @@ apply_codex_memory_workspace_args() {
 
 codex_toml_string() {
   local value="$1"
-  wrapper_helper_available || return 1
-  VALUE="${value}" "${wrapper_helper}" --codux-wrapper-helper toml-string
+  if wrapper_helper_available; then
+    VALUE="${value}" run_wrapper_helper toml-string && return 0
+  fi
+  if command -v python3 >/dev/null 2>&1; then
+    VALUE="${value}" python3 - <<'PY'
+import json
+import os
+print(json.dumps(os.environ.get("VALUE", ""), ensure_ascii=False))
+PY
+    return 0
+  fi
+  return 1
 }
 
 apply_codex_memory_developer_instructions() {

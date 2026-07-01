@@ -16,7 +16,14 @@ impl TerminalInputHandler {
         // even though the keystroke path already recalled history. Drop it: the
         // keystroke path owns real keys. This mirrors the marked-text guard in
         // `terminal_input_marked_text`.
-        if terminal_marked_text_looks_like_escape_sequence(text) {
+        if terminal_text_input_should_drop(text) {
+            return;
+        }
+        if self
+            .terminal_view
+            .update(cx, |view, _| view.take_suppressed_text_input_echo(text))
+            .unwrap_or(false)
+        {
             return;
         }
         let bytes = codux_terminal_core::terminal_text_input_bytes(text);
@@ -144,6 +151,20 @@ fn terminal_input_marked_text(text: &str) -> String {
                 && !('\u{2400}'..='\u{2426}').contains(ch)
         })
         .collect()
+}
+
+fn terminal_text_input_should_drop(text: &str) -> bool {
+    if text.is_empty() {
+        return true;
+    }
+    if terminal_marked_text_looks_like_escape_sequence(text) {
+        return true;
+    }
+    if text.starts_with("\u{1b}[200~") && text.ends_with("\u{1b}[201~") {
+        return true;
+    }
+    text.chars()
+        .all(|ch| ch.is_control() || ('\u{F700}'..='\u{F8FF}').contains(&ch))
 }
 
 fn terminal_marked_text_looks_like_escape_sequence(text: &str) -> bool {

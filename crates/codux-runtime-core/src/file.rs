@@ -14,6 +14,7 @@ pub use crate::path::FILE_LIST_DRIVES_SENTINEL;
 use crate::path::{display_path, drive_root_parent};
 
 pub fn file_list_payload(path: Option<&str>, purpose: Option<&str>) -> Value {
+    let show_hidden = purpose == Some("sshKey");
     let requested = path.map(str::trim).filter(|value| !value.is_empty());
     if requested == Some(FILE_LIST_DRIVES_SENTINEL) {
         return drive_list_payload(purpose);
@@ -38,7 +39,7 @@ pub fn file_list_payload(path: Option<&str>, purpose: Option<&str>) -> Value {
         .filter_map(|entry| {
             let path = entry.path();
             let name = path.file_name()?.to_str()?.to_string();
-            if name.starts_with('.') {
+            if !show_hidden && name.starts_with('.') {
                 return None;
             }
             // symlink_metadata so symlinks are reported as such, not followed.
@@ -239,6 +240,57 @@ fn unique_destination(directory: &Path, name: &str) -> PathBuf {
     directory.join(name)
 }
 
+fn same_file_path(left: &Path, right: &Path) -> bool {
+    if same_file_metadata(left, right) {
+        return true;
+    }
+    match (left.canonicalize(), right.canonicalize()) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => false,
+    }
+}
+
+#[cfg(unix)]
+fn same_file_metadata(left: &Path, right: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+
+    let Ok(left_metadata) = fs::metadata(left) else {
+        return false;
+    };
+    let Ok(right_metadata) = fs::metadata(right) else {
+        return false;
+    };
+    left_metadata.dev() == right_metadata.dev() && left_metadata.ino() == right_metadata.ino()
+}
+
+#[cfg(windows)]
+fn same_file_metadata(left: &Path, right: &Path) -> bool {
+    use std::os::windows::fs::MetadataExt;
+
+    let Ok(left_metadata) = fs::metadata(left) else {
+        return false;
+    };
+    let Ok(right_metadata) = fs::metadata(right) else {
+        return false;
+    };
+    match (
+        left_metadata.volume_serial_number(),
+        right_metadata.volume_serial_number(),
+        left_metadata.file_index(),
+        right_metadata.file_index(),
+    ) {
+        (Some(left_volume), Some(right_volume), Some(left_index), Some(right_index)) => {
+            left_volume == right_volume && left_index == right_index
+        }
+        _ => false,
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
+fn same_file_metadata(_left: &Path, _right: &Path) -> bool {
+    false
+}
+
 fn copy_dir_recursive(source: &Path, destination: &Path) -> Result<(), String> {
     fs::create_dir_all(destination).map_err(|error| error.to_string())?;
     for entry in fs::read_dir(source).map_err(|error| error.to_string())? {
@@ -260,7 +312,7 @@ pub fn file_rename(path: &str, new_path: &str) -> Result<(), String> {
     if source.parent() != destination.parent() {
         return Err("Rename must stay in the same directory.".to_string());
     }
-    if destination.exists() {
+    if destination.exists() && !same_file_path(&source, &destination) {
         return Err("A file with this name already exists.".to_string());
     }
     fs::rename(source, destination).map_err(|error| error.to_string())
@@ -297,5 +349,38 @@ mod tests {
         for entry in entries {
             assert_eq!(entry["isDirectory"], Value::Bool(true));
         }
+    }
+
+    #[test]
+    fn ssh_key_listing_includes_hidden_entries() {
+        let dir = std::env::temp_dir().join(format!(
+            "codux-runtime-core-hidden-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        let ssh_dir = dir.join(".ssh");
+        fs::create_dir_all(&ssh_dir).expect("ssh dir");
+
+        let project_payload = file_list_payload(dir.to_str(), Some("projectFiles"));
+        let project_entries = project_payload["entries"]
+            .as_array()
+            .expect("project entries");
+        assert!(
+            !project_entries
+                .iter()
+                .any(|entry| entry["name"].as_str() == Some(".ssh"))
+        );
+
+        let ssh_payload = file_list_payload(dir.to_str(), Some("sshKey"));
+        let ssh_entries = ssh_payload["entries"].as_array().expect("ssh entries");
+        assert!(
+            ssh_entries
+                .iter()
+                .any(|entry| entry["name"].as_str() == Some(".ssh"))
+        );
+
+        fs::remove_dir_all(dir).ok();
     }
 }

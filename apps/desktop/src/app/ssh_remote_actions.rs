@@ -184,7 +184,7 @@ impl CoduxApp {
         self.ssh_draft_key_passphrase = profile.key_passphrase.unwrap_or_default();
     }
 
-    fn clear_ssh_test_result(&mut self) {
+    pub(super) fn clear_ssh_test_result(&mut self) {
         self.ssh_test_result = None;
     }
 
@@ -265,51 +265,26 @@ impl CoduxApp {
 
     pub(super) fn choose_ssh_private_key_path(
         &mut self,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let locale = locale_from_language_setting(&self.state.settings.language);
-        match self
-            .runtime_service
-            .localized_open_dialog(LocalizedOpenDialogRequest {
-                title: translate(
-                    &locale,
-                    "ssh.profile.choose_key.title",
-                    "Choose Private Key",
-                ),
-                message: translate(
-                    &locale,
-                    "ssh.profile.choose_key.message",
-                    "Choose the private key used for this SSH connection.",
-                ),
-                prompt: translate(&locale, "common.choose", "Choose"),
-                default_path: if self.ssh_draft_private_key_path.trim().is_empty() {
-                    None
-                } else {
-                    Some(self.ssh_draft_private_key_path.clone())
-                },
-                filters: Vec::new(),
-                directory: false,
-                multiple: false,
-                can_create_directories: Some(false),
-            }) {
-            Ok(Some(paths)) => {
-                if let Some(path) = paths.first() {
-                    self.ssh_draft_private_key_path = path.clone();
-                    self.clear_ssh_test_result();
-                    self.status_message = "SSH private key selected".to_string();
-                } else {
-                    self.status_message = "SSH private key selection canceled".to_string();
-                }
-            }
-            Ok(None) => self.status_message = "SSH private key selection canceled".to_string(),
-            Err(error) => {
-                self.status_message = format!("failed to choose SSH private key: {error}")
-            }
-        }
-        self.sync_project_activity_state(cx);
-        self.invalidate_task_column(cx);
-        self.invalidate_remote_panel(cx);
+        let default_path = self.ssh_draft_private_key_path.trim();
+        let start_path = if default_path.is_empty() {
+            None
+        } else {
+            std::path::Path::new(default_path)
+                .parent()
+                .map(|parent| parent.to_string_lossy().to_string())
+        };
+        self.open_file_picker_window(
+            FilePickerMode::OpenFile,
+            FilePickerTarget::SshPrivateKeyPath,
+            None,
+            start_path,
+            None,
+            window,
+            cx,
+        );
     }
 
     pub(super) fn set_ssh_draft_password(

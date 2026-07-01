@@ -109,6 +109,19 @@ fn writes_and_renames_text_files_safely() {
 }
 
 #[test]
+fn renames_case_only_paths_without_false_conflict() {
+    let root = temp_dir("files-case-rename");
+    fs::write(root.join("Note.txt"), "hello\n").expect("note");
+
+    let renamed = FilesService::rename(root.to_str().expect("root"), "Note.txt", "note.txt")
+        .expect("case-only rename");
+    assert_eq!(renamed.relative_path, "note.txt");
+    assert!(root.join("note.txt").is_file());
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn moves_files_and_directories_to_existing_directory() {
     let root = temp_dir("files-move");
     fs::create_dir_all(root.join("src").join("nested")).expect("nested dir");

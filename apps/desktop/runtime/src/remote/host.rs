@@ -2415,7 +2415,25 @@ impl RemoteHostRuntime {
             .as_deref()
             .map(|id| self.terminals.snapshot(id).is_ok())
             .unwrap_or(false);
-        match self.terminals.create(plan.config, emit) {
+        let event_key = plan
+            .config
+            .terminal_id
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .map(|terminal_id| format!("remote-terminal:{terminal_id}"));
+        let create_result = if let Some(event_key) = event_key {
+            self.terminals.create_with_event_key(
+                plan.config,
+                event_key,
+                Arc::new(move |event| {
+                    emit(event);
+                    true
+                }),
+            )
+        } else {
+            self.terminals.create(plan.config, emit)
+        };
+        match create_result {
             Ok(session_id) => {
                 self.persist_remote_terminal_layout(
                     &plan.scope.layout_key,
@@ -3698,7 +3716,14 @@ impl RemoteHostRuntime {
         let plan = self.remote_terminal_plan_from_envelope(envelope, Some(session_id), true)?;
         self.set_remote_project_scope(envelope.device_id.as_deref(), &plan.scope.project_id);
         self.terminals
-            .create(plan.config, emit)
+            .create_with_event_key(
+                plan.config,
+                format!("remote-terminal:{session_id}"),
+                Arc::new(move |event| {
+                    emit(event);
+                    true
+                }),
+            )
             .map_err(|error| error.to_string())?;
         self.persist_remote_terminal_layout(&plan.scope.layout_key, session_id, &plan.title);
         self.publish_remote_terminal_layout_changed();
@@ -3746,7 +3771,17 @@ impl RemoteHostRuntime {
         };
         let session_id = self
             .terminals
-            .create(config, emit)
+            .create_with_event_key(
+                config,
+                terminal_id
+                    .as_deref()
+                    .map(|terminal_id| format!("remote-terminal:{terminal_id}"))
+                    .unwrap_or_else(|| "remote-terminal".to_string()),
+                Arc::new(move |event| {
+                    emit(event);
+                    true
+                }),
+            )
             .map_err(|error| error.to_string())?;
         self.persist_remote_terminal_layout(&scope.layout_key, &session_id, &title);
         self.publish_remote_terminal_layout_changed();
@@ -3986,7 +4021,11 @@ impl RemoteHostRuntime {
             runtime.handle_terminal_event(event);
             true
         });
-        if self.terminals.subscribe_events(session_id, emit).is_err() {
+        if self
+            .terminals
+            .subscribe_events_keyed(session_id, format!("remote-terminal:{session_id}"), emit)
+            .is_err()
+        {
             if let Ok(mut subscriptions) = self.terminal_event_subscriptions.lock() {
                 subscriptions.remove(session_id);
             }

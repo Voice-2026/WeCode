@@ -73,6 +73,7 @@ impl ControllerLinkPath {
 struct ManagerShared {
     store: RemoteControllerStore,
     connections: Mutex<HashMap<String, Arc<RemoteController>>>,
+    connection_epochs: Mutex<HashMap<String, u64>>,
     links: Mutex<HashMap<String, ControllerLinkState>>,
     // Selected path type (direct/relay) per connected device, for the UI badge.
     // Set when the transport reports a selected path; cleared when the link drops.
@@ -110,17 +111,41 @@ impl ManagerShared {
             .and_then(|errors| errors.get(device_id).cloned())
     }
 
+    fn next_connection_epoch(&self, device_id: &str) -> u64 {
+        let mut epochs = self.connection_epochs.lock().unwrap();
+        let epoch = epochs.entry(device_id.to_string()).or_insert(0);
+        *epoch = epoch.saturating_add(1);
+        *epoch
+    }
+
+    fn is_current_connection_epoch(&self, device_id: &str, epoch: u64) -> bool {
+        self.connection_epochs
+            .lock()
+            .ok()
+            .and_then(|epochs| epochs.get(device_id).copied())
+            == Some(epoch)
+    }
+
+    fn shutdown_controller(controller: Arc<RemoteController>) {
+        crate::async_runtime::spawn(async move {
+            controller.shutdown().await;
+        });
+    }
+
     /// Build the transport state handler for `device_id`: it records every link
     /// transition and, on a drop, evicts the dead controller and kicks off a
     /// background reconnect. Holds only a `Weak` so a forgotten manager lets the
     /// callback become a no-op.
-    fn state_handler(self: &Arc<Self>, device_id: &str) -> RemoteTransportStateHandler {
+    fn state_handler(self: &Arc<Self>, device_id: &str, epoch: u64) -> RemoteTransportStateHandler {
         let weak = Arc::downgrade(self);
         let device_id = device_id.to_string();
         Arc::new(move |_node: String, state: String| {
             let Some(shared) = weak.upgrade() else {
                 return;
             };
+            if !shared.is_current_connection_epoch(&device_id, epoch) {
+                return;
+            }
             let mapped = ControllerLinkState::from_transport_state(&state);
             shared.set_link(&device_id, mapped);
             if let Some(path) = ControllerLinkPath::from_transport_state(&state) {
@@ -138,27 +163,33 @@ impl ManagerShared {
     /// fast-fails instead of re-dialling on the calling thread) and spawns the
     /// loop only if one isn't already running. Returns `false` if the host has
     /// been forgotten — nothing to connect to.
-    fn ensure_reconnect_loop(self: &Arc<Self>, device_id: &str) -> bool {
-        {
-            let mut reconnecting = match self.reconnecting.lock() {
-                Ok(guard) => guard,
-                Err(_) => return false,
-            };
-            // The saved host is the source of truth for "should we reconnect":
-            // a forgotten device must not be resurrected.
-            if self.store.find(device_id).is_none() {
-                return false;
-            }
-            if reconnecting.contains(device_id) {
-                return true;
-            }
-            reconnecting.insert(device_id.to_string());
+    fn mark_reconnect_needed(self: &Arc<Self>, device_id: &str) -> Option<bool> {
+        let mut reconnecting = self.reconnecting.lock().ok()?;
+        // The saved host is the source of truth for "should we reconnect":
+        // a forgotten device must not be resurrected.
+        self.store.find(device_id)?;
+        if reconnecting.contains(device_id) {
+            return Some(false);
         }
+        reconnecting.insert(device_id.to_string());
+        Some(true)
+    }
+
+    fn spawn_reconnect_loop(self: &Arc<Self>, device_id: &str) {
         let shared = Arc::clone(self);
         let device_id = device_id.to_string();
         crate::async_runtime::spawn(async move {
             shared.reconnect_loop(device_id).await;
         });
+    }
+
+    fn ensure_reconnect_loop(self: &Arc<Self>, device_id: &str) -> bool {
+        let Some(spawn_needed) = self.mark_reconnect_needed(device_id) else {
+            return false;
+        };
+        if spawn_needed {
+            self.spawn_reconnect_loop(device_id);
+        }
         true
     }
 
@@ -169,11 +200,19 @@ impl ManagerShared {
         // an evicted-but-not-yet-reconnecting host — which it would try to
         // re-dial synchronously, blocking the (possibly UI-thread) caller
         // against the offline host.
-        if !self.ensure_reconnect_loop(device_id) {
+        let Some(spawn_needed) = self.mark_reconnect_needed(device_id) else {
             return;
+        };
+        let old = self
+            .connections
+            .lock()
+            .ok()
+            .and_then(|mut connections| connections.remove(device_id));
+        if let Some(old) = old {
+            Self::shutdown_controller(old);
         }
-        if let Ok(mut connections) = self.connections.lock() {
-            connections.remove(device_id);
+        if spawn_needed {
+            self.spawn_reconnect_loop(device_id);
         }
     }
 
@@ -206,11 +245,17 @@ impl ManagerShared {
                 "remote",
                 &format!("controller_connect attempt device={device_id} n={attempt}"),
             );
-            let on_state = self.state_handler(&device_id);
+            let epoch = self.next_connection_epoch(&device_id);
+            let on_state = self.state_handler(&device_id, epoch);
             match RemoteController::connect_saved(&host, on_state).await {
                 Ok(controller) => {
-                    if let Ok(mut connections) = self.connections.lock() {
-                        connections.insert(device_id.clone(), Arc::new(controller));
+                    let old = if let Ok(mut connections) = self.connections.lock() {
+                        connections.insert(device_id.clone(), Arc::new(controller))
+                    } else {
+                        None
+                    };
+                    if let Some(old) = old {
+                        Self::shutdown_controller(old);
                     }
                     if let Ok(mut errors) = self.last_errors.lock() {
                         errors.remove(&device_id);
@@ -258,6 +303,7 @@ impl RemoteControllerManager {
             shared: Arc::new(ManagerShared {
                 store: RemoteControllerStore::new(support_dir),
                 connections: Mutex::new(HashMap::new()),
+                connection_epochs: Mutex::new(HashMap::new()),
                 links: Mutex::new(HashMap::new()),
                 paths: Mutex::new(HashMap::new()),
                 reconnecting: Mutex::new(HashSet::new()),
@@ -296,7 +342,8 @@ impl RemoteControllerManager {
     pub fn pair(&self, ticket_input: &str, device_name: &str) -> Result<SavedRemoteHost, String> {
         let ticket = parse_pairing_ticket(ticket_input)?;
         let device_id = new_device_id();
-        let on_state = self.shared.state_handler(&device_id);
+        let epoch = self.shared.next_connection_epoch(&device_id);
+        let on_state = self.shared.state_handler(&device_id, epoch);
         let (controller, saved) = crate::async_runtime::block_on(RemoteController::pair(
             &ticket,
             device_name,
@@ -304,8 +351,16 @@ impl RemoteControllerManager {
             on_state,
         ))?;
         self.shared.store.upsert(saved.clone())?;
-        if let Ok(mut connections) = self.shared.connections.lock() {
-            connections.insert(saved.device_id.clone(), Arc::new(controller));
+        let old = self
+            .shared
+            .connections
+            .lock()
+            .ok()
+            .and_then(|mut connections| {
+                connections.insert(saved.device_id.clone(), Arc::new(controller))
+            });
+        if let Some(old) = old {
+            ManagerShared::shutdown_controller(old);
         }
         self.shared
             .set_link(&saved.device_id, ControllerLinkState::Connected);
@@ -390,8 +445,17 @@ impl RemoteControllerManager {
 
     /// Drop a paired host and any live connection or link state for it.
     pub fn forget(&self, device_id: &str) -> Result<Vec<SavedRemoteHost>, String> {
-        if let Ok(mut connections) = self.shared.connections.lock() {
-            connections.remove(device_id);
+        let old = self
+            .shared
+            .connections
+            .lock()
+            .ok()
+            .and_then(|mut connections| connections.remove(device_id));
+        if let Some(old) = old {
+            ManagerShared::shutdown_controller(old);
+        }
+        if let Ok(mut epochs) = self.shared.connection_epochs.lock() {
+            epochs.remove(device_id);
         }
         if let Ok(mut links) = self.shared.links.lock() {
             links.remove(device_id);

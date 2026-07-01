@@ -88,7 +88,6 @@ pub(in crate::app) fn file_section(
     let labels = file_sidebar_labels(language);
     let row_count = rows.len();
     let draft_at_top = draft_kind.is_some_and(|kind| kind != FileNameDraftKind::Rename);
-    let menu_app_entity = app_entity.clone();
 
     div()
         .flex()
@@ -306,177 +305,6 @@ pub(in crate::app) fn file_section(
                                         .min_h_0()
                                         .flex()
                                         .flex_col()
-                                        .context_menu(move |menu, _window, cx| {
-                                            let (
-                                                has_selected,
-                                                multiple,
-                                                selected_is_directory,
-                                                copy_paths,
-                                            ) = cx.update_entity(&menu_app_entity, |app, _cx| {
-                                                let mut paths =
-                                                    if app.selected_file_entries.is_empty() {
-                                                        app.selected_file_entry
-                                                            .clone()
-                                                            .into_iter()
-                                                            .collect::<Vec<_>>()
-                                                    } else {
-                                                        app.selected_file_entries
-                                                            .iter()
-                                                            .cloned()
-                                                            .collect::<Vec<_>>()
-                                                    };
-                                                paths.sort();
-                                                let selected_is_directory = paths
-                                                    .first()
-                                                    .and_then(|path| app.file_tree_entry(path))
-                                                    .is_some_and(|entry| {
-                                                        matches!(entry.kind, FileKind::Directory)
-                                                    });
-                                                (
-                                                    !paths.is_empty(),
-                                                    paths.len() > 1,
-                                                    selected_is_directory,
-                                                    paths,
-                                                )
-                                            });
-                                            let open_entity = menu_app_entity.clone();
-                                            let preview_entity = menu_app_entity.clone();
-                                            let reveal_entity = menu_app_entity.clone();
-                                            let copy_entity = menu_app_entity.clone();
-                                            let save_as_entity = menu_app_entity.clone();
-                                            let paste_entity = menu_app_entity.clone();
-                                            let rename_entity = menu_app_entity.clone();
-                                            let terminal_entity = menu_app_entity.clone();
-                                            let delete_entity = menu_app_entity.clone();
-                                            let copy_paths_for_click = copy_paths.clone();
-
-                                            menu.item(
-                                            PopupMenuItem::new(labels.open.clone())
-                                                .icon(HeroIconName::ArrowTopRightOnSquare)
-                                                .disabled(!has_selected || multiple)
-                                                .on_click(move |_, window, cx| {
-                                                    cx.update_entity(&open_entity, |app, cx| {
-                                                        app.open_selected_file_entry(window, cx);
-                                                    });
-                                                }),
-                                        )
-                                        .item(
-                                            PopupMenuItem::new(labels.preview.clone())
-                                                .icon(HeroIconName::Eye)
-                                                .disabled(
-                                                    !has_selected
-                                                        || multiple
-                                                        || selected_is_directory,
-                                                )
-                                                .on_click(move |_, window, cx| {
-                                                    cx.update_entity(&preview_entity, |app, cx| {
-                                                        app.open_selected_file_preview(window, cx);
-                                                    });
-                                                }),
-                                        )
-                                        .item(
-                                            PopupMenuItem::new(labels.reveal.clone())
-                                                .icon(HeroIconName::FolderOpen)
-                                                .disabled(!has_selected || multiple)
-                                                .on_click(move |_, window, cx| {
-                                                    cx.update_entity(&reveal_entity, |app, cx| {
-                                                        app.reveal_selected_file_entry(window, cx);
-                                                    });
-                                                }),
-                                        )
-                                        .item(
-                                            PopupMenuItem::new(labels.copy_path.clone())
-                                                .icon(HeroIconName::DocumentDuplicate)
-                                                .disabled(!has_selected)
-                                                .on_click(move |_, _window, cx| {
-                                                    cx.write_to_clipboard(
-                                                        ClipboardItem::new_string(
-                                                            copy_paths_for_click.join("\n"),
-                                                        ),
-                                                    );
-                                                }),
-                                        )
-                                        .item(
-                                            PopupMenuItem::new(labels.save_as.clone())
-                                                .icon(HeroIconName::ArrowDownTray)
-                                                .disabled(
-                                                    !has_selected
-                                                        || multiple
-                                                        || selected_is_directory,
-                                                )
-                                                .on_click(move |_, window, cx| {
-                                                    cx.update_entity(&save_as_entity, |app, cx| {
-                                                        app.save_as_selected_file_entry(window, cx);
-                                                    });
-                                                }),
-                                        )
-                                        .separator()
-                                        .item(
-                                            PopupMenuItem::new(labels.copy.clone())
-                                                .icon(HeroIconName::DocumentDuplicate)
-                                                .disabled(!has_selected || multiple)
-                                                .on_click(move |_, window, cx| {
-                                                    cx.update_entity(&copy_entity, |app, cx| {
-                                                        app.copy_selected_file_entry(window, cx);
-                                                    });
-                                                }),
-                                        )
-                                        .item(
-                                            PopupMenuItem::new(labels.paste.clone())
-                                                .icon(HeroIconName::DocumentDuplicate)
-                                                .on_click(move |_, window, cx| {
-                                                    let payload = clipboard_file_payload(cx);
-                                                    cx.update_entity(&paste_entity, |app, cx| {
-                                                        if let Some(entry) =
-                                                            app.selected_file_entry()
-                                                        {
-                                                            app.paste_external_file_entries(
-                                                                payload, entry, window, cx,
-                                                            );
-                                                        }
-                                                    });
-                                                }),
-                                        )
-                                        .item(
-                                            PopupMenuItem::new(labels.rename.clone())
-                                                .icon(HeroIconName::Language)
-                                                .disabled(!has_selected || multiple)
-                                                .on_click(move |_, window, cx| {
-                                                    cx.update_entity(&rename_entity, |app, cx| {
-                                                        app.rename_selected_file_entry(window, cx);
-                                                    });
-                                                }),
-                                        )
-                                        .item(
-                                            PopupMenuItem::new(labels.send_terminal.clone())
-                                                .icon(HeroIconName::CommandLine)
-                                                .disabled(!has_selected || multiple)
-                                                .on_click(move |_, _window, cx| {
-                                                    cx.update_entity(&terminal_entity, |app, cx| {
-                                                    if let Some(path) =
-                                                        app.selected_file_entry.clone()
-                                                    {
-                                                        app.send_file_path_to_active_terminal(
-                                                            path, cx,
-                                                        );
-                                                    }
-                                                });
-                                                }),
-                                        )
-                                        .separator()
-                                        .item(
-                                            PopupMenuItem::new(labels.delete.clone())
-                                                .icon(HeroIconName::Trash)
-                                                .disabled(!has_selected)
-                                                .on_click(move |_, window, cx| {
-                                                    cx.update_entity(&delete_entity, |app, cx| {
-                                                        app.request_delete_selected_file_entries(
-                                                            window, cx,
-                                                        );
-                                                    });
-                                                }),
-                                        )
-                                        })
                                         .child(codux_uniform_list(
                                             "file-tree-list",
                                             rows,
@@ -488,6 +316,7 @@ pub(in crate::app) fn file_section(
                                                     app_entity.clone(),
                                                     row,
                                                     index,
+                                                    labels.clone(),
                                                     labels.items_count_format.clone(),
                                                     window,
                                                     cx,
@@ -824,6 +653,7 @@ fn file_tree_entry_row(
     app_entity: gpui::Entity<CoduxApp>,
     row: FileTreeRow,
     index: usize,
+    labels: FileSidebarLabels,
     items_count_format: String,
     window: &mut Window,
     cx: &mut Context<FileSidebarView>,
@@ -838,6 +668,7 @@ fn file_tree_entry_row(
         depth,
     } = row;
     let entry = file.clone();
+    let menu_entry = file.clone();
     let right_click_entry = file.clone();
     let drop_entry = file.clone();
     let is_dir = matches!(file.kind, FileKind::Directory);
@@ -917,6 +748,18 @@ fn file_tree_entry_row(
                 });
             }),
         )
+        .context_menu({
+            let app_entity = app_entity.clone();
+            move |menu, _window, cx| {
+                file_tree_context_menu(
+                    menu,
+                    app_entity.clone(),
+                    menu_entry.clone(),
+                    labels.clone(),
+                    cx,
+                )
+            }
+        })
         .child(
             div()
                 .w(px(18.0))
@@ -979,6 +822,142 @@ fn file_tree_entry_row(
                 .child(file.name)
                 .into_any_element()
         })
+}
+
+fn file_tree_context_menu(
+    menu: PopupMenu,
+    app_entity: gpui::Entity<CoduxApp>,
+    entry: FileEntry,
+    labels: FileSidebarLabels,
+    cx: &mut Context<PopupMenu>,
+) -> PopupMenu {
+    let (has_selected, multiple, selected_is_directory) =
+        cx.update_entity(&app_entity, |app, cx| {
+            app.prepare_file_context_menu_selection(entry.relative_path.clone(), cx);
+            let paths = app.selected_file_entry_paths();
+            let selected_is_directory = paths
+                .first()
+                .and_then(|path| app.file_tree_entry(path))
+                .is_some_and(|entry| matches!(entry.kind, FileKind::Directory));
+            (!paths.is_empty(), paths.len() > 1, selected_is_directory)
+        });
+    let open_entity = app_entity.clone();
+    let preview_entity = app_entity.clone();
+    let reveal_entity = app_entity.clone();
+    let copy_path_entity = app_entity.clone();
+    let copy_entity = app_entity.clone();
+    let save_as_entity = app_entity.clone();
+    let paste_entity = app_entity.clone();
+    let rename_entity = app_entity.clone();
+    let terminal_entity = app_entity.clone();
+    let delete_entity = app_entity;
+
+    menu.item(
+        PopupMenuItem::new(labels.open.clone())
+            .icon(HeroIconName::ArrowTopRightOnSquare)
+            .disabled(!has_selected || multiple)
+            .on_click(move |_, window, cx| {
+                cx.update_entity(&open_entity, |app, cx| {
+                    app.open_selected_file_entry(window, cx);
+                });
+            }),
+    )
+    .item(
+        PopupMenuItem::new(labels.preview.clone())
+            .icon(HeroIconName::Eye)
+            .disabled(!has_selected || multiple || selected_is_directory)
+            .on_click(move |_, window, cx| {
+                cx.update_entity(&preview_entity, |app, cx| {
+                    app.open_selected_file_preview(window, cx);
+                });
+            }),
+    )
+    .item(
+        PopupMenuItem::new(labels.reveal.clone())
+            .icon(HeroIconName::FolderOpen)
+            .disabled(!has_selected || multiple)
+            .on_click(move |_, window, cx| {
+                cx.update_entity(&reveal_entity, |app, cx| {
+                    app.reveal_selected_file_entry(window, cx);
+                });
+            }),
+    )
+    .item(
+        PopupMenuItem::new(labels.copy_path.clone())
+            .icon(HeroIconName::DocumentDuplicate)
+            .disabled(!has_selected)
+            .on_click(move |_, _window, cx| {
+                cx.update_entity(&copy_path_entity, |app, cx| {
+                    app.copy_selected_file_paths_to_clipboard(cx);
+                });
+            }),
+    )
+    .item(
+        PopupMenuItem::new(labels.save_as.clone())
+            .icon(HeroIconName::ArrowDownTray)
+            .disabled(!has_selected || multiple || selected_is_directory)
+            .on_click(move |_, window, cx| {
+                cx.update_entity(&save_as_entity, |app, cx| {
+                    app.save_as_selected_file_entry(window, cx);
+                });
+            }),
+    )
+    .separator()
+    .item(
+        PopupMenuItem::new(labels.copy.clone())
+            .icon(HeroIconName::DocumentDuplicate)
+            .disabled(!has_selected || multiple)
+            .on_click(move |_, window, cx| {
+                cx.update_entity(&copy_entity, |app, cx| {
+                    app.copy_selected_file_entry(window, cx);
+                });
+            }),
+    )
+    .item(
+        PopupMenuItem::new(labels.paste.clone())
+            .icon(HeroIconName::DocumentDuplicate)
+            .on_click(move |_, window, cx| {
+                let payload = clipboard_file_payload(cx);
+                cx.update_entity(&paste_entity, |app, cx| {
+                    if let Some(entry) = app.selected_file_entry() {
+                        app.paste_external_file_entries(payload, entry, window, cx);
+                    }
+                });
+            }),
+    )
+    .item(
+        PopupMenuItem::new(labels.rename.clone())
+            .icon(HeroIconName::Language)
+            .disabled(!has_selected || multiple)
+            .on_click(move |_, window, cx| {
+                cx.update_entity(&rename_entity, |app, cx| {
+                    app.rename_selected_file_entry(window, cx);
+                });
+            }),
+    )
+    .item(
+        PopupMenuItem::new(labels.send_terminal.clone())
+            .icon(HeroIconName::CommandLine)
+            .disabled(!has_selected || multiple)
+            .on_click(move |_, _window, cx| {
+                cx.update_entity(&terminal_entity, |app, cx| {
+                    if let Some(path) = app.selected_file_entry.clone() {
+                        app.send_file_path_to_active_terminal(path, cx);
+                    }
+                });
+            }),
+    )
+    .separator()
+    .item(
+        PopupMenuItem::new(labels.delete)
+            .icon(HeroIconName::Trash)
+            .disabled(!has_selected)
+            .on_click(move |_, window, cx| {
+                cx.update_entity(&delete_entity, |app, cx| {
+                    app.request_delete_selected_file_entries(window, cx);
+                });
+            }),
+    )
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

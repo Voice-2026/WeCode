@@ -10,6 +10,7 @@ pub struct TerminalView {
     scroll_handle: TerminalScrollHandle,
     marked_text: Option<String>,
     hover_link: Option<TerminalLink>,
+    suppressed_text_input: Option<TerminalSuppressedTextInput>,
     scroll_input: TerminalScrollInputState,
     selection_frame_pending: bool,
     pending_pty_resize: Option<(u16, u16)>,
@@ -31,6 +32,13 @@ struct TerminalScrollInputState {
     frame_pending: bool,
     suppress_residual_precise_scroll: bool,
 }
+
+struct TerminalSuppressedTextInput {
+    text: String,
+    expires_at: Instant,
+}
+
+const TERMINAL_TEXT_INPUT_SUPPRESS_WINDOW: Duration = Duration::from_millis(350);
 
 #[derive(Debug, Default)]
 struct TerminalScrollHandleState {
@@ -164,6 +172,7 @@ impl TerminalView {
             scroll_handle: TerminalScrollHandle::default(),
             marked_text: None,
             hover_link: None,
+            suppressed_text_input: None,
             scroll_input: TerminalScrollInputState::default(),
             selection_frame_pending: false,
             pending_pty_resize: None,
@@ -267,14 +276,15 @@ impl TerminalView {
         }
 
         if is_paste_keystroke(&event.keystroke) {
-            let view = cx.entity();
-            window.defer(cx, move |_window, cx| {
-                let _ = view.update(cx, |terminal, cx| {
-                    if let Some(text) = terminal.terminal_clipboard_paste_text(cx) {
+            if let Some(text) = self.terminal_clipboard_paste_text(cx) {
+                self.suppress_text_input_echo(&text);
+                let view = cx.entity();
+                window.defer(cx, move |_window, cx| {
+                    let _ = view.update(cx, |terminal, cx| {
                         terminal.paste_text(&text, cx);
-                    }
+                    });
                 });
-            });
+            }
             cx.stop_propagation();
             return;
         }
@@ -312,6 +322,31 @@ impl TerminalView {
             model.write_bytes(&bytes);
         });
         true
+    }
+
+    fn suppress_text_input_echo(&mut self, text: &str) {
+        if text.is_empty() {
+            return;
+        }
+        self.suppressed_text_input = Some(TerminalSuppressedTextInput {
+            text: text.to_string(),
+            expires_at: Instant::now() + TERMINAL_TEXT_INPUT_SUPPRESS_WINDOW,
+        });
+    }
+
+    fn take_suppressed_text_input_echo(&mut self, text: &str) -> bool {
+        let Some(suppressed) = self.suppressed_text_input.as_ref() else {
+            return false;
+        };
+        if Instant::now() > suppressed.expires_at {
+            self.suppressed_text_input = None;
+            return false;
+        }
+        if suppressed.text == text {
+            self.suppressed_text_input = None;
+            return true;
+        }
+        false
     }
 
     fn on_mouse_down(
@@ -390,6 +425,7 @@ impl TerminalView {
             }
             MouseButton::Middle => {
                 if let Some(text) = self.terminal_clipboard_paste_text(cx) {
+                    self.suppress_text_input_echo(&text);
                     self.paste_text(&text, cx);
                 }
             }
