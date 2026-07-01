@@ -646,7 +646,26 @@ impl RemoteTerminalOutputRouter {
                 || local_cache_empty;
             let baseline_has_renderable_data = !raw.is_empty() || decoded.screen_data.is_some();
             if is_baseline_restore && !baseline_has_renderable_data {
-                if is_active_session && active_request_id.is_some() {
+                if decoded.tail {
+                    held_live = self.complete_empty_baseline(session_id, output_seq);
+                    self.active_buffer_request_by_session.remove(session_id);
+                    self.remove_restore_request(session_id);
+                    if is_active_session {
+                        effects.push(RemoteTerminalOutputEffect::loading(
+                            false,
+                            RemoteTerminalBufferPhase::Requesting,
+                            None,
+                        ));
+                        effects.push(RemoteTerminalOutputEffect::simple(
+                            RemoteTerminalOutputEffectKind::SessionUpdated,
+                            session_id,
+                        ));
+                        effects.push(RemoteTerminalOutputEffect::simple(
+                            RemoteTerminalOutputEffectKind::MarkBufferReceived,
+                            session_id,
+                        ));
+                    }
+                } else if is_active_session && active_request_id.is_some() {
                     effects.push(RemoteTerminalOutputEffect::loading(
                         true,
                         RemoteTerminalBufferPhase::Requesting,
@@ -658,6 +677,7 @@ impl RemoteTerminalOutputRouter {
                     output_seq,
                     decoded.buffer_length,
                 ));
+                self.replay_held(held_live, active_session_id, &mut effects);
                 return effects;
             }
             if is_baseline_restore {
@@ -791,6 +811,17 @@ impl RemoteTerminalOutputRouter {
         replay
     }
 
+    fn complete_empty_baseline(
+        &mut self,
+        session_id: &str,
+        output_seq: Option<TerminalSequence>,
+    ) -> Vec<String> {
+        self.gap_sessions.remove(session_id);
+        let replay = self.session(session_id).complete_empty_baseline(output_seq);
+        self.bump_render(session_id);
+        replay
+    }
+
     fn apply_live_to_session(
         &mut self,
         session_id: &str,
@@ -914,12 +945,35 @@ mod tests {
         output_seq: i64,
         request_id: Option<&str>,
     ) -> Value {
+        buffer_with_tail(
+            session,
+            data,
+            offset,
+            buffer_length,
+            truncated,
+            false,
+            output_seq,
+            request_id,
+        )
+    }
+
+    fn buffer_with_tail(
+        session: &str,
+        data: &str,
+        offset: i64,
+        buffer_length: i64,
+        truncated: bool,
+        tail: bool,
+        output_seq: i64,
+        request_id: Option<&str>,
+    ) -> Value {
         let mut payload = json!({
             "data": data,
             "buffer": true,
             "offset": offset,
             "bufferLength": buffer_length,
             "truncated": truncated,
+            "tail": tail,
             "outputSeq": output_seq,
         });
         if let Some(request_id) = request_id {
@@ -1136,6 +1190,39 @@ mod tests {
 
         assert!(router.start_buffer_request("session-1", "refresh-empty", true, true, true));
         let empty = router.accept(
+            &buffer_with_tail(
+                "session-1",
+                "",
+                0,
+                0,
+                false,
+                true,
+                11,
+                Some("refresh-empty"),
+            ),
+            Some("session-1"),
+        );
+
+        assert_eq!(
+            kinds(&empty),
+            ["loading", "sessionUpdated", "markBufferReceived", "ack"]
+        );
+        assert_eq!(router.content("session-1"), Some("history"));
+        assert_eq!(router.active_buffer_request_id("session-1"), None);
+    }
+
+    #[test]
+    fn empty_non_tail_refresh_baseline_stays_pending() {
+        let mut router = RemoteTerminalOutputRouter::new(65536, 65536);
+        router.bind_session("session-1", false);
+        router.accept(
+            &buffer_with_screen_data("session-1", "history", "\x1b[2J\x1b[Hscreen", 10),
+            Some("session-1"),
+        );
+        assert_eq!(router.content("session-1"), Some("history"));
+
+        assert!(router.start_buffer_request("session-1", "refresh-empty", true, true, true));
+        let empty = router.accept(
             &buffer("session-1", "", 0, 0, false, 11, Some("refresh-empty")),
             Some("session-1"),
         );
@@ -1146,6 +1233,52 @@ mod tests {
             router.active_buffer_request_id("session-1"),
             Some("refresh-empty")
         );
+    }
+
+    #[test]
+    fn empty_tail_baseline_closes_loading_without_cached_content() {
+        let mut router = RemoteTerminalOutputRouter::new(65536, 65536);
+        router.bind_session("session-1", true);
+
+        let empty = router.accept(
+            &buffer_with_tail("session-1", "", 0, 0, false, true, 11, Some("empty-tail")),
+            Some("session-1"),
+        );
+
+        assert_eq!(
+            kinds(&empty),
+            ["loading", "sessionUpdated", "markBufferReceived", "ack"]
+        );
+        assert_eq!(router.content("session-1"), None);
+    }
+
+    #[test]
+    fn empty_tail_baseline_replays_held_live_output() {
+        let mut router = RemoteTerminalOutputRouter::new(65536, 65536);
+        router.bind_session("session-1", true);
+
+        let held = router.accept(&live("session-1", "live", 12), Some("session-1"));
+        assert_eq!(kinds(&held), ["ack"]);
+        assert_eq!(router.content("session-1"), None);
+
+        let empty = router.accept(
+            &buffer_with_tail("session-1", "", 0, 0, false, true, 11, Some("empty-tail")),
+            Some("session-1"),
+        );
+
+        assert_eq!(
+            kinds(&empty),
+            [
+                "loading",
+                "sessionUpdated",
+                "markBufferReceived",
+                "ack",
+                "loading",
+                "sessionUpdated",
+                "ack",
+            ]
+        );
+        assert_eq!(router.content("session-1"), Some("live"));
     }
 
     #[test]

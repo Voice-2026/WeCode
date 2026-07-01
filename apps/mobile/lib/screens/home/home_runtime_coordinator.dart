@@ -61,16 +61,16 @@ class HomeRuntimeCoordinator {
   final void Function(bool loading) setTerminalBufferLoading;
   final bool Function(String sessionId) restoreTerminalSessionFromCache;
   final void Function(String sessionId)
-      closeTerminalSwitcherAfterPendingWorktreeBuffer;
+  closeTerminalSwitcherAfterPendingWorktreeBuffer;
   final void Function(String sessionId) trackTerminalBaselineRequest;
   final void Function({String? sessionId}) releaseTerminalViewport;
   final VoidCallback clearTerminal;
   final VoidCallback requestTerminalList;
   final void Function(String projectId, {required String reason})
-      sendProjectSelect;
+  sendProjectSelect;
   final VoidCallback focusTerminalViewSoon;
   final void Function(HomeRuntimeSnapshot previous, String reason)
-      onSessionStateChanged;
+  onSessionStateChanged;
 
   void applyRuntimePlan(RemoteRuntimePlan plan, {String reason = ''}) {
     final previous = captureSnapshot();
@@ -88,6 +88,7 @@ class HomeRuntimeCoordinator {
     if (plan.removedSessionId != null) {
       final removed = plan.removedSessionId!;
       outputController.removeSession(removed);
+      terminalBufferRetry.resetSession(removed);
       terminalRepaint.tick();
       terminalInputSender.clear(sessionId: removed);
     }
@@ -112,6 +113,7 @@ class HomeRuntimeCoordinator {
     if (plan.bindSessionId != null &&
         previous.sessionId != null &&
         previous.sessionId != plan.bindSessionId) {
+      terminalBufferRetry.resetSession(previous.sessionId!);
       releaseTerminalViewport(sessionId: previous.sessionId);
     }
     if (plan.clearTerminal) {
@@ -153,7 +155,8 @@ class HomeRuntimeCoordinator {
     // `selectedProjectId`: a user-select plan updates the runtime's project via
     // `syncRuntimeViewState()` earlier in this same apply pass, so the captured
     // field is stale here and would bind the session to the previous project.
-    final boundProjectId = captureSnapshot().selectedProjectId ?? selectedProjectId;
+    final boundProjectId =
+        captureSnapshot().selectedProjectId ?? selectedProjectId;
     final bindResult = terminalBindingCoordinator.bindSession(
       plan: plan,
       bindSessionId: bindSessionId,

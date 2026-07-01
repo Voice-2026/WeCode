@@ -1671,7 +1671,7 @@ impl RemoteHostRuntime {
                 self.register_terminal_viewer(&session_id, Some(device_id));
                 self.send_terminal_viewport_state(&session_id, Some(device_id));
                 if RemoteTerminalSubscriptionTarget::baseline_requested(&envelope.payload) {
-                    self.send_terminal_baseline(&session_id, Some(device_id), envelope);
+                    self.spawn_terminal_baseline(&session_id, Some(device_id), envelope);
                 }
             }
             Err(error) => self.send_error(envelope, &error),
@@ -1723,7 +1723,7 @@ impl RemoteHostRuntime {
                     self.register_terminal_viewer(session_id, envelope.device_id.as_deref());
                     self.send_terminal_viewport_state(session_id, envelope.device_id.as_deref());
                     if change.baseline {
-                        self.send_terminal_baseline(
+                        self.spawn_terminal_baseline(
                             session_id,
                             envelope.device_id.as_deref(),
                             envelope,
@@ -3268,6 +3268,7 @@ impl RemoteHostRuntime {
         tail: bool,
     ) {
         self.register_terminal_viewer(session_id, device_id);
+        let fallback_request_id = request_id.clone();
         match self.terminal_buffer_window(session_id, offset, max_chars, request_id, tail) {
             Ok(window) => {
                 let output_seq = window
@@ -3287,12 +3288,26 @@ impl RemoteHostRuntime {
                     "remote",
                     &format!("terminal_buffer baseline_failed session={session_id} error={error}"),
                 );
-                self.send(
-                    "error",
-                    device_id,
-                    Some(session_id),
-                    json!({ "message": error.to_string() }),
-                );
+                let output_seq = self.current_terminal_output_seq(session_id);
+                let fallback = RemoteTerminalBufferWindow {
+                    data: String::new(),
+                    screen_data: None,
+                    offset: 0,
+                    total_characters: 0,
+                    truncated: false,
+                    output_seq: Some(output_seq),
+                    request_id: fallback_request_id,
+                    tail,
+                    has_previous: false,
+                };
+                for payload in terminal_buffer_payloads(&fallback, output_seq, chunk_chars) {
+                    self.send_terminal_data(
+                        REMOTE_TERMINAL_OUTPUT,
+                        device_id,
+                        Some(session_id),
+                        payload,
+                    );
+                }
             }
         }
     }
@@ -3346,13 +3361,17 @@ impl RemoteHostRuntime {
             // reported) or re-appends them (double).
             //
             // Flush the pending batch FIRST so its data is assigned a sequence
-            // and forwarded; then the baseline's history, keyframe AND sequence
-            // all reflect that same flushed state, captured together under the
-            // sequence lock so a concurrent flush can't advance it between the
-            // reads. The viewer dedupes the just-flushed frame instead.
+            // and forwarded before the baseline. Read the resulting sequence and
+            // release the process-wide sequence map lock before snapshotting the
+            // PTY history: snapshot_tail competes with the live PTY writer for the
+            // per-session history lock, and holding the global sequence lock while
+            // waiting on that would let one busy terminal block unrelated sessions.
+            // The consumer-side sequence guard already tolerates the tiny
+            // seq/history skew that can happen after releasing the map lock.
             self.flush_terminal_output_batch(session_id);
-            let seq_guard = self.terminal_output_seq_by_session.lock();
-            let output_seq = seq_guard
+            let output_seq = self
+                .terminal_output_seq_by_session
+                .lock()
                 .as_ref()
                 .ok()
                 .and_then(|sequences| sequences.get(session_id).copied())
@@ -3379,7 +3398,6 @@ impl RemoteHostRuntime {
                 .filter(|snapshot| snapshot.input_mode.alternate_screen)
                 .map(|snapshot| snapshot.data)
                 .filter(|data| !data.is_empty());
-            drop(seq_guard);
             return Ok(RemoteTerminalBufferWindow {
                 data,
                 screen_data,
@@ -4123,8 +4141,35 @@ impl RemoteHostRuntime {
             })
             .collect::<Vec<_>>();
         for session_id in sessions {
-            self.send_terminal_baseline(&session_id, device_id, envelope);
+            self.spawn_terminal_baseline(&session_id, device_id, envelope);
         }
+    }
+
+    fn spawn_terminal_baseline(
+        self: &Arc<Self>,
+        session_id: &str,
+        device_id: Option<&str>,
+        envelope: &RemoteEnvelope,
+    ) {
+        let runtime = Arc::clone(self);
+        let session_id = session_id.to_string();
+        let device_id = device_id.map(str::to_string);
+        let envelope = envelope.clone();
+        crate::async_runtime::spawn(async move {
+            let session_id_for_log = session_id.clone();
+            if let Err(error) = crate::async_runtime::spawn_blocking(move || {
+                runtime.send_terminal_baseline(&session_id, device_id.as_deref(), &envelope);
+            })
+            .await
+            {
+                crate::runtime_trace::runtime_trace(
+                    "remote",
+                    &format!(
+                        "terminal_buffer baseline_task_failed session={session_id_for_log} error={error}"
+                    ),
+                );
+            }
+        });
     }
 
     fn send_terminal_baseline(
@@ -4686,6 +4731,21 @@ mod tests {
                 .lock()
                 .map(|mut messages| messages.drain(..).collect())
                 .unwrap_or_default()
+        }
+
+        fn wait_for_message<F>(&self, mut predicate: F) -> Option<(Option<String>, Vec<u8>)>
+        where
+            F: FnMut(&(Option<String>, Vec<u8>)) -> bool,
+        {
+            for _ in 0..40 {
+                for message in self.take_messages() {
+                    if predicate(&message) {
+                        return Some(message);
+                    }
+                }
+                std::thread::sleep(std::time::Duration::from_millis(25));
+            }
+            None
         }
     }
 
@@ -5646,21 +5706,24 @@ mod tests {
             }),
         });
 
-        let mut baseline = None;
-        for (_, data) in transport.take_messages() {
-            let text = String::from_utf8(data).expect("utf8 transport");
-            let envelope = runtime
-                .service()
-                .parse_incoming_envelope(&text)
-                .expect("parse outgoing envelope");
-            if envelope.kind == "terminal.output"
-                && envelope.session_id.as_deref() == Some(&session_id)
-            {
-                baseline = Some(envelope.payload);
-                break;
-            }
-        }
-        let baseline = baseline.expect("baseline terminal output");
+        let (_, data) = transport
+            .wait_for_message(|(_, data)| {
+                let Ok(text) = std::str::from_utf8(data) else {
+                    return false;
+                };
+                let Ok(envelope) = runtime.service().parse_incoming_envelope(text) else {
+                    return false;
+                };
+                envelope.kind == "terminal.output"
+                    && envelope.session_id.as_deref() == Some(&session_id)
+            })
+            .expect("baseline terminal output");
+        let text = String::from_utf8(data).expect("utf8 transport");
+        let envelope = runtime
+            .service()
+            .parse_incoming_envelope(&text)
+            .expect("parse outgoing envelope");
+        let baseline = envelope.payload;
         assert_eq!(baseline["buffer"], true);
         assert_eq!(baseline["offset"], 0);
         assert_eq!(baseline["requestId"].as_str().is_some(), true);
@@ -6404,21 +6467,24 @@ mod tests {
             }),
         });
 
-        let mut baseline = None;
-        for (_, data) in transport.take_messages() {
-            let text = String::from_utf8(data).expect("utf8 transport");
-            let envelope = runtime
-                .service()
-                .parse_incoming_envelope(&text)
-                .expect("parse outgoing envelope");
-            if envelope.kind == REMOTE_TERMINAL_OUTPUT
-                && envelope.payload.get("buffer").and_then(Value::as_bool) == Some(true)
-            {
-                baseline = Some(envelope.payload);
-                break;
-            }
-        }
-        let baseline = baseline.expect("terminal baseline");
+        let (_, data) = transport
+            .wait_for_message(|(_, data)| {
+                let Ok(text) = std::str::from_utf8(data) else {
+                    return false;
+                };
+                let Ok(envelope) = runtime.service().parse_incoming_envelope(text) else {
+                    return false;
+                };
+                envelope.kind == REMOTE_TERMINAL_OUTPUT
+                    && envelope.payload.get("buffer").and_then(Value::as_bool) == Some(true)
+            })
+            .expect("terminal baseline");
+        let text = String::from_utf8(data).expect("utf8 transport");
+        let envelope = runtime
+            .service()
+            .parse_incoming_envelope(&text)
+            .expect("parse outgoing envelope");
+        let baseline = envelope.payload;
 
         assert_eq!(baseline["requestId"], "request-1");
         assert_eq!(baseline["tail"], true);

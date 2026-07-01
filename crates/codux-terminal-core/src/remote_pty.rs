@@ -172,6 +172,22 @@ impl<T> RemotePtySession<T> {
         replay
     }
 
+    pub fn complete_empty_baseline(&mut self, sequence: Option<TerminalSequence>) -> Vec<T> {
+        let base_sequence = sequence.unwrap_or(self.sequence);
+        self.sequence = base_sequence;
+        self.awaiting_baseline = false;
+
+        let mut replay = Vec::new();
+        let held_sequenced_live = std::mem::take(&mut self.held_sequenced_live);
+        for (sequence, output) in held_sequenced_live {
+            if sequence > base_sequence {
+                replay.push(output);
+            }
+        }
+        replay.append(&mut self.held_unsequenced_live);
+        replay
+    }
+
     pub fn append_live(
         &mut self,
         data: &str,
