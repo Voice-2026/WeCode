@@ -409,6 +409,18 @@ impl RemoteTerminalDispatch for AgentTerminalCtx<'_> {
             ),
             ..Default::default()
         };
+        let requested_terminal_id = config
+            .terminal_id
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .map(str::to_string);
+        let reattaching = requested_terminal_id
+            .as_deref()
+            .map(|id| self.driver.snapshot(id).is_ok())
+            .unwrap_or(false);
+        if let (Some(device_id), Some(terminal_id)) = (device_id, requested_terminal_id.as_deref()) {
+            self.fanout.add_viewer(terminal_id, device_id);
+        }
         // Stream this session's output to ALL of its viewers (fan-out), and
         // forward viewport-state changes (lease claim/handoff) too.
         let driver_for_emit = Arc::clone(self.driver);
@@ -500,6 +512,18 @@ impl RemoteTerminalDispatch for AgentTerminalCtx<'_> {
                     REMOTE_TERMINAL_LIST,
                     list_payload(self.driver),
                 );
+                if reattaching
+                    && let Some(device_id) = device_id
+                {
+                    send_terminal_baseline(
+                        self.driver,
+                        self.transport,
+                        self.fanout,
+                        device_id,
+                        &session_id,
+                        payload,
+                    );
+                }
             }
             Err(error) => reply(
                 self.transport,
