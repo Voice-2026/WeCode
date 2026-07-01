@@ -101,8 +101,9 @@ fn ssh_store_uses_shared_config_document_snapshot() {
 #[cfg(not(windows))]
 #[test]
 fn codux_ssh_remote_command_exits_after_noninteractive_password_auth() {
+    use std::io::Write;
     use std::os::unix::fs::PermissionsExt;
-    use std::process::Command;
+    use std::process::{Command, Stdio};
 
     let dir = std::env::temp_dir().join(format!("codux-ssh-noninteractive-{}", Uuid::new_v4()));
     let bin = dir.join("bin");
@@ -110,7 +111,18 @@ fn codux_ssh_remote_command_exits_after_noninteractive_password_auth() {
     let fake_ssh = bin.join("ssh");
     fs::write(
         &fake_ssh,
-        "#!/bin/sh\nprintf 'password: ' >&2\nIFS= read -r _password\nprintf 'remote-ok\\n'\nexit 0\n",
+        "#!/bin/sh\n\
+         for arg in \"$@\"; do\n\
+           if [ \"$arg\" = \"-f\" ]; then\n\
+             printf 'password: ' >&2\n\
+             IFS= read -r _password\n\
+             printf 'master-ready\\n' >> \"$CODUX_SSH_TEST_LOG\"\n\
+             exit 0\n\
+           fi\n\
+         done\n\
+         printf 'remote-ok\\n'\n\
+         cat\n\
+         exit 0\n",
     )
     .unwrap();
     let mut permissions = fs::metadata(&fake_ssh).unwrap().permissions();
@@ -156,10 +168,130 @@ fn codux_ssh_remote_command_exits_after_noninteractive_password_auth() {
          if [ \"$1\" != \"--codux-wrapper-helper\" ]; then exit 64; fi\n\
          case \"$2\" in\n\
            ssh-profile-shell)\n\
-             printf '%s\\n' 'ssh_password=secret' \"ssh_key_passphrase=''\" 'ssh_args=(ssh -p 22 root@example.com)'\n\
+             printf '%s\\n' 'ssh_password=secret' \"ssh_key_passphrase=''\" 'ssh_args=(ssh -p 22 -o ControlMaster=auto -o ControlPath=/tmp/codux-ssh-test-%r@%h:%p -o ControlPersist=300 root@example.com)'\n\
              ;;\n\
            ssh-list-profiles)\n\
              printf '%s\\n' '{\"profiles\":[{\"id\":\"profile-1\",\"name\":\"Test\",\"host\":\"example.com\",\"port\":22,\"username\":\"root\",\"endpoint\":\"root@example.com:22\",\"credential\":\"password\"}]}'\n\
+             ;;\n\
+           *) exit 64 ;;\n\
+         esac\n",
+    )
+    .unwrap();
+    for executable in [
+        &fake_ssh,
+        &wrapper,
+        &helper,
+        &staged_wrappers.join("codux-ssh-expect.exp"),
+    ] {
+        let mut permissions = fs::metadata(executable).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(executable, permissions).unwrap();
+    }
+
+    let log_file = dir.join("ssh.log");
+    let mut child = Command::new("zsh")
+        .arg(wrapper)
+        .arg("profile-1")
+        .arg("--")
+        .arg("cat")
+        .env("CODUX_SSH_TEST_LOG", &log_file)
+        .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+        .env("CODUX_SSH_PROFILES_FILE", &profiles)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(b"upload-body\n")
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+
+    assert!(
+        output.status.success(),
+        "codux-ssh should exit after remote command, stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stdout.contains("remote-ok"), "{stdout}");
+    assert!(stdout.contains("upload-body"), "{stdout}");
+    assert!(!stdout.contains("secret"), "{stdout}");
+    assert!(!stderr.contains("secret"), "{stderr}");
+    assert_eq!(fs::read_to_string(log_file).unwrap(), "master-ready\n");
+
+    fs::remove_dir_all(dir).ok();
+}
+
+#[cfg(not(windows))]
+#[test]
+fn codux_ssh_without_control_path_uses_expect_fallback_for_password_auth() {
+    use std::os::unix::fs::PermissionsExt;
+    use std::process::Command;
+
+    let dir = std::env::temp_dir().join(format!("codux-ssh-no-controlpath-{}", Uuid::new_v4()));
+    let bin = dir.join("bin");
+    fs::create_dir_all(&bin).unwrap();
+    let fake_ssh = bin.join("ssh");
+    fs::write(
+        &fake_ssh,
+        "#!/bin/sh\n\
+         for arg in \"$@\"; do\n\
+           if [ \"$arg\" = \"-f\" ]; then\n\
+             printf 'unexpected-master\\n'\n\
+             exit 9\n\
+           fi\n\
+         done\n\
+         printf 'password: ' >&2\n\
+         IFS= read -r _password\n\
+         printf 'fallback-ok\\n'\n\
+         exit 0\n",
+    )
+    .unwrap();
+
+    let profiles = dir.join("ssh_profiles.json");
+    fs::write(
+        &profiles,
+        serde_json::json!([{
+            "id": "profile-1",
+            "name": "Test",
+            "host": "example.com",
+            "port": 22,
+            "username": "root",
+            "credentialKind": "password",
+            "privateKeyPath": "",
+            "password": "secret",
+            "updatedAt": 1
+        }])
+        .to_string(),
+    )
+    .unwrap();
+
+    let source_wrappers = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("runtime-assets/scripts/wrappers");
+    let staged_wrappers = dir.join("runtime-assets/scripts/wrappers");
+    let staged_bin = staged_wrappers.join("bin");
+    fs::create_dir_all(&staged_bin).unwrap();
+    let wrapper = staged_bin.join("codux-ssh");
+    fs::copy(source_wrappers.join("bin/codux-ssh"), &wrapper).unwrap();
+    fs::copy(
+        source_wrappers.join("codux-ssh-expect.exp"),
+        staged_wrappers.join("codux-ssh-expect.exp"),
+    )
+    .unwrap();
+    let helper = staged_wrappers.join("codux-wrapper-helper");
+    fs::write(
+        &helper,
+        "#!/bin/sh\n\
+         if [ \"$1\" != \"--codux-wrapper-helper\" ]; then exit 64; fi\n\
+         case \"$2\" in\n\
+           ssh-profile-shell)\n\
+             printf '%s\\n' 'ssh_password=secret' \"ssh_key_passphrase=''\" 'ssh_args=(ssh -p 22 root@example.com)'\n\
              ;;\n\
            *) exit 64 ;;\n\
          esac\n",
@@ -180,7 +312,7 @@ fn codux_ssh_remote_command_exits_after_noninteractive_password_auth() {
         .arg(wrapper)
         .arg("profile-1")
         .arg("--")
-        .arg("echo remote-ok")
+        .arg("echo fallback-ok")
         .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
         .env("CODUX_SSH_PROFILES_FILE", &profiles)
         .output()
@@ -188,10 +320,12 @@ fn codux_ssh_remote_command_exits_after_noninteractive_password_auth() {
 
     assert!(
         output.status.success(),
-        "codux-ssh should exit after remote command, stderr={}",
+        "codux-ssh fallback should succeed, stderr={}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(String::from_utf8_lossy(&output.stdout).contains("remote-ok"));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("fallback-ok"), "{stdout}");
+    assert!(!stdout.contains("unexpected-master"), "{stdout}");
 
     fs::remove_dir_all(dir).ok();
 }

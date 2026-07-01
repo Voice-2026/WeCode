@@ -93,6 +93,14 @@ sanitize_ssh_locale_environment() {
   unset LANGUAGE
 }
 
+ssh_args_have_control_path() {
+  local arg
+  for arg in "${ssh_base_args[@]}"; do
+    [[ "${arg}" == ControlPath=* ]] && return 0
+  done
+  return 1
+}
+
 ssh_bin="$(command -v ssh 2>/dev/null || true)"
 if [[ -z "${ssh_bin}" ]]; then
   ssh_bin="/usr/bin/ssh"
@@ -102,6 +110,7 @@ if [[ ! -x "${ssh_bin}" ]]; then
   exit 127
 fi
 ssh_args[1]="${ssh_bin}"
+ssh_base_args=("${ssh_args[@]}")
 if [[ ${#remote_command[@]} -gt 0 ]]; then
   ssh_args+=("${remote_command[@]}")
 fi
@@ -129,7 +138,19 @@ fi
 
 export CODUX_SSH_PASSWORD="${ssh_password}"
 export CODUX_SSH_KEY_PASSPHRASE="${ssh_key_passphrase}"
-if [[ ${#remote_command[@]} -gt 0 ]]; then
+if [[ ${#remote_command[@]} -gt 0 ]] && ssh_args_have_control_path; then
+  remote_target="${ssh_base_args[-1]}"
+  master_args=("${ssh_base_args[@]:0:${#ssh_base_args[@]} - 1}" -f -N "${remote_target}")
+  CODUX_SSH_NONINTERACTIVE=1 "${expect_bin}" "${expect_script}" "${master_args[@]}" </dev/null >/dev/null 2>/dev/null
+  master_status=$?
+  if [[ ${master_status} -ne 0 ]]; then
+    exit ${master_status}
+  fi
+  unset CODUX_SSH_NONINTERACTIVE
+  unset CODUX_SSH_PASSWORD
+  unset CODUX_SSH_KEY_PASSPHRASE
+  exec "${ssh_args[@]}"
+elif [[ ${#remote_command[@]} -gt 0 ]]; then
   export CODUX_SSH_NONINTERACTIVE=1
 else
   unset CODUX_SSH_NONINTERACTIVE

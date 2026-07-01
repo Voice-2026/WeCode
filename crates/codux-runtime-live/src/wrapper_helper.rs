@@ -269,6 +269,16 @@ fn print_ssh_profile_shell() -> Result<(), String> {
         String::new()
     };
     let mut ssh_args = vec!["ssh".to_string(), "-p".to_string(), port.to_string()];
+    if let Some(control_path) = ssh_control_path(&profile_id) {
+        ssh_args.extend([
+            "-o".to_string(),
+            "ControlMaster=auto".to_string(),
+            "-o".to_string(),
+            format!("ControlPath={control_path}"),
+            "-o".to_string(),
+            "ControlPersist=300".to_string(),
+        ]);
+    }
     if credential_kind == "privateKey" && !private_key_path.is_empty() {
         ssh_args.push("-i".to_string());
         ssh_args.push(expand_home(&private_key_path));
@@ -285,6 +295,35 @@ fn print_ssh_profile_shell() -> Result<(), String> {
             .join(" ")
     );
     Ok(())
+}
+
+fn ssh_control_path(profile_id: &str) -> Option<String> {
+    let socket_name = format!("cxs-{:016x}", stable_hash64(profile_id.as_bytes()));
+    #[cfg(target_os = "macos")]
+    let base_dir = env::var("TMPDIR")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "/tmp".to_string());
+    #[cfg(not(target_os = "macos"))]
+    let base_dir = env::var("XDG_RUNTIME_DIR")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| env::var("TMPDIR").ok().filter(|value| !value.trim().is_empty()))
+        .unwrap_or_else(|| "/tmp".to_string());
+    let dir = Path::new(&base_dir).join("codux-ssh");
+    if fs::create_dir_all(&dir).is_err() {
+        return None;
+    }
+    Some(dir.join(socket_name).display().to_string())
+}
+
+fn stable_hash64(bytes: &[u8]) -> u64 {
+    let mut hash = 0xcbf29ce484222325u64;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
 }
 
 fn hook_payload() -> Option<Value> {
@@ -546,6 +585,23 @@ mod tests {
         assert_eq!(
             find_first_integer_recursive(&value, &["total_tokens"]),
             Some(42)
+        );
+    }
+
+    #[test]
+    fn ssh_control_path_is_stable_and_safe() {
+        let path = ssh_control_path("profile with spaces").expect("control path");
+        assert!(path.contains("cxs-"));
+        assert!(!path.contains(' '));
+        assert!(!path.contains("%r"));
+    }
+
+    #[test]
+    fn ssh_control_path_stays_below_macos_socket_limit_for_uuid_profiles() {
+        let path = ssh_control_path("123e4567-e89b-12d3-a456-426614174000").expect("control path");
+        assert!(
+            path.len() < 104,
+            "ControlPath must fit macOS sockaddr_un.sun_path: {path}"
         );
     }
 }
