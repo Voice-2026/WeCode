@@ -9,7 +9,7 @@ use crate::ai_runtime::{
     log::runtime_log_line,
     monitor::{TranscriptMonitorMap, refresh_transcript_monitors, scan_transcript_monitors},
     payload::AIRuntimeEvent,
-    probe::probe_runtime,
+    probe::{claude::ClaudeProbeCache, probe_runtime_with_claude_cache},
     registry::AIRuntimeRegistry,
     screen_signal::detect_screen_signal,
     snapshot::{AIRuntimeCompletionEvent, AIRuntimeStateSnapshot},
@@ -176,6 +176,7 @@ fn supervisor_loop(
     runtime_event_dir: PathBuf,
     binding_dir: PathBuf,
 ) {
+    let mut claude_cache = ClaudeProbeCache::default();
     while let Ok(message) = rx.recv() {
         match message {
             AIRuntimeSupervisorMessage::HookFrame(frame) => {
@@ -198,7 +199,8 @@ fn supervisor_loop(
                 after_mutation(&state, &transcript_monitors, &events, mutation);
             }
             AIRuntimeSupervisorMessage::Poll => {
-                let mutation = poll_runtime_sessions(&state, &registry, "interval", None);
+                let mutation =
+                    poll_runtime_sessions(&state, &registry, "interval", None, &mut claude_cache);
                 after_mutation(&state, &transcript_monitors, &events, mutation);
             }
             AIRuntimeSupervisorMessage::ScreenSignal(terminal_id) => {
@@ -215,6 +217,7 @@ fn supervisor_loop(
                     &registry,
                     "transcript-tail",
                     Some(&terminal_ids),
+                    &mut claude_cache,
                 );
                 after_mutation(&state, &transcript_monitors, &events, mutation);
             }
@@ -351,6 +354,7 @@ fn poll_runtime_sessions(
     registry: &AIRuntimeRegistry,
     reason: &str,
     terminal_ids: Option<&HashSet<String>>,
+    claude_cache: &mut ClaudeProbeCache,
 ) -> AIRuntimeStateMutation {
     let terminal_snapshot = registry.snapshot();
     let mut mutation = state.reconcile_bridge_snapshot(&terminal_snapshot);
@@ -373,12 +377,19 @@ fn poll_runtime_sessions(
     let sessions = terminal_ids
         .map(|ids| state.sessions_for_terminals(ids))
         .unwrap_or_else(|| state.runtime_tracked_sessions(now));
+    if terminal_ids.is_none() {
+        let tracked = sessions
+            .iter()
+            .map(|session| session.terminal_id.clone())
+            .collect::<HashSet<_>>();
+        claude_cache.retain_terminals(&tracked);
+    }
     for session in sessions {
         if !should_poll_runtime_session(&session, reason, now_seconds()) {
             continue;
         }
         let request = probe_request_for_session(&session);
-        if let Some(snapshot) = probe_runtime(&request) {
+        if let Some(snapshot) = probe_runtime_with_claude_cache(&request, claude_cache) {
             mutation.merge(state.apply_runtime_snapshot(&session.terminal_id, snapshot));
         }
         // Universal hook-free screen detection. Most tools only need this while
@@ -877,7 +888,9 @@ mod tests {
             updated_at: now_seconds(),
         });
 
-        let mutation = poll_runtime_sessions(&state, &registry, "interval", None);
+        let mut claude_cache = ClaudeProbeCache::default();
+        let mutation =
+            poll_runtime_sessions(&state, &registry, "interval", None, &mut claude_cache);
 
         assert!(!mutation.did_change);
         let snapshot = state.snapshot();

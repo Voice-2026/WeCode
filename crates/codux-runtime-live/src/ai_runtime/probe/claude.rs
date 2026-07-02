@@ -12,29 +12,83 @@ use crate::ai_runtime::{
 };
 use serde_json::Value;
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashMap},
     fs,
-    io::{BufRead, BufReader},
-    path::Path,
+    io::{BufRead, BufReader, Seek},
+    path::{Path, PathBuf},
 };
 
 pub(crate) fn probe_claude_runtime(
     request: &AIRuntimeProbeRequest,
+) -> Option<AIRuntimeContextSnapshot> {
+    probe_claude_runtime_inner(request, None)
+}
+
+#[derive(Default)]
+pub(crate) struct ClaudeProbeCache {
+    files: HashMap<ClaudeProbeCacheKey, ClaudeProbeCacheEntry>,
+}
+
+impl ClaudeProbeCache {
+    pub(crate) fn retain_terminals(&mut self, terminal_ids: &std::collections::HashSet<String>) {
+        self.files
+            .retain(|_, entry| terminal_ids.contains(&entry.terminal_id));
+    }
+}
+
+#[derive(Hash, PartialEq, Eq)]
+struct ClaudeProbeCacheKey {
+    path: PathBuf,
+    project_path: String,
+    external_session_id: String,
+}
+
+struct ClaudeProbeCacheEntry {
+    terminal_id: String,
+    size: u64,
+    modified_nanos: u128,
+    parsed_offset: u64,
+    has_pending_partial: bool,
+    matched: bool,
+    aggregate: ClaudeAggregate,
+}
+
+pub(crate) fn probe_claude_runtime_with_cache(
+    request: &AIRuntimeProbeRequest,
+    cache: &mut ClaudeProbeCache,
+) -> Option<AIRuntimeContextSnapshot> {
+    probe_claude_runtime_inner(request, Some(cache))
+}
+
+fn probe_claude_runtime_inner(
+    request: &AIRuntimeProbeRequest,
+    mut cache: Option<&mut ClaudeProbeCache>,
 ) -> Option<AIRuntimeContextSnapshot> {
     let project_path = normalized_string(request.project_path.as_deref())?;
     // Unknown session id → derive it from the freshest transcript for this cwd.
     let external_id = normalized_string(request.external_session_id.as_deref())
         .or_else(|| newest_claude_session_id_since(&project_path, request.started_at))?;
     let file_urls = claude_project_log_paths(&project_path);
+    let selected_paths = claude_log_paths_for_session(&file_urls, &external_id);
     let mut aggregate: Option<ClaudeAggregate> = None;
     // Track the matched file with the most recent activity so the supervisor can
     // size+mtime watch it (parity with codex); claude sessions are otherwise
     // only re-probed on the 5s interval.
     let mut transcript_path: Option<String> = None;
     let mut transcript_seen_at = f64::MIN;
-    for file_url in file_urls {
-        let Some(next) = parse_claude_log_runtime_state(&file_url, &project_path, &external_id)
-        else {
+    for file_url in selected_paths {
+        let next = if let Some(cache) = cache.as_deref_mut() {
+            parse_claude_log_runtime_state_cached(
+                &file_url,
+                &project_path,
+                &external_id,
+                &request.terminal_id,
+                cache,
+            )
+        } else {
+            parse_claude_log_runtime_state(&file_url, &project_path, &external_id)
+        };
+        let Some(next) = next else {
             continue;
         };
         if next.updated_at >= transcript_seen_at {
@@ -80,7 +134,22 @@ pub(crate) fn probe_claude_runtime(
     })
 }
 
-#[derive(Default)]
+fn claude_log_paths_for_session(paths: &[PathBuf], external_session_id: &str) -> Vec<PathBuf> {
+    let exact = paths
+        .iter()
+        .filter(|path| {
+            path.file_stem().and_then(|value| value.to_str()) == Some(external_session_id)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    if exact.is_empty() {
+        paths.to_vec()
+    } else {
+        exact
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
 struct ClaudeAggregate {
     model: Option<String>,
     assistant_preview: Option<String>,
@@ -236,9 +305,139 @@ fn parse_claude_log_runtime_state(
     let file = fs::File::open(file_path).ok()?;
     let mut reader = BufReader::new(file);
     let mut aggregate = ClaudeAggregate::default();
-    let mut matched = false;
-    let mut line = String::new();
+    let matched = parse_claude_log_reader(
+        &mut reader,
+        project_path,
+        external_session_id,
+        &mut aggregate,
+    );
 
+    if !matched {
+        return None;
+    }
+    Some(aggregate)
+}
+
+fn parse_claude_log_runtime_state_cached(
+    file_path: &Path,
+    project_path: &str,
+    external_session_id: &str,
+    terminal_id: &str,
+    cache: &mut ClaudeProbeCache,
+) -> Option<ClaudeAggregate> {
+    let metadata = fs::metadata(file_path).ok()?;
+    let size = metadata.len();
+    let modified_nanos = metadata
+        .modified()
+        .ok()
+        .and_then(|value| value.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|value| value.as_nanos())
+        .unwrap_or(0);
+    let key = ClaudeProbeCacheKey {
+        path: canonical_probe_path(file_path),
+        project_path: project_path.to_string(),
+        external_session_id: external_session_id.to_string(),
+    };
+    if let Some(entry) = cache.files.get(&key) {
+        if !entry.has_pending_partial
+            && entry.size == size
+            && entry.modified_nanos == modified_nanos
+        {
+            return entry.matched.then(|| entry.aggregate.clone());
+        }
+    }
+
+    let can_append = cache
+        .files
+        .get(&key)
+        .map(|entry| size > entry.size && modified_nanos >= entry.modified_nanos)
+        .unwrap_or(false);
+    let mut entry = if can_append {
+        cache.files.remove(&key).unwrap()
+    } else {
+        ClaudeProbeCacheEntry {
+            terminal_id: terminal_id.to_string(),
+            size: 0,
+            modified_nanos: 0,
+            parsed_offset: 0,
+            has_pending_partial: false,
+            matched: false,
+            aggregate: ClaudeAggregate::default(),
+        }
+    };
+
+    let mut file = fs::File::open(file_path).ok()?;
+    let start = if can_append { entry.parsed_offset } else { 0 };
+    if file.seek(std::io::SeekFrom::Start(start)).is_err() {
+        return None;
+    }
+    let mut reader = BufReader::new(file);
+    let mut current_offset = start;
+    let progress = parse_claude_log_reader_with_offset(
+        &mut reader,
+        project_path,
+        external_session_id,
+        &mut entry.aggregate,
+        &mut current_offset,
+        false,
+    );
+    entry.terminal_id = terminal_id.to_string();
+    entry.size = size;
+    entry.modified_nanos = modified_nanos;
+    entry.parsed_offset = current_offset.min(size);
+    entry.has_pending_partial = progress.has_pending_partial;
+    entry.matched = entry.matched || progress.matched;
+    let result = entry.matched.then(|| entry.aggregate.clone());
+    cache.files.insert(key, entry);
+    result
+}
+
+fn canonical_probe_path(file_path: &Path) -> PathBuf {
+    file_path
+        .canonicalize()
+        .unwrap_or_else(|_| file_path.to_path_buf())
+}
+
+fn parse_claude_log_reader<R>(
+    reader: &mut R,
+    project_path: &str,
+    external_session_id: &str,
+    aggregate: &mut ClaudeAggregate,
+) -> bool
+where
+    R: BufRead,
+{
+    let mut offset = 0;
+    parse_claude_log_reader_with_offset(
+        reader,
+        project_path,
+        external_session_id,
+        aggregate,
+        &mut offset,
+        true,
+    )
+    .matched
+}
+
+struct ClaudeParseProgress {
+    matched: bool,
+    has_pending_partial: bool,
+}
+
+fn parse_claude_log_reader_with_offset<R>(
+    reader: &mut R,
+    project_path: &str,
+    external_session_id: &str,
+    aggregate: &mut ClaudeAggregate,
+    current_offset: &mut u64,
+    allow_incomplete_final_line: bool,
+) -> ClaudeParseProgress
+where
+    R: BufRead,
+{
+    let mut matched = false;
+    let mut has_pending_partial = false;
+    let mut line = String::new();
     loop {
         line.clear();
         let Ok(bytes) = reader.read_line(&mut line) else {
@@ -247,97 +446,119 @@ fn parse_claude_log_runtime_state(
         if bytes == 0 {
             break;
         }
-        let Ok(row) = serde_json::from_str::<Value>(&line) else {
-            continue;
-        };
-        if row.get("sessionId").and_then(|value| value.as_str()) != Some(external_session_id) {
-            continue;
+        let has_line_ending = line.ends_with('\n') || line.ends_with('\r');
+        if !has_line_ending && !allow_incomplete_final_line {
+            has_pending_partial = true;
+            break;
         }
-        if let Some(cwd) = row.get("cwd").and_then(|value| value.as_str()) {
-            if !paths_equivalent(Some(cwd), project_path) {
-                continue;
+        match parse_claude_log_line(&line, project_path, external_session_id, aggregate) {
+            Some(line_matched) => {
+                *current_offset = current_offset.saturating_add(bytes as u64);
+                matched |= line_matched;
             }
-        }
-        matched = true;
-        if is_claude_control_command_row(&row) {
-            continue;
-        }
-        let timestamp = row
-            .get("timestamp")
-            .and_then(|value| value.as_str())
-            .and_then(parse_iso8601_seconds)
-            .unwrap_or_else(now_seconds);
-        aggregate.updated_at = aggregate.updated_at.max(timestamp);
-        // The current permission mode rides its own row (no message/role, and --
-        // unlike message rows -- no timestamp). Capture it for the prompt-wait
-        // gate; last one in file order wins.
-        if row.get("type").and_then(|value| value.as_str()) == Some("permission-mode") {
-            if let Some(mode) = row
-                .get("permissionMode")
-                .and_then(|value| value.as_str())
-                .and_then(|value| normalized_string(Some(value)))
-            {
-                aggregate.permission_mode = Some(mode);
+            None if has_line_ending => {
+                *current_offset = current_offset.saturating_add(bytes as u64);
             }
-            continue;
-        }
-        let message = row.get("message").unwrap_or(&Value::Null);
-        let role = message
-            .get("role")
-            .and_then(|value| value.as_str())
-            .or_else(|| row.get("type").and_then(|value| value.as_str()));
-        if role == Some("user") {
-            // A `tool_result` answers a pending `tool_use`; record it so the
-            // pending-call signature clears once the result lands. Tool results
-            // are never interruptions, so track them regardless of the branch.
-            if claude_message_has_block(message, "tool_result") {
-                aggregate.last_tool_result_at = aggregate.last_tool_result_at.max(timestamp);
-            }
-            if is_claude_interrupted_row(&row) {
-                aggregate.last_interrupted_at = aggregate.last_interrupted_at.max(timestamp);
-                aggregate.last_completion_at = aggregate.last_completion_at.max(timestamp);
-            } else {
-                aggregate.last_user_at = aggregate.last_user_at.max(timestamp);
-            }
-        } else if role == Some("assistant") {
-            if claude_message_has_block(message, "tool_use") {
-                aggregate.last_tool_use_at = aggregate.last_tool_use_at.max(timestamp);
-            }
-            let stop_reason = message.get("stop_reason").and_then(|value| value.as_str());
-            if stop_reason == Some("end_turn") {
-                aggregate.last_completed_turn_at = aggregate.last_completed_turn_at.max(timestamp);
-                aggregate.last_completion_at = aggregate.last_completion_at.max(timestamp);
-            }
-            if let Some(preview) =
-                sanitized_preview_from_values(&[message.get("content"), row.get("content")])
-            {
-                aggregate.assistant_preview = Some(preview);
-            }
-            parse_claude_task_tool_uses(message, timestamp, &mut aggregate);
-        } else if role == Some("system") {
-            let subtype = row.get("subtype").and_then(|value| value.as_str());
-            if matches!(subtype, Some("turn_duration" | "stop_hook_summary")) {
-                aggregate.last_completion_at = aggregate.last_completion_at.max(timestamp);
-            }
-        }
-        parse_claude_task_result(&row, timestamp, &mut aggregate);
-        if let Some(model) = first_string_deep(&row, &["model"]) {
-            aggregate.model = Some(model);
-        }
-        if let Some(usage) = first_object_deep(&row, &["usage"]) {
-            aggregate.input_tokens += json_i64(usage.get("input_tokens"));
-            aggregate.output_tokens += json_i64(usage.get("output_tokens"));
-            aggregate.cached_input_tokens += json_i64(usage.get("cache_creation_input_tokens"))
-                + json_i64(usage.get("cache_read_input_tokens"));
-            aggregate.total_tokens +=
-                json_i64(usage.get("input_tokens")) + json_i64(usage.get("output_tokens"));
+            None => break,
         }
     }
+    ClaudeParseProgress {
+        matched,
+        has_pending_partial,
+    }
+}
 
-    if !matched {
+fn parse_claude_log_line(
+    line: &str,
+    project_path: &str,
+    external_session_id: &str,
+    aggregate: &mut ClaudeAggregate,
+) -> Option<bool> {
+    let Ok(row) = serde_json::from_str::<Value>(line) else {
         return None;
+    };
+    if row.get("sessionId").and_then(|value| value.as_str()) != Some(external_session_id) {
+        return Some(false);
     }
-    Some(aggregate)
+    if let Some(cwd) = row.get("cwd").and_then(|value| value.as_str()) {
+        if !paths_equivalent(Some(cwd), project_path) {
+            return Some(false);
+        }
+    }
+    if is_claude_control_command_row(&row) {
+        return Some(true);
+    }
+    let timestamp = row
+        .get("timestamp")
+        .and_then(|value| value.as_str())
+        .and_then(parse_iso8601_seconds)
+        .unwrap_or_else(now_seconds);
+    aggregate.updated_at = aggregate.updated_at.max(timestamp);
+    // The current permission mode rides its own row (no message/role, and --
+    // unlike message rows -- no timestamp). Capture it for the prompt-wait
+    // gate; last one in file order wins.
+    if row.get("type").and_then(|value| value.as_str()) == Some("permission-mode") {
+        if let Some(mode) = row
+            .get("permissionMode")
+            .and_then(|value| value.as_str())
+            .and_then(|value| normalized_string(Some(value)))
+        {
+            aggregate.permission_mode = Some(mode);
+        }
+        return Some(true);
+    }
+    let message = row.get("message").unwrap_or(&Value::Null);
+    let role = message
+        .get("role")
+        .and_then(|value| value.as_str())
+        .or_else(|| row.get("type").and_then(|value| value.as_str()));
+    if role == Some("user") {
+        // A `tool_result` answers a pending `tool_use`; record it so the
+        // pending-call signature clears once the result lands. Tool results
+        // are never interruptions, so track them regardless of the branch.
+        if claude_message_has_block(message, "tool_result") {
+            aggregate.last_tool_result_at = aggregate.last_tool_result_at.max(timestamp);
+        }
+        if is_claude_interrupted_row(&row) {
+            aggregate.last_interrupted_at = aggregate.last_interrupted_at.max(timestamp);
+            aggregate.last_completion_at = aggregate.last_completion_at.max(timestamp);
+        } else {
+            aggregate.last_user_at = aggregate.last_user_at.max(timestamp);
+        }
+    } else if role == Some("assistant") {
+        if claude_message_has_block(message, "tool_use") {
+            aggregate.last_tool_use_at = aggregate.last_tool_use_at.max(timestamp);
+        }
+        let stop_reason = message.get("stop_reason").and_then(|value| value.as_str());
+        if stop_reason == Some("end_turn") {
+            aggregate.last_completed_turn_at = aggregate.last_completed_turn_at.max(timestamp);
+            aggregate.last_completion_at = aggregate.last_completion_at.max(timestamp);
+        }
+        if let Some(preview) =
+            sanitized_preview_from_values(&[message.get("content"), row.get("content")])
+        {
+            aggregate.assistant_preview = Some(preview);
+        }
+        parse_claude_task_tool_uses(message, timestamp, aggregate);
+    } else if role == Some("system") {
+        let subtype = row.get("subtype").and_then(|value| value.as_str());
+        if matches!(subtype, Some("turn_duration" | "stop_hook_summary")) {
+            aggregate.last_completion_at = aggregate.last_completion_at.max(timestamp);
+        }
+    }
+    parse_claude_task_result(&row, timestamp, aggregate);
+    if let Some(model) = first_string_deep(&row, &["model"]) {
+        aggregate.model = Some(model);
+    }
+    if let Some(usage) = first_object_deep(&row, &["usage"]) {
+        aggregate.input_tokens += json_i64(usage.get("input_tokens"));
+        aggregate.output_tokens += json_i64(usage.get("output_tokens"));
+        aggregate.cached_input_tokens += json_i64(usage.get("cache_creation_input_tokens"))
+            + json_i64(usage.get("cache_read_input_tokens"));
+        aggregate.total_tokens +=
+            json_i64(usage.get("input_tokens")) + json_i64(usage.get("output_tokens"));
+    }
+    Some(true)
 }
 
 fn merge_claude_tasks(
@@ -775,5 +996,170 @@ mod tests {
             aggregate.needs_user_input(aggregate.last_tool_use_at + NEEDS_INPUT_IDLE_SECONDS + 1.0)
         );
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn incremental_cache_matches_full_parse() {
+        use std::io::Write;
+        let dir =
+            std::env::temp_dir().join(format!("codux-claude-incremental-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("s1.jsonl");
+        let first = r#"{"sessionId":"s1","cwd":"/tmp/p","timestamp":"2026-01-01T00:00:00Z","type":"user","message":{"role":"user","content":"run"}}"#;
+        let second = r#"{"sessionId":"s1","cwd":"/tmp/p","timestamp":"2026-01-01T00:00:02Z","type":"assistant","message":{"role":"assistant","stop_reason":"tool_use","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"make"}}]},"usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":2}}"#;
+        let third = r#"{"sessionId":"s1","cwd":"/tmp/p","timestamp":"2026-01-01T00:00:04Z","type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"ok"}]}}"#;
+        {
+            let mut file = std::fs::File::create(&path).unwrap();
+            writeln!(file, "{first}").unwrap();
+        }
+        let mut cache = ClaudeProbeCache::default();
+        let first_cached =
+            parse_claude_log_runtime_state_cached(&path, "/tmp/p", "s1", "term-1", &mut cache)
+                .expect("first aggregate");
+        assert_eq!(first_cached.last_user_at, 1767225600.0);
+
+        {
+            let mut file = std::fs::OpenOptions::new()
+                .append(true)
+                .open(&path)
+                .unwrap();
+            writeln!(file, "{second}").unwrap();
+            writeln!(file, "{third}").unwrap();
+        }
+        let cached =
+            parse_claude_log_runtime_state_cached(&path, "/tmp/p", "s1", "term-1", &mut cache)
+                .expect("cached aggregate");
+        let full = parse_claude_log_runtime_state(&path, "/tmp/p", "s1").expect("full aggregate");
+        assert_eq!(cached, full);
+        assert_eq!(cached.total_tokens, 15);
+        assert_eq!(cached.cached_input_tokens, 2);
+        assert!(!cached.pending_tool_call());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn incremental_cache_waits_for_complete_jsonl_line() {
+        use std::io::Write;
+        let dir =
+            std::env::temp_dir().join(format!("codux-claude-partial-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("s1.jsonl");
+        let first = r#"{"sessionId":"s1","cwd":"/tmp/p","timestamp":"2026-01-01T00:00:00Z","type":"user","message":{"role":"user","content":"run"}}"#;
+        let second = r#"{"sessionId":"s1","cwd":"/tmp/p","timestamp":"2026-01-01T00:00:02Z","type":"assistant","message":{"role":"assistant","stop_reason":"end_turn","content":"done"},"usage":{"input_tokens":1,"output_tokens":2}}"#;
+        {
+            let mut file = std::fs::File::create(&path).unwrap();
+            writeln!(file, "{first}").unwrap();
+        }
+        let mut cache = ClaudeProbeCache::default();
+        parse_claude_log_runtime_state_cached(&path, "/tmp/p", "s1", "term-1", &mut cache)
+            .expect("first aggregate");
+        {
+            let mut file = std::fs::OpenOptions::new()
+                .append(true)
+                .open(&path)
+                .unwrap();
+            write!(file, "{}", &second[..second.len() / 2]).unwrap();
+        }
+        let partial =
+            parse_claude_log_runtime_state_cached(&path, "/tmp/p", "s1", "term-1", &mut cache)
+                .expect("partial aggregate");
+        assert_eq!(partial.total_tokens, 0);
+        {
+            let mut file = std::fs::OpenOptions::new()
+                .append(true)
+                .open(&path)
+                .unwrap();
+            writeln!(file, "{}", &second[second.len() / 2..]).unwrap();
+        }
+        let complete =
+            parse_claude_log_runtime_state_cached(&path, "/tmp/p", "s1", "term-1", &mut cache)
+                .expect("complete aggregate");
+        assert_eq!(complete.total_tokens, 3);
+        assert_eq!(complete.response_state().as_deref(), Some("idle"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn incremental_cache_rebuilds_after_truncation() {
+        use std::io::Write;
+        let dir =
+            std::env::temp_dir().join(format!("codux-claude-truncate-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("s1.jsonl");
+        let first = r#"{"sessionId":"s1","cwd":"/tmp/p","timestamp":"2026-01-01T00:00:00Z","type":"user","message":{"role":"user","content":"old"}}"#;
+        let replacement = r#"{"sessionId":"s1","cwd":"/tmp/p","timestamp":"2026-01-01T00:00:10Z","type":"assistant","message":{"role":"assistant","stop_reason":"end_turn","content":"new"},"usage":{"input_tokens":4,"output_tokens":6}}"#;
+        {
+            let mut file = std::fs::File::create(&path).unwrap();
+            writeln!(file, "{first}").unwrap();
+            writeln!(file, "{replacement}").unwrap();
+        }
+        let mut cache = ClaudeProbeCache::default();
+        let original =
+            parse_claude_log_runtime_state_cached(&path, "/tmp/p", "s1", "term-1", &mut cache)
+                .expect("original aggregate");
+        assert_eq!(original.total_tokens, 10);
+
+        {
+            let mut file = std::fs::File::create(&path).unwrap();
+            writeln!(file, "{first}").unwrap();
+        }
+        let rebuilt =
+            parse_claude_log_runtime_state_cached(&path, "/tmp/p", "s1", "term-1", &mut cache)
+                .expect("rebuilt aggregate");
+        assert_eq!(rebuilt.total_tokens, 0);
+        assert_eq!(rebuilt.response_state().as_deref(), Some("responding"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn incremental_cache_rebuilds_when_size_is_rewritten_equal() {
+        use std::io::Write;
+        let dir = std::env::temp_dir().join(format!(
+            "codux-claude-rewrite-same-size-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("s1.jsonl");
+        let first = r#"{"sessionId":"s1","cwd":"/tmp/p","timestamp":"2026-01-01T00:00:00Z","type":"assistant","message":{"role":"assistant","content":"ok"},"usage":{"input_tokens":1,"output_tokens":1}}"#;
+        let second = r#"{"sessionId":"s1","cwd":"/tmp/p","timestamp":"2026-01-01T00:00:00Z","type":"assistant","message":{"role":"assistant","content":"ok"},"usage":{"input_tokens":2,"output_tokens":2}}"#;
+        assert_eq!(first.len(), second.len());
+        {
+            let mut file = std::fs::File::create(&path).unwrap();
+            writeln!(file, "{first}").unwrap();
+        }
+        let mut cache = ClaudeProbeCache::default();
+        let original =
+            parse_claude_log_runtime_state_cached(&path, "/tmp/p", "s1", "term-1", &mut cache)
+                .expect("original aggregate");
+        assert_eq!(original.total_tokens, 2);
+
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        {
+            let mut file = std::fs::File::create(&path).unwrap();
+            writeln!(file, "{second}").unwrap();
+        }
+        let rebuilt =
+            parse_claude_log_runtime_state_cached(&path, "/tmp/p", "s1", "term-1", &mut cache)
+                .expect("rebuilt aggregate");
+        assert_eq!(rebuilt.total_tokens, 4);
+        assert_eq!(
+            rebuilt,
+            parse_claude_log_runtime_state(&path, "/tmp/p", "s1").expect("full aggregate")
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn exact_session_path_is_preferred() {
+        let exact = std::path::PathBuf::from("/tmp/s1.jsonl");
+        let other = std::path::PathBuf::from("/tmp/other.jsonl");
+        assert_eq!(
+            claude_log_paths_for_session(&[other.clone(), exact.clone()], "s1"),
+            vec![exact]
+        );
+        assert_eq!(
+            claude_log_paths_for_session(std::slice::from_ref(&other), "missing"),
+            vec![other]
+        );
     }
 }
