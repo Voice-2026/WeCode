@@ -4217,6 +4217,7 @@ impl RemoteHostRuntime {
         };
         self.terminal_subscriptions
             .add_session_viewer(session_id, device_id);
+        self.terminals.restore_remote_screen_scrollback(session_id);
         self.ensure_terminal_event_subscription(session_id);
     }
 
@@ -4411,6 +4412,9 @@ impl RemoteHostRuntime {
         self.terminal_subscriptions
             .remove_session_viewer(session_id, device_id);
         self.clear_terminal_viewer_ack(session_id, Some(device_id));
+        if self.terminal_output_viewers(session_id).is_empty() {
+            self.terminals.shrink_remote_screen_scrollback(session_id);
+        }
     }
 
     fn remove_project_terminal_viewers(&self, project_id: &str, device_id: Option<&str>) {
@@ -4436,6 +4440,9 @@ impl RemoteHostRuntime {
             .remove_project_session_viewers(session_ids.iter().map(String::as_str), device_id);
         for session_id in session_ids {
             self.clear_terminal_viewer_ack(&session_id, Some(device_id));
+            if self.terminal_output_viewers(&session_id).is_empty() {
+                self.terminals.shrink_remote_screen_scrollback(&session_id);
+            }
         }
     }
 
@@ -4443,10 +4450,25 @@ impl RemoteHostRuntime {
         let Some(device_id) = device_id else {
             return;
         };
+        let session_ids = self
+            .terminals
+            .list()
+            .into_iter()
+            .filter(|terminal| {
+                self.terminal_output_viewers(&terminal.id)
+                    .contains(device_id)
+            })
+            .map(|terminal| terminal.id)
+            .collect::<Vec<_>>();
         self.resource_subscriptions.remove_device(device_id);
         self.terminal_subscriptions.remove_device(device_id);
         self.clear_terminal_device_acks(device_id);
         self.clear_ai_stats_watcher_device(device_id);
+        for session_id in session_ids {
+            if self.terminal_output_viewers(&session_id).is_empty() {
+                self.terminals.shrink_remote_screen_scrollback(&session_id);
+            }
+        }
     }
 
     fn release_all_remote_viewports(&self) {

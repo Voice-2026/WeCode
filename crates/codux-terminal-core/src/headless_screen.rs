@@ -161,6 +161,10 @@ impl HeadlessTerminalScreen {
         self.engine.resize(cols, rows);
     }
 
+    pub fn set_scrollback(&mut self, scrollback: usize) {
+        self.engine.set_scrollback(scrollback);
+    }
+
     pub fn scroll_lines(&mut self, lines: i32) {
         if lines == 0 {
             return;
@@ -322,6 +326,10 @@ impl TerminalScreenEngine {
         self.send(TerminalScreenCommand::Resize { cols, rows });
     }
 
+    fn set_scrollback(&mut self, scrollback: usize) {
+        self.send(TerminalScreenCommand::SetScrollback(scrollback));
+    }
+
     fn scroll_lines(&mut self, lines: i32) {
         if lines != 0 {
             self.send(TerminalScreenCommand::ScrollLines(lines));
@@ -395,6 +403,7 @@ enum TerminalScreenCommand {
         rows: usize,
     },
     ScrollLines(i32),
+    SetScrollback(usize),
     ScrollToBottom,
     ScrollToOffset(usize),
     DisplayOffset(mpsc::Sender<usize>),
@@ -465,6 +474,7 @@ impl EventListener for HeadlessEventProxy {
 
 struct TerminalScreenWorker {
     term: Term<HeadlessEventProxy>,
+    config: AlacrittyConfig,
     parser: Processor,
     events: Rc<RefCell<Vec<Event>>>,
     cols: usize,
@@ -488,7 +498,7 @@ impl TerminalScreenWorker {
             ..Default::default()
         };
         let term = Term::new(
-            config,
+            config.clone(),
             &HeadlessTermSize::new(cols, rows),
             HeadlessEventProxy {
                 events: events.clone(),
@@ -496,6 +506,7 @@ impl TerminalScreenWorker {
         );
         Self {
             term,
+            config,
             parser: Processor::new(),
             events,
             cols,
@@ -575,6 +586,7 @@ impl TerminalScreenWorker {
                     self.resize(cols, rows);
                 }
                 TerminalScreenCommand::ScrollLines(lines) => self.scroll_lines(lines),
+                TerminalScreenCommand::SetScrollback(scrollback) => self.set_scrollback(scrollback),
                 TerminalScreenCommand::ScrollToBottom => {
                     self.term.scroll_display(Scroll::Bottom);
                 }
@@ -635,6 +647,15 @@ impl TerminalScreenWorker {
         self.cols = cols;
         self.rows = rows;
         self.term.resize(HeadlessTermSize::new(cols, rows));
+    }
+
+    fn set_scrollback(&mut self, scrollback: usize) {
+        if self.scrollback == scrollback {
+            return;
+        }
+        self.scrollback = scrollback;
+        self.config.scrolling_history = scrollback;
+        self.term.set_options(self.config.clone());
     }
 
     fn scroll_lines(&mut self, lines: i32) {
@@ -1568,6 +1589,26 @@ mod tests {
         assert_eq!(snapshot.display_offset, 0);
         assert!(snapshot.rows >= 4);
         assert!(snapshot.margin_rows > 0);
+    }
+
+    #[test]
+    fn set_scrollback_shrinks_history() {
+        let mut screen = HeadlessTerminalScreen::new(20, 4, 100);
+        for index in 0..20 {
+            screen.process(format!("line-{index}\r\n").as_bytes());
+        }
+        assert!(
+            screen
+                .remote_viewport_snapshot_request(0, 0, 0)
+                .snapshot()
+                .total_lines
+                > 8
+        );
+
+        screen.set_scrollback(2);
+
+        let snapshot = screen.remote_viewport_snapshot_request(0, 0, 0).snapshot();
+        assert_eq!(snapshot.total_lines, 6);
     }
 
     #[test]

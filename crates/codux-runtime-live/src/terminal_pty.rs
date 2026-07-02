@@ -47,6 +47,7 @@ const MIN_HISTORY_BYTES: usize = 128 * 1024;
 const MAX_CONFIGURED_HISTORY_BYTES: usize = 8 * 1024 * 1024;
 // Runtime screen only serves remote scrollback views, so cap it to mobile depth.
 const REMOTE_SCREEN_SCROLLBACK_CAP: usize = 2_000;
+const REMOTE_SCREEN_IDLE_SCROLLBACK: usize = 500;
 const TERMINAL_VIEWPORT_LEASE_TTL: Duration = Duration::from_secs(20);
 const COMMON_PASSTHROUGH_ENV_KEYS: &[&str] = &[
     "LANG",
@@ -516,6 +517,24 @@ impl TerminalManager {
         ))
     }
 
+    pub fn set_screen_scrollback(&self, session_id: &str, lines: usize) {
+        if let Ok(session) = self.session(session_id) {
+            session.set_screen_scrollback(lines);
+        }
+    }
+
+    pub fn restore_remote_screen_scrollback(&self, session_id: &str) {
+        if let Ok(session) = self.session(session_id) {
+            session.restore_remote_screen_scrollback();
+        }
+    }
+
+    pub fn shrink_remote_screen_scrollback(&self, session_id: &str) {
+        if let Ok(session) = self.session(session_id) {
+            session.shrink_remote_screen_scrollback();
+        }
+    }
+
     pub fn release_viewport(
         &self,
         session_id: &str,
@@ -851,6 +870,8 @@ pub struct TerminalPtySession {
     ai_runtime_binding: AIRuntimeTerminalBinding,
     pty_control: LocalPtyProcessHandle,
     viewport: Arc<parking_lot::Mutex<TerminalViewportLease>>,
+    remote_screen_scrollback: usize,
+    remote_screen_current_scrollback: parking_lot::Mutex<usize>,
 }
 
 #[derive(Clone)]
@@ -909,10 +930,13 @@ impl TerminalPtySession {
         let history = Arc::new(parking_lot::Mutex::new(RingHistory::new(
             terminal_history_bytes(config.scrollback_lines, cols),
         )));
+        let remote_screen_scrollback = remote_screen_scrollback_lines(config.scrollback_lines);
+        let initial_remote_screen_scrollback =
+            initial_remote_screen_scrollback_lines(remote_screen_scrollback);
         let screen = Arc::new(parking_lot::Mutex::new(HeadlessTerminalScreen::new(
             cols as usize,
             rows as usize,
-            remote_screen_scrollback_lines(config.scrollback_lines),
+            initial_remote_screen_scrollback,
         )));
         let output_subscribers = Arc::new(parking_lot::Mutex::new(Vec::new()));
         let event_subscribers = Arc::new(parking_lot::Mutex::new(Vec::new()));
@@ -1042,6 +1066,10 @@ impl TerminalPtySession {
                 ai_runtime_binding,
                 pty_control: process.control,
                 viewport,
+                remote_screen_scrollback,
+                remote_screen_current_scrollback: parking_lot::Mutex::new(
+                    initial_remote_screen_scrollback,
+                ),
             },
             Box::new(terminal_writer),
             Box::new(terminal_reader),
@@ -1213,6 +1241,25 @@ impl TerminalPtySession {
 
     pub fn buffer_characters(&self) -> usize {
         self.history.lock().len_chars()
+    }
+
+    pub fn set_screen_scrollback(&self, lines: usize) {
+        let mut current = self.remote_screen_current_scrollback.lock();
+        if *current == lines {
+            return;
+        }
+        *current = lines;
+        self.screen.lock().set_scrollback(lines);
+    }
+
+    pub fn restore_remote_screen_scrollback(&self) {
+        self.set_screen_scrollback(self.remote_screen_scrollback);
+    }
+
+    pub fn shrink_remote_screen_scrollback(&self) {
+        self.set_screen_scrollback(initial_remote_screen_scrollback_lines(
+            self.remote_screen_scrollback,
+        ));
     }
 
     pub fn clear_history(&self) {
@@ -2844,6 +2891,10 @@ fn remote_screen_scrollback_lines(scrollback_lines: Option<usize>) -> usize {
         .min(REMOTE_SCREEN_SCROLLBACK_CAP)
 }
 
+fn initial_remote_screen_scrollback_lines(active_scrollback: usize) -> usize {
+    REMOTE_SCREEN_IDLE_SCROLLBACK.min(active_scrollback)
+}
+
 fn decode_utf8_output(bytes: &[u8], pending: &mut Vec<u8>) -> String {
     if pending.is_empty() {
         return decode_utf8_complete_prefix(bytes, pending);
@@ -3431,6 +3482,16 @@ mod tests {
             REMOTE_SCREEN_SCROLLBACK_CAP
         );
         assert_eq!(remote_screen_scrollback_lines(Some(1200)), 1200);
+    }
+
+    #[test]
+    fn initial_remote_screen_scrollback_starts_idle() {
+        assert_eq!(
+            initial_remote_screen_scrollback_lines(REMOTE_SCREEN_SCROLLBACK_CAP),
+            REMOTE_SCREEN_IDLE_SCROLLBACK
+        );
+        assert_eq!(initial_remote_screen_scrollback_lines(1200), 500);
+        assert_eq!(initial_remote_screen_scrollback_lines(300), 300);
     }
 
     #[test]

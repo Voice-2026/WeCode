@@ -383,6 +383,18 @@ struct AgentTerminalCtx<'a> {
 }
 
 impl AgentTerminalCtx<'_> {
+    fn add_viewer(&self, session_id: &str, device_id: &str) {
+        self.fanout.add_viewer(session_id, device_id);
+        self.driver.restore_remote_screen_scrollback(session_id);
+    }
+
+    fn remove_viewer(&self, session_id: &str, device_id: &str) {
+        self.fanout.remove_viewer(session_id, device_id);
+        if self.fanout.viewers(session_id).is_empty() {
+            self.driver.shrink_remote_screen_scrollback(session_id);
+        }
+    }
+
     /// Register a viewer for `session_id` and, when asked, push its catch-up
     /// baseline. Shared by `terminal.subscribe`, `terminal.buffer` and the
     /// resource-level `resource.subscribe` so every subscription path behaves
@@ -394,7 +406,7 @@ impl AgentTerminalCtx<'_> {
         baseline: bool,
         payload: &Value,
     ) {
-        self.fanout.add_viewer(session_id, device_id);
+        self.add_viewer(session_id, device_id);
         if baseline {
             send_terminal_baseline(
                 self.driver,
@@ -434,7 +446,7 @@ impl AgentTerminalCtx<'_> {
                 if terminal.project_id != project_id {
                     continue;
                 }
-                self.fanout.add_viewer(&terminal.id, device_id);
+                self.add_viewer(&terminal.id, device_id);
                 send_terminal_viewport_state(
                     self.driver,
                     self.transport,
@@ -475,11 +487,11 @@ impl AgentTerminalCtx<'_> {
         ) {
             for terminal in self.driver.list() {
                 if terminal.project_id == project_id {
-                    self.fanout.remove_viewer(&terminal.id, device_id);
+                    self.remove_viewer(&terminal.id, device_id);
                 }
             }
         } else if let (Some(id), Some(device_id)) = (msg.session_id, msg.device_id) {
-            self.fanout.remove_viewer(id, device_id);
+            self.remove_viewer(id, device_id);
         }
     }
 }
@@ -527,7 +539,7 @@ impl RemoteTerminalDispatch for AgentTerminalCtx<'_> {
 
     fn handle_terminal_unsubscribe_msg(&self, msg: &TerminalMessage) {
         if let (Some(id), Some(device_id)) = (msg.session_id, msg.device_id) {
-            self.fanout.remove_viewer(id, device_id);
+            self.remove_viewer(id, device_id);
         }
     }
 
@@ -618,7 +630,7 @@ impl RemoteTerminalDispatch for AgentTerminalCtx<'_> {
             self.driver,
             &config,
             device_id,
-            |session_id, device_id| self.fanout.add_viewer(session_id, device_id),
+            |session_id, device_id| self.add_viewer(session_id, device_id),
         );
         // Stream this session's output to ALL of its viewers (fan-out), and
         // forward viewport-state changes (lease claim/handoff) too.
@@ -704,7 +716,7 @@ impl RemoteTerminalDispatch for AgentTerminalCtx<'_> {
                 finish_terminal_create_viewer_lifecycle(
                     &session_id,
                     device_id,
-                    |session_id, device_id| self.fanout.add_viewer(session_id, device_id),
+                    |session_id, device_id| self.add_viewer(session_id, device_id),
                 );
                 reply(
                     self.transport,
@@ -864,7 +876,7 @@ impl RemoteTerminalDispatch for AgentTerminalCtx<'_> {
 
     fn handle_terminal_viewport_claim_msg(&self, msg: &TerminalMessage) {
         if let (Some(id), Some(device_id)) = (msg.session_id, msg.device_id) {
-            self.fanout.add_viewer(id, device_id);
+            self.add_viewer(id, device_id);
             let owner = self.viewport_owner_for(Some(device_id));
             let renew_only = msg
                 .payload
@@ -888,7 +900,7 @@ impl RemoteTerminalDispatch for AgentTerminalCtx<'_> {
 
     fn handle_terminal_viewport_resize_msg(&self, msg: &TerminalMessage) {
         if let (Some(id), Some(device_id)) = (msg.session_id, msg.device_id) {
-            self.fanout.add_viewer(id, device_id);
+            self.add_viewer(id, device_id);
             let owner = self.viewport_owner_for(Some(device_id));
             let cols = msg
                 .payload
