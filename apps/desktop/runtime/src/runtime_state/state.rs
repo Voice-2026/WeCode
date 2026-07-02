@@ -38,7 +38,13 @@ impl RuntimeState {
             "active",
         );
         let notifications = load_notifications(&support_dir);
-        let ssh = load_ssh(&support_dir, RuntimeInventory::load().root);
+        let runtime_root = RuntimeInventory::load().root;
+        let ssh = load_ssh(&support_dir, runtime_root.clone());
+        let db = load_db(
+            &support_dir,
+            runtime_root,
+            selected_project.as_ref().map(|project| project.id.as_str()),
+        );
         let worktrees = load_worktrees_from_state(
             &support_dir,
             selected_project.as_ref().map(|project| project.id.as_str()),
@@ -85,6 +91,7 @@ impl RuntimeState {
             memory_manager,
             notifications,
             ssh,
+            db,
             worktrees,
             terminal_layout,
             terminal_runtime,
@@ -131,6 +138,11 @@ impl RuntimeState {
             "active",
         );
         self.notifications = load_notifications(&self.support_dir);
+        self.db = load_db(
+            &self.support_dir,
+            RuntimeInventory::load().root,
+            Some(&project.id),
+        );
         self.worktrees =
             load_worktrees_from_state(&self.support_dir, Some(&project.id), Some(&project.path));
         let terminal_layout_owner =

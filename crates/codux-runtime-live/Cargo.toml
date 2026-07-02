@@ -20,8 +20,11 @@ libc = "0.2"
 md-5 = "0.10"
 notify = "8"
 parking_lot = "0.12"
+percent-encoding = "2.3"
 rusqlite = { version = "0.32", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
 sha2 = "0.10"
+sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio-rustls", "any", "postgres", "mysql", "sqlite", "json"] }
+tokio = { version = "1", features = ["rt", "time"] }
 uuid = { version = "1", features = ["v4", "v5"] }

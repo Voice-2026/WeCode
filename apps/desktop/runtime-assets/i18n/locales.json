@@ -18,6 +18,7 @@
     "locales/ai.json",
     "locales/app.json",
     "locales/common.json",
+    "locales/db.json",
     "locales/diagnostics.json",
     "locales/files.json",
     "locales/git.json",

@@ -254,6 +254,11 @@ impl AIRuntimeBridge {
                 &wrapper_dir.join("codux-ssh.ps1"),
                 false,
             )?;
+            stage_runtime_asset(
+                "scripts/wrappers/codux-db.ps1",
+                &wrapper_dir.join("codux-db.ps1"),
+                false,
+            )?;
         }
         stage_runtime_dir(
             "scripts/wrappers/opencode-config",
@@ -265,6 +270,7 @@ impl AIRuntimeBridge {
             .flat_map(|driver| driver.wrapper_bins.iter().copied())
             .collect::<Vec<_>>();
         bin_names.push("codux-ssh");
+        bin_names.push("codux-db");
         for stale_bin_name in [
             "kiro",
             "codewhale-tui",

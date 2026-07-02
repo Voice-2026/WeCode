@@ -375,6 +375,7 @@ mod tests {
     #[test]
     fn terminal_pane_terminal_id_normalizes_existing_runtime_id() {
         let base = TerminalLaunchContext {
+            root_project_id: "project-1".to_string(),
             project_id: "project-1".to_string(),
             project_name: "Codux".to_string(),
             project_path: PathBuf::from("/workspace/codux"),
@@ -417,6 +418,7 @@ mod tests {
         // project's live pane (cross-talk). It gets a fresh id owned by THIS
         // project instead; an id already owned by this project is kept as-is.
         let base = TerminalLaunchContext {
+            root_project_id: "project-1".to_string(),
             project_id: "project-B".to_string(),
             project_name: "Codux".to_string(),
             project_path: PathBuf::from("/workspace/codux"),

@@ -50,6 +50,7 @@ pub(in crate::app) enum AppWindowMode {
     TerminalTabEditor,
     WorktreeCreator,
     SshProfileEditor,
+    DbProfileEditor,
     FilePicker,
     DesktopPet,
 }

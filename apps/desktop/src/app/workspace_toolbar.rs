@@ -130,6 +130,13 @@ impl CoduxApp {
                             cx,
                         ))
                         .child(workspace_assistant_button(
+                            "DB",
+                            AssistantPanel::DB,
+                            self.assistant_panel,
+                            has_project_context,
+                            cx,
+                        ))
+                        .child(workspace_assistant_button(
                             "Files",
                             AssistantPanel::FileManager,
                             self.assistant_panel,
@@ -338,6 +345,7 @@ fn workspace_assistant_button(
         match panel {
             AssistantPanel::AIStats => "workspace-assistant-ai",
             AssistantPanel::SSH => "workspace-assistant-ssh",
+            AssistantPanel::DB => "workspace-assistant-db",
             AssistantPanel::FileManager => "workspace-assistant-files",
             AssistantPanel::Git => "workspace-assistant-git",
         },
@@ -368,6 +376,7 @@ fn workspace_assistant_button(
                     Icon::new(match panel {
                         AssistantPanel::AIStats => HeroIconName::Sparkles,
                         AssistantPanel::SSH => HeroIconName::CommandLine,
+                        AssistantPanel::DB => HeroIconName::CircleStack,
                         AssistantPanel::FileManager => HeroIconName::Folder,
                         AssistantPanel::Git => HeroIconName::Share,
                     })
@@ -385,6 +394,7 @@ fn workspace_assistant_button(
         match panel {
             AssistantPanel::AIStats => "workspace-assistant-ai-tooltip",
             AssistantPanel::SSH => "workspace-assistant-ssh-tooltip",
+            AssistantPanel::DB => "workspace-assistant-db-tooltip",
             AssistantPanel::FileManager => "workspace-assistant-files-tooltip",
             AssistantPanel::Git => "workspace-assistant-git-tooltip",
         },

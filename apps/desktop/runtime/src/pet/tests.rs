@@ -503,3 +503,30 @@ fn refresh_uses_all_time_project_watermarks_after_claim() {
 
     fs::remove_dir_all(support_dir).unwrap();
 }
+
+#[test]
+fn saturated_heavy_user_profile_gets_signature_persona_not_balanced() {
+    // Regression: a long-term heavy user saturates several axes at once; the
+    // old top-vs-second gate read that as "balanced" forever. Top-vs-mean must
+    // surface the leaning axis instead.
+    let stats = PetStats {
+        wisdom: 250,
+        night: 245,
+        stamina: 200,
+        chaos: 180,
+        empathy: 150,
+    };
+    assert_eq!(pet_persona_id(&stats), "wise_type");
+}
+
+#[test]
+fn genuinely_flat_profile_stays_balanced() {
+    let stats = PetStats {
+        wisdom: 200,
+        chaos: 195,
+        night: 205,
+        stamina: 198,
+        empathy: 202,
+    };
+    assert_eq!(pet_persona_id(&stats), "balanced");
+}

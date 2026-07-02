@@ -694,6 +694,9 @@ impl Render for WorkspaceAssistantView {
                             AssistantPanel::SSH => self.app_entity.update(cx, |app, cx| {
                                 gpui::AnyView::from(app.ssh_sidebar_view(cx)).into_any_element()
                             }),
+                            AssistantPanel::DB => self.app_entity.update(cx, |app, cx| {
+                                gpui::AnyView::from(app.db_sidebar_view(cx)).into_any_element()
+                            }),
                             AssistantPanel::FileManager => self.app_entity.update(cx, |app, cx| {
                                 gpui::AnyView::from(app.file_sidebar_view(cx))
                                     .cached(
@@ -855,6 +858,7 @@ fn assistant_panel_key(panel: Option<AssistantPanel>) -> &'static str {
     match panel {
         Some(AssistantPanel::AIStats) => "ai_stats",
         Some(AssistantPanel::SSH) => "ssh",
+        Some(AssistantPanel::DB) => "db",
         Some(AssistantPanel::FileManager) => "file_manager",
         Some(AssistantPanel::Git) => "git",
         None => "none",

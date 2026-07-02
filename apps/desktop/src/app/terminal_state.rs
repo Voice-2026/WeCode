@@ -732,9 +732,9 @@ pub(in crate::app) fn terminal_launch_context(
     let default_session_key = format!("gpui:{}:{}", workspace_id, default_terminal_id);
     let default_session_instance_id =
         Uuid::new_v5(&Uuid::NAMESPACE_URL, default_session_key.as_bytes()).to_string();
-    let memory_artifacts = (state.memory.available && state.settings.memory_enabled)
-        .then(|| launch_artifact_paths(&workspace_id));
+    let launch_artifacts = launch_artifact_paths(&workspace_id);
     Some(TerminalLaunchContext {
+        root_project_id: project.id.clone(),
         project_id: workspace_id,
         project_name: workspace_name,
         project_path: PathBuf::from(workspace_path),
@@ -750,13 +750,9 @@ pub(in crate::app) fn terminal_launch_context(
             .error
             .is_none()
             .then(|| PathBuf::from(&tool_permissions.path)),
-        memory_workspace_root: memory_artifacts
-            .as_ref()
-            .map(|artifacts| artifacts.workspace_root.clone()),
-        memory_prompt_file: memory_artifacts
-            .as_ref()
-            .map(|artifacts| artifacts.prompt_file.clone()),
-        memory_index_file: memory_artifacts.map(|artifacts| artifacts.index_file),
+        memory_workspace_root: Some(launch_artifacts.workspace_root),
+        memory_prompt_file: Some(launch_artifacts.prompt_file),
+        memory_index_file: Some(launch_artifacts.index_file),
         host_device_id: project.host_device_id.clone(),
     })
 }
@@ -897,9 +893,6 @@ pub(in crate::app) fn prepare_memory_launch_artifacts(
     service: &RuntimeService,
     state: &RuntimeState,
 ) {
-    if !state.memory.available || !state.settings.memory_enabled {
-        return;
-    }
     let Some(project) = &state.selected_project else {
         return;
     };

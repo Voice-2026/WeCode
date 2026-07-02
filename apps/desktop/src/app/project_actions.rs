@@ -353,6 +353,8 @@ impl CoduxApp {
         self.state.ai_session_detail = None;
         self.state.memory = MemorySummary::default();
         self.state.memory_manager = MemoryManagerSnapshot::default();
+        self.reload_selected_project_db();
+        self.normalize_selected_db_profile();
         self.state.worktrees = self
             .runtime_service
             .reload_worktrees_from_state(Some(&project.id), Some(&project.path));

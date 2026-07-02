@@ -169,6 +169,19 @@ fn load_ssh(support_dir: &Path, runtime_assets: PathBuf) -> SSHSummary {
     SSHService::new(support_dir.to_path_buf(), runtime_assets).summary()
 }
 
+fn load_db(
+    support_dir: &Path,
+    runtime_assets: PathBuf,
+    project_id: Option<&str>,
+) -> DBSummary {
+    DBService::new(
+        support_dir.to_path_buf(),
+        runtime_assets,
+        project_id.map(str::to_string),
+    )
+    .summary()
+}
+
 fn load_terminal_layout(support_dir: &Path, project_id: Option<&str>) -> TerminalLayoutSummary {
     TerminalLayoutService::new(support_dir.to_path_buf()).load(project_id)
 }

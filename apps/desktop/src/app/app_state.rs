@@ -93,6 +93,7 @@ pub struct CoduxApp {
     pub(in crate::app) pet_custom_install_window: Option<AnyWindowHandle>,
     pub(in crate::app) pet_dex_window: Option<AnyWindowHandle>,
     pub(in crate::app) ssh_profile_editor_window: Option<AnyWindowHandle>,
+    pub(in crate::app) db_profile_editor_window: Option<AnyWindowHandle>,
     pub(in crate::app) file_picker_window: Option<AnyWindowHandle>,
     pub(in crate::app) file_picker_mode: FilePickerMode,
     pub(in crate::app) file_picker_target: FilePickerTarget,
@@ -279,6 +280,20 @@ pub struct CoduxApp {
     pub(in crate::app) memory_status_seen_failed_count: i64,
     pub(in crate::app) selected_runtime_terminal_id: Option<String>,
     pub(in crate::app) selected_ssh_profile_id: Option<String>,
+    pub(in crate::app) selected_db_profile_id: Option<String>,
+    pub(in crate::app) db_testing: bool,
+    pub(in crate::app) db_test_result: Option<DBProfileTestDisplay>,
+    pub(in crate::app) db_draft_id: Option<String>,
+    pub(in crate::app) db_draft_project_id: String,
+    pub(in crate::app) db_draft_name: String,
+    pub(in crate::app) db_draft_engine: String,
+    pub(in crate::app) db_draft_host: String,
+    pub(in crate::app) db_draft_port: String,
+    pub(in crate::app) db_draft_database: String,
+    pub(in crate::app) db_draft_username: String,
+    pub(in crate::app) db_draft_password: String,
+    pub(in crate::app) db_draft_ssl_mode: String,
+    pub(in crate::app) db_draft_read_only: bool,
     pub(in crate::app) ssh_draft_open: bool,
     pub(in crate::app) ssh_testing: bool,
     pub(in crate::app) ssh_test_result: Option<SSHProfileTestDisplay>,
@@ -339,6 +354,7 @@ pub struct CoduxApp {
         Option<gpui::Entity<workspace_views::WorkspaceAssistantView>>,
     pub(in crate::app) ai_stats_sidebar_view: Option<gpui::Entity<sidebars::AIStatsSidebarView>>,
     pub(in crate::app) ssh_sidebar_view: Option<gpui::Entity<sidebars::SshSidebarView>>,
+    pub(in crate::app) db_sidebar_view: Option<gpui::Entity<sidebars::DbSidebarView>>,
     pub(in crate::app) git_sidebar_view: Option<gpui::Entity<sidebars::GitSidebarView>>,
     pub(in crate::app) git_files_panel_view: Option<gpui::Entity<sidebars::GitFilesPanelView>>,
     pub(in crate::app) git_history_panel_view: Option<gpui::Entity<sidebars::GitHistoryPanelView>>,
@@ -490,6 +506,12 @@ pub(in crate::app) struct AIProviderTestResult {
 
 #[derive(Clone, Debug)]
 pub(in crate::app) struct SSHProfileTestDisplay {
+    pub(in crate::app) message: String,
+    pub(in crate::app) ok: bool,
+}
+
+#[derive(Clone, Debug)]
+pub(in crate::app) struct DBProfileTestDisplay {
     pub(in crate::app) message: String,
     pub(in crate::app) ok: bool,
 }

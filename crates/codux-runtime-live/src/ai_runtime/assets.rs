@@ -89,6 +89,14 @@ const RUNTIME_ASSETS: &[(&str, &[u8])] = &[
         ),
     ),
     (
+        "scripts/wrappers/bin/codux-db",
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/codux-db"),
+    ),
+    (
+        "scripts/wrappers/bin/codux-db.ps1",
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/codux-db.ps1"),
+    ),
+    (
         "scripts/wrappers/bin/kiro-cli",
         include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/kiro-cli"),
     ),
@@ -139,6 +147,10 @@ const RUNTIME_ASSETS: &[(&str, &[u8])] = &[
     (
         "scripts/wrappers/codux-ssh.ps1",
         include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/codux-ssh.ps1"),
+    ),
+    (
+        "scripts/wrappers/codux-db.ps1",
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/codux-db.ps1"),
     ),
     (
         "scripts/wrappers/dmux-ai-state.ps1",

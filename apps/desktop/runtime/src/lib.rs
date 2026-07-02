@@ -22,6 +22,7 @@ pub mod app_milestones;
 pub mod async_runtime;
 pub mod background_queue;
 pub mod config;
+pub mod db;
 pub mod desktop_pet;
 pub mod dialog;
 pub mod dock_badge;

@@ -55,6 +55,8 @@ impl CoduxApp {
             self.normalize_selected_ai_session();
             self.normalize_selected_runtime_session();
             self.normalize_selected_ssh_profile();
+            self.reload_selected_project_db();
+            self.normalize_selected_db_profile();
             self.invalidate_project_management(cx);
             self.invalidate_task_column(cx);
             applied += 1;

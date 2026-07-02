@@ -34,6 +34,37 @@ impl RuntimeService {
         render_ssh_launch_context_from_support_dir(self.support_dir.clone(), codux_ssh_command)
     }
 
+    pub fn reload_db(&self, runtime_assets: PathBuf, project_id: Option<&str>) -> DBSummary {
+        load_db(&self.support_dir, runtime_assets, project_id)
+    }
+
+    pub fn db_profiles(&self, project_id: Option<&str>) -> DBProfilesSnapshot {
+        DBStore::from_support_dir(self.support_dir.clone()).snapshot(project_id)
+    }
+
+    pub fn upsert_db_profile(
+        &self,
+        request: DBProfileUpsertRequest,
+    ) -> Result<DBProfilesSnapshot, String> {
+        DBStore::from_support_dir(self.support_dir.clone()).upsert(request)
+    }
+
+    pub fn delete_db_profile(
+        &self,
+        project_id: &str,
+        profile_id: String,
+    ) -> Result<DBProfilesSnapshot, String> {
+        DBStore::from_support_dir(self.support_dir.clone()).delete(project_id, profile_id)
+    }
+
+    pub fn test_db_profile(
+        &self,
+        request: DBProfileUpsertRequest,
+        runtime_assets: PathBuf,
+    ) -> Result<DBQueryResult, String> {
+        DBStore::from_support_dir(self.support_dir.clone()).test_profile(request, &runtime_assets)
+    }
+
     pub fn reload_terminal_layout(&self, project_id: Option<&str>) -> TerminalLayoutSummary {
         load_terminal_layout(&self.support_dir, project_id)
     }

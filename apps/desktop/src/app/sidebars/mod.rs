@@ -1,12 +1,14 @@
 use super::*;
 
 mod ai;
+mod db;
 mod files;
 mod git;
 mod ssh;
 
 use ai::ai_stats_sidebar;
 pub(in crate::app) use ai::memory_manager_window_workspace;
+pub(in crate::app) use db::db_section;
 pub(in crate::app) use files::{
     ClipboardFilePayload, FileSidebarKeyAction, clipboard_file_payload, file_tree_rows,
 };
@@ -27,6 +29,7 @@ pub(in crate::app) use git::{
 pub(super) enum AssistantPanel {
     AIStats,
     SSH,
+    DB,
     FileManager,
     Git,
 }
@@ -159,6 +162,74 @@ impl CoduxApp {
             profiles_fingerprint: ssh_fingerprint(&self.state.ssh),
             selected_profile_id: self.selected_ssh_profile_id.clone(),
             language: self.state.settings.language.clone(),
+        }
+    }
+}
+
+#[derive(Clone, PartialEq)]
+pub(in crate::app) struct DbSidebarSnapshot {
+    profiles_fingerprint: u64,
+    selected_profile_id: Option<String>,
+    language: String,
+    project_id: Option<String>,
+}
+
+pub(in crate::app) struct DbSidebarView {
+    app_entity: gpui::Entity<CoduxApp>,
+    snapshot: DbSidebarSnapshot,
+}
+
+impl DbSidebarView {
+    fn set_snapshot(&mut self, snapshot: DbSidebarSnapshot, cx: &mut Context<Self>) {
+        if self.snapshot == snapshot {
+            return;
+        }
+        self.snapshot = snapshot;
+        cx.notify();
+    }
+}
+
+impl Render for DbSidebarView {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let app_entity = self.app_entity.clone();
+        app_entity.update(cx, |app, cx| {
+            db_section(
+                &app.state.db,
+                app.selected_db_profile_id.as_deref(),
+                &app.state.settings.language,
+                window,
+                cx,
+            )
+            .into_any_element()
+        })
+    }
+}
+
+impl CoduxApp {
+    pub(in crate::app) fn db_sidebar_view(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> gpui::Entity<DbSidebarView> {
+        let snapshot = self.db_sidebar_snapshot();
+        if let Some(view) = &self.db_sidebar_view {
+            view.update(cx, |view, cx| view.set_snapshot(snapshot, cx));
+            return view.clone();
+        }
+        let app_entity = cx.entity();
+        let view = cx.new(|_| DbSidebarView {
+            app_entity,
+            snapshot,
+        });
+        self.db_sidebar_view = Some(view.clone());
+        view
+    }
+
+    fn db_sidebar_snapshot(&self) -> DbSidebarSnapshot {
+        DbSidebarSnapshot {
+            profiles_fingerprint: db_fingerprint(&self.state.db),
+            selected_profile_id: self.selected_db_profile_id.clone(),
+            language: self.state.settings.language.clone(),
+            project_id: self.state.db.project_id.clone(),
         }
     }
 }
@@ -333,6 +404,29 @@ fn ssh_fingerprint(ssh: &SSHSummary) -> u64 {
             })
             .collect::<Vec<_>>(),
         ssh.error.clone(),
+    ))
+}
+
+fn db_fingerprint(db: &DBSummary) -> u64 {
+    hash_sidebar_value(&(
+        db.project_id.clone(),
+        db.wrapper_available,
+        db.profiles
+            .iter()
+            .map(|profile| {
+                (
+                    profile.id.clone(),
+                    profile.project_id.clone(),
+                    profile.name.clone(),
+                    profile.engine.clone(),
+                    profile.endpoint.clone(),
+                    profile.database.clone(),
+                    profile.read_only,
+                    profile.updated_at,
+                )
+            })
+            .collect::<Vec<_>>(),
+        db.error.clone(),
     ))
 }
 

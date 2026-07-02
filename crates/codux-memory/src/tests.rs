@@ -293,10 +293,11 @@ fn prepare_launch_artifacts_writes_memory_context_files() {
     let support_dir = temp_support_dir();
     create_memory_db(&support_dir);
     let service = MemoryService::new(support_dir.clone());
+    let runtime_root = support_dir.join("runtime-root");
 
     let artifacts = service
         .prepare_launch_artifacts_for_project(
-            &std::env::temp_dir(),
+            &runtime_root,
             "project-a",
             "Project A",
             "/workspace/project-a",
@@ -312,7 +313,6 @@ fn prepare_launch_artifacts_writes_memory_context_files() {
     assert!(recent.contains("user active entry"));
 
     fs::remove_dir_all(support_dir).unwrap();
-    let _ = fs::remove_dir_all(artifacts.workspace_root);
 }
 
 #[test]
@@ -320,11 +320,12 @@ fn launch_request_respects_cross_project_user_memory_setting() {
     let support_dir = temp_support_dir();
     create_memory_db(&support_dir);
     let service = MemoryService::new(support_dir.clone());
+    let runtime_root = support_dir.join("runtime-root");
     let mut settings = AppAISettings::default();
     settings.memory.allow_cross_project_user_recall = false;
 
     let artifacts = service
-        .prepare_launch_artifacts(&std::env::temp_dir(), MemoryLaunchRequest {
+        .prepare_launch_artifacts(&runtime_root, MemoryLaunchRequest {
             project_id: "project-a".to_string(),
             project_name: "Project A".to_string(),
             workspace_path: Some("/workspace/project-a".to_string()),
@@ -338,19 +339,20 @@ fn launch_request_respects_cross_project_user_memory_setting() {
     assert!(!index.contains("user active entry"));
 
     fs::remove_dir_all(support_dir).unwrap();
-    let _ = fs::remove_dir_all(artifacts.workspace_root);
 }
 
 #[test]
 fn launch_request_includes_global_prompt_even_when_memory_injection_is_disabled() {
     let support_dir = temp_support_dir();
+    create_memory_db(&support_dir);
     let service = MemoryService::new(support_dir.clone());
+    let runtime_root = support_dir.join("runtime-root");
     let mut settings = crate::MemoryConfig::default();
     settings.global_prompt = "Always prefer small runtime modules.".to_string();
     settings.memory.enabled = false;
 
     let artifacts = service
-        .prepare_launch_artifacts(&std::env::temp_dir(), MemoryLaunchRequest {
+        .prepare_launch_artifacts(&runtime_root, MemoryLaunchRequest {
             project_id: "project-launch".to_string(),
             project_name: "Launch Project".to_string(),
             workspace_path: Some("/workspace/launch".to_string()),
@@ -362,9 +364,10 @@ fn launch_request_includes_global_prompt_even_when_memory_injection_is_disabled(
     let index = fs::read_to_string(&artifacts.index_file).unwrap();
     assert!(index.contains("Always prefer small runtime modules."));
     assert!(index.contains("Extra launch note."));
+    assert!(!index.contains("project active entry"));
+    assert!(!index.contains("user active entry"));
 
     fs::remove_dir_all(support_dir).unwrap();
-    let _ = fs::remove_dir_all(artifacts.workspace_root);
 }
 
 #[test]

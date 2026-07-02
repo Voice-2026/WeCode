@@ -20,6 +20,10 @@ use crate::{
         AppAboutMetadata, AppDiagnosticsSnapshot, DiagnosticsExportRequest,
         DiagnosticsExportResult, UpdateInstallResult,
     },
+    db::{
+        DBProfileUpsertRequest, DBProfilesSnapshot, DBQueryResult, DBService, DBStore, DBSummary,
+        render_db_launch_context_from_support_dir,
+    },
     desktop_pet::{
         DesktopPetHitLayout, DesktopPetPhysicalPosition, DesktopPetPhysicalSize,
         DesktopPetPlacementSnapshot, DesktopPetSavedOrigin, DesktopPetService,

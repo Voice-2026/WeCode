@@ -282,6 +282,24 @@ impl Render for CoduxApp {
                 .into_any_element();
         }
 
+        if self.window_mode == AppWindowMode::DbProfileEditor {
+            let root = div()
+                .size_full()
+                .text_color(cx.theme().foreground)
+                .bg(cx.theme().background)
+                .on_key_down(cx.listener(Self::on_key_down))
+                .child(db_profile_editor_workspace(
+                    self,
+                    self.db_testing,
+                    window,
+                    cx,
+                ))
+                .child(self.codux_tooltip_layer(cx));
+            return self
+                .register_child_window_actions(root, cx)
+                .into_any_element();
+        }
+
         let project_column_view = self.project_column_view(cx);
         let has_project = self.state.selected_project.is_some();
         let show_task_column = has_project && !self.task_column_collapsed;

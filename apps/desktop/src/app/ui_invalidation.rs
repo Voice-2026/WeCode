@@ -10,6 +10,7 @@ pub(in crate::app) enum UiRegion {
     WorkspaceAssistant,
     AIStatsSidebar,
     SshSidebar,
+    DbSidebar,
     FileSidebar,
     GitSidebar,
     StatusBar,
@@ -116,6 +117,12 @@ impl CoduxApp {
                     let _ = self.ssh_sidebar_view(cx);
                 }
             }
+            UiRegion::DbSidebar => {
+                self.record_ui_performance_event("invalidate", region.label());
+                if self.db_sidebar_view.is_some() {
+                    let _ = self.db_sidebar_view(cx);
+                }
+            }
             UiRegion::FileSidebar => {
                 self.record_ui_performance_event("invalidate", region.label());
                 if self.file_sidebar_view.is_some() {
@@ -162,6 +169,7 @@ impl CoduxApp {
                 UiRegion::WorkspaceBody,
                 UiRegion::WorkspaceAssistant,
                 UiRegion::AIStatsSidebar,
+                UiRegion::DbSidebar,
                 UiRegion::FileSidebar,
                 UiRegion::GitSidebar,
                 UiRegion::StatusBar,
@@ -211,6 +219,7 @@ impl CoduxApp {
                 UiRegion::WorkspaceAssistant,
                 UiRegion::AIStatsSidebar,
                 UiRegion::SshSidebar,
+                UiRegion::DbSidebar,
                 UiRegion::FileSidebar,
                 UiRegion::GitSidebar,
                 UiRegion::StatusBar,
@@ -285,6 +294,7 @@ impl CoduxApp {
             [
                 UiRegion::WorkspaceAssistant,
                 UiRegion::SshSidebar,
+                UiRegion::DbSidebar,
                 UiRegion::TaskColumn,
                 UiRegion::StatusBar,
             ],
@@ -305,6 +315,7 @@ impl CoduxApp {
                 UiRegion::WorkspaceAssistant,
                 UiRegion::AIStatsSidebar,
                 UiRegion::SshSidebar,
+                UiRegion::DbSidebar,
                 UiRegion::GitSidebar,
                 UiRegion::StatusBar,
             ],
@@ -358,6 +369,7 @@ impl UiRegion {
             UiRegion::WorkspaceAssistant => "workspace_assistant",
             UiRegion::AIStatsSidebar => "ai_stats_sidebar",
             UiRegion::SshSidebar => "ssh_sidebar",
+            UiRegion::DbSidebar => "db_sidebar",
             UiRegion::FileSidebar => "file_sidebar",
             UiRegion::GitSidebar => "git_sidebar",
             UiRegion::StatusBar => "status_bar",

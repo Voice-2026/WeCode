@@ -12,8 +12,27 @@ use uuid::Uuid;
 pub(super) fn write_test_profile_file(profile: &SSHConnectionProfile) -> Result<PathBuf, String> {
     let path = std::env::temp_dir().join(format!("codux-ssh-test-{}.json", Uuid::new_v4()));
     let data = serde_json::to_vec_pretty(&vec![profile]).map_err(|error| error.to_string())?;
-    fs::write(&path, data).map_err(|error| error.to_string())?;
+    write_private_file(&path, &data)?;
     Ok(path)
+}
+
+#[cfg(unix)]
+fn write_private_file(path: &Path, data: &[u8]) -> Result<(), String> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)
+        .map_err(|error| error.to_string())?;
+    file.write_all(data).map_err(|error| error.to_string())
+}
+
+#[cfg(not(unix))]
+fn write_private_file(path: &Path, data: &[u8]) -> Result<(), String> {
+    fs::write(path, data).map_err(|error| error.to_string())
 }
 
 pub(super) fn ssh_wrapper_path(runtime_assets: impl AsRef<Path>) -> PathBuf {

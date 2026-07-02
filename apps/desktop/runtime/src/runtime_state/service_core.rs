@@ -776,9 +776,9 @@ mod app_runtime_ready_tests {
     }
 
     #[test]
-    fn memory_launch_artifacts_include_ssh_context_without_secrets() {
+    fn launch_artifacts_include_tool_context_when_memory_is_disabled() {
         let support_dir = std::env::temp_dir().join(format!(
-            "codux-runtime-ssh-context-{}",
+            "codux-runtime-tool-context-{}",
             uuid::Uuid::new_v4()
         ));
         fs::create_dir_all(&support_dir).unwrap();
@@ -813,11 +813,30 @@ mod app_runtime_ready_tests {
             .to_string(),
         )
         .unwrap();
+        fs::write(
+            support_dir.join("db_profiles.json"),
+            serde_json::json!([{
+                "id": "db-1",
+                "projectId": "project-a",
+                "name": "Production DB",
+                "engine": "postgres",
+                "host": "db.example.com",
+                "port": 5432,
+                "database": "app",
+                "username": "app_user",
+                "password": "db-secret",
+                "sslMode": "require",
+                "readOnly": true,
+                "updatedAt": 1
+            }])
+            .to_string(),
+        )
+        .unwrap();
 
         let service = RuntimeService::new(support_dir.clone());
         let artifacts = service
             .prepare_memory_launch_artifacts("project-a", "Project A", "/workspace/project-a")
-            .expect("ssh launch context should create artifacts");
+            .expect("tool launch context should create artifacts");
         let agents = fs::read_to_string(artifacts.workspace_root.join("AGENTS.md")).unwrap();
 
         assert!(agents.contains("codux-ssh list"));
@@ -826,6 +845,13 @@ mod app_runtime_ready_tests {
         assert!(agents.contains("root@example.com:22"));
         assert!(!agents.contains("secret-password"));
         assert!(!agents.contains("secret-passphrase"));
+        assert!(agents.contains("codux-db list"));
+        assert!(agents.contains("codux-db <profile-id> -- '<statement>'"));
+        assert!(agents.contains("db-1"));
+        assert!(agents.contains("db.example.com:5432 / app"));
+        assert!(!agents.contains("db-secret"));
+        assert!(!agents.contains("app_user"));
+        assert!(!agents.contains("project active entry"));
 
         fs::remove_dir_all(support_dir).ok();
         fs::remove_dir_all(artifacts.workspace_root).ok();
@@ -1356,6 +1382,7 @@ mod app_runtime_ready_tests {
 
         let terminal_manager = service.terminal_manager();
         let launch_context = TerminalLaunchContext {
+            root_project_id: "project-a".to_string(),
             project_id: "worktree-a".to_string(),
             project_name: "Task A".to_string(),
             project_path: worktree_a_dir.clone(),

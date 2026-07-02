@@ -114,9 +114,23 @@ impl RuntimeService {
         project_name: &str,
         workspace_path: &str,
     ) -> Option<crate::memory::MemoryLaunchArtifacts> {
+        // Launch artifacts are the shared AI CLI entry context. Memory settings
+        // only decide whether stored memory entries are included; tool context
+        // such as codux-ssh/codux-db must remain available even when memory is
+        // disabled.
         let settings = SettingsService::new(self.support_dir.clone()).ai_settings();
-        let ssh_context =
-            render_ssh_launch_context_from_support_dir(self.support_dir.clone(), None);
+        let extra_context = [
+            render_ssh_launch_context_from_support_dir(self.support_dir.clone(), None),
+            render_db_launch_context_from_support_dir(
+                self.support_dir.clone(),
+                Some(project_id),
+                None,
+            ),
+        ]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join("\n\n");
         MemoryService::new(self.support_dir.clone()).prepare_launch_artifacts(
             &crate::runtime_paths::runtime_root_dir(),
             crate::memory::MemoryLaunchRequest {
@@ -124,7 +138,7 @@ impl RuntimeService {
                 project_name: project_name.to_string(),
                 workspace_path: Some(workspace_path.to_string()),
                 settings: crate::memory::memory_config(&settings),
-                extra_context: ssh_context,
+                extra_context: (!extra_context.trim().is_empty()).then_some(extra_context),
             },
         )
     }

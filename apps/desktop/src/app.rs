@@ -10,6 +10,7 @@ use codux_runtime::{
         AISessionSummary,
     },
     ai_history_indexer::AIHistoryEvent,
+    db::{DBConnectionProfile, DBProfileSummary, DBProfileUpsertRequest, DBSummary},
     desktop_pet::{
         DESKTOP_PET_BASE_HEIGHT, DESKTOP_PET_BASE_WIDTH, DESKTOP_PET_HIDE, DESKTOP_PET_MUTE_1_HOUR,
         DESKTOP_PET_MUTE_30_MINUTES, DESKTOP_PET_MUTE_TODAY, DESKTOP_PET_SKIP_LINE,
@@ -79,6 +80,7 @@ use gpui_component::{
     menu::{ContextMenuExt, DropdownMenu, PopupMenu, PopupMenuItem},
     resizable::{h_resizable, resizable_panel, v_resizable},
     spinner::Spinner,
+    switch::Switch,
     tag::Tag,
     v_virtual_list,
 };
@@ -102,6 +104,8 @@ mod app_lifecycle;
 mod app_render;
 mod app_select;
 mod app_state;
+mod db_actions;
+mod db_profile_editor;
 mod desktop_pet;
 mod file_actions;
 mod file_editor;
@@ -183,10 +187,11 @@ use self::{
         project_badge_text_from_name, reordered_ids,
     },
     app_state::{
-        AIProviderTestResult, GIT_CREDENTIALS_COMPACT_HEIGHT, GIT_CREDENTIALS_WINDOW_WIDTH,
-        GitOperationCompletion, PET_CUSTOM_INSTALL_ERROR_HEIGHT, PET_CUSTOM_INSTALL_INPUT_HEIGHT,
-        PET_CUSTOM_INSTALL_READY_HEIGHT, PET_CUSTOM_INSTALL_WINDOW_WIDTH, PET_DEX_FRAME_INTERVAL,
-        PendingTerminalClose, ProjectSwitchLoad, ProjectSwitchPrimaryLoad, ProjectSwitchTaskLoad,
+        AIProviderTestResult, DBProfileTestDisplay, GIT_CREDENTIALS_COMPACT_HEIGHT,
+        GIT_CREDENTIALS_WINDOW_WIDTH, GitOperationCompletion, PET_CUSTOM_INSTALL_ERROR_HEIGHT,
+        PET_CUSTOM_INSTALL_INPUT_HEIGHT, PET_CUSTOM_INSTALL_READY_HEIGHT,
+        PET_CUSTOM_INSTALL_WINDOW_WIDTH, PET_DEX_FRAME_INTERVAL, PendingTerminalClose,
+        ProjectSwitchLoad, ProjectSwitchPrimaryLoad, ProjectSwitchTaskLoad,
         ProjectSwitchTerminalLoad, RuntimeActivityTickResult, RuntimeScheduledRefresh,
         SSHProfileTestDisplay, TerminalCloseTarget, UpdateDialogPhase, WorktreeScopeKey,
         WorktreeSidebarLoad, WorktreeSwitchLoad, app_git_review, app_now_seconds,
@@ -195,6 +200,7 @@ use self::{
         settings_with_active_restart_locked_values, worktree_summary_has_git_counts,
         worktree_summary_has_rows,
     },
+    db_profile_editor::db_profile_editor_workspace,
     desktop_pet::*,
     formatting::compact_number,
     project_column::{ProjectColumnView, ProjectListState},

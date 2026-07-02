@@ -9,6 +9,7 @@ use crate::{
         AppAboutMetadata, AppDiagnosticsSnapshot, DiagnosticsExportRequest,
         DiagnosticsExportResult, UpdateInstallResult, UpdateStatus,
     },
+    db::{DBProfileUpsertRequest, DBProfilesSnapshot, DBQueryResult},
     desktop_pet::{
         DesktopPetPhysicalPosition, DesktopPetPhysicalSize, DesktopPetPlacementSnapshot,
         DesktopPetVisibilitySnapshot, DesktopPetWorkArea,
@@ -351,6 +352,33 @@ pub fn ssh_launch_command(
     profile_id: String,
 ) -> Result<SSHLaunchCommand, String> {
     service.ssh_launch_command(profile_id)
+}
+
+pub fn db_profile_upsert(
+    service: &RuntimeService,
+    request: DBProfileUpsertRequest,
+) -> Result<DBProfilesSnapshot, String> {
+    service.upsert_db_profile(request)
+}
+
+pub fn db_profile_delete(
+    service: &RuntimeService,
+    project_id: String,
+    profile_id: String,
+) -> Result<DBProfilesSnapshot, String> {
+    service.delete_db_profile(&project_id, profile_id)
+}
+
+pub fn db_profile_test(
+    service: &RuntimeService,
+    request: DBProfileUpsertRequest,
+    runtime_assets: PathBuf,
+) -> Result<DBQueryResult, String> {
+    service.test_db_profile(request, runtime_assets)
+}
+
+pub fn db_profiles(service: &RuntimeService, project_id: Option<String>) -> DBProfilesSnapshot {
+    service.db_profiles(project_id.as_deref())
 }
 
 pub fn remote_status(service: &RuntimeService) -> RemoteSummary {

@@ -24,6 +24,7 @@ pub(in crate::app) enum AuxiliaryWindowSlot {
     TerminalTabEditor,
     WorktreeCreator,
     SshProfileEditor,
+    DbProfileEditor,
     FilePicker,
 }
 
@@ -153,6 +154,7 @@ impl CoduxApp {
             pet_custom_install_window: None,
             pet_dex_window: None,
             ssh_profile_editor_window: None,
+            db_profile_editor_window: None,
             file_picker_window: None,
             file_picker_mode: FilePickerMode::OpenFolder,
             file_picker_target: FilePickerTarget::ProjectEditorPath,
@@ -324,6 +326,20 @@ impl CoduxApp {
             memory_status_seen_failed_count: 0,
             selected_runtime_terminal_id,
             selected_ssh_profile_id: None,
+            selected_db_profile_id: None,
+            db_testing: false,
+            db_test_result: None,
+            db_draft_id: None,
+            db_draft_project_id: String::new(),
+            db_draft_name: String::new(),
+            db_draft_engine: "postgres".to_string(),
+            db_draft_host: "localhost".to_string(),
+            db_draft_port: "5432".to_string(),
+            db_draft_database: String::new(),
+            db_draft_username: String::new(),
+            db_draft_password: String::new(),
+            db_draft_ssl_mode: "prefer".to_string(),
+            db_draft_read_only: true,
             ssh_draft_open: false,
             ssh_testing: false,
             ssh_test_result: None,
@@ -368,6 +384,7 @@ impl CoduxApp {
             workspace_assistant_view: None,
             ai_stats_sidebar_view: None,
             ssh_sidebar_view: None,
+            db_sidebar_view: None,
             git_sidebar_view: None,
             git_files_panel_view: None,
             git_history_panel_view: None,
@@ -514,6 +531,7 @@ impl CoduxApp {
             AuxiliaryWindowSlot::TerminalTabEditor => &mut self.terminal_tab_editor_window,
             AuxiliaryWindowSlot::WorktreeCreator => &mut self.worktree_creator_window,
             AuxiliaryWindowSlot::SshProfileEditor => &mut self.ssh_profile_editor_window,
+            AuxiliaryWindowSlot::DbProfileEditor => &mut self.db_profile_editor_window,
             AuxiliaryWindowSlot::FilePicker => &mut self.file_picker_window,
         }
     }
@@ -578,6 +596,30 @@ impl CoduxApp {
             app.status_message = "editing SSH profile".to_string();
         } else {
             app.status_message = "new SSH profile".to_string();
+        }
+        app
+    }
+
+    pub(super) fn new_db_profile_editor_window_from_state(
+        profile: Option<DBConnectionProfile>,
+        state: RuntimeState,
+        runtime: RuntimeInventory,
+        runtime_service: RuntimeService,
+    ) -> Self {
+        let mut app = Self::new_settings_window_from_state(state, runtime, runtime_service);
+        app.window_mode = AppWindowMode::DbProfileEditor;
+        let locale = locale_from_language_setting(&app.state.settings.language);
+        if let Some(profile) = profile {
+            app.apply_db_draft(profile);
+            app.status_message = translate(
+                &locale,
+                "db.profile.editing_status",
+                "editing database profile",
+            );
+        } else {
+            app.reset_db_draft_for_selected_project();
+            app.status_message =
+                translate(&locale, "db.profile.new_status", "new database profile");
         }
         app
     }
@@ -1362,12 +1404,24 @@ impl CoduxApp {
         self.open_ssh_profile_editor(None, cx);
     }
 
+    pub(super) fn open_db_profile_dialog(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        self.open_db_profile_editor(None, cx);
+    }
+
     pub(super) fn open_selected_ssh_profile_editor(
         &mut self,
         profile_id: String,
         cx: &mut Context<Self>,
     ) {
         self.open_ssh_profile_editor(Some(profile_id), cx);
+    }
+
+    pub(super) fn open_selected_db_profile_editor(
+        &mut self,
+        profile_id: String,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_db_profile_editor(Some(profile_id), cx);
     }
 
     pub(super) fn open_ssh_profile_editor(
@@ -1425,6 +1479,83 @@ impl CoduxApp {
             |_view, _window, _cx| {},
         );
         self.invalidate_remote_panel(cx);
+    }
+
+    pub(super) fn open_db_profile_editor(
+        &mut self,
+        profile_id: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(project_id) = self
+            .state
+            .selected_project
+            .as_ref()
+            .map(|project| project.id.clone())
+        else {
+            self.status_message = self.db_text(
+                "db.profile.no_project",
+                "Select a project before adding a database profile",
+            );
+            self.invalidate_db_panel(cx);
+            return;
+        };
+        self.reload_selected_project_db();
+        self.normalize_selected_db_profile();
+        if Self::activate_child_window(&mut self.db_profile_editor_window, cx) {
+            self.status_message = self.db_text(
+                "db.profile.editor.already_open",
+                "Database profile editor already opened",
+            );
+            self.invalidate_db_panel(cx);
+            return;
+        }
+
+        let profile = if let Some(profile_id) = profile_id {
+            let snapshot = self.runtime_service.db_profiles(Some(&project_id));
+            let Some(profile) = snapshot
+                .profiles
+                .into_iter()
+                .find(|profile| profile.id == profile_id)
+            else {
+                self.status_message = self.db_text(
+                    "db.profile.unavailable",
+                    "Database profile is no longer available",
+                );
+                self.invalidate_db_panel(cx);
+                return;
+            };
+            Some(profile)
+        } else {
+            None
+        };
+        let locale = locale_from_language_setting(&self.state.settings.language);
+        let title = if profile.is_some() {
+            translate(&locale, "db.profile.edit_window", "Edit Database Profile")
+        } else {
+            translate(&locale, "db.profile.add_window", "Add Database Profile")
+        };
+        self.open_auxiliary_window(
+            AuxiliaryWindowSpec {
+                slot: AuxiliaryWindowSlot::DbProfileEditor,
+                title: SharedString::from(title),
+                size: size(px(520.0), px(520.0)),
+                min_size: size(px(460.0), px(430.0)),
+                already_open_message: "Database profile editor already opened",
+                opened_message: "Database profile editor opened",
+                failed_prefix: "failed to open database profile editor",
+            },
+            cx,
+            move |state, runtime, runtime_service, _window, _cx| {
+                CoduxApp::new_db_profile_editor_window_from_state(
+                    profile,
+                    state,
+                    runtime,
+                    runtime_service,
+                )
+            },
+            |_view, _window, _cx| {},
+        );
+        self.invalidate_db_panel(cx);
     }
 
     pub(super) fn toggle_project_column(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -1580,6 +1711,7 @@ impl CoduxApp {
                 UiRegion::WorkspaceAssistant,
                 UiRegion::AIStatsSidebar,
                 UiRegion::SshSidebar,
+                UiRegion::DbSidebar,
                 UiRegion::FileSidebar,
                 UiRegion::GitSidebar,
                 UiRegion::StatusBar,
@@ -1599,6 +1731,10 @@ impl CoduxApp {
             AssistantPanel::SSH => {
                 self.state.ssh = self.runtime_service.reload_ssh(self.runtime.root.clone());
                 self.normalize_selected_ssh_profile();
+            }
+            AssistantPanel::DB => {
+                self.reload_selected_project_db();
+                self.normalize_selected_db_profile();
             }
             AssistantPanel::FileManager => {
                 self.refresh_files_panel_state_async(cx);

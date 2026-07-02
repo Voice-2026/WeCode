@@ -66,6 +66,18 @@ fn launch_command_only_references_profile_id() {
     assert!(!command.command.contains("secret-passphrase"));
 }
 
+#[cfg(unix)]
+#[test]
+fn ssh_test_profile_file_is_owner_only() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let profile = profile_with_secret();
+    let path = super::test_command::write_test_profile_file(&profile).unwrap();
+    let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600);
+    fs::remove_file(path).ok();
+}
+
 #[test]
 fn ssh_store_uses_shared_config_document_snapshot() {
     let support_dir = std::env::temp_dir().join(format!("codux-ssh-store-{}", Uuid::new_v4()));

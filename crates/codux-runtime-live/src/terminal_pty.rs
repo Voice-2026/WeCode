@@ -162,6 +162,7 @@ impl From<TerminalLaunchConfig> for TerminalPtyConfig {
 
 #[derive(Clone, Debug)]
 pub struct TerminalLaunchContext {
+    pub root_project_id: String,
     pub project_id: String,
     pub project_name: String,
     pub project_path: PathBuf,
@@ -2313,7 +2314,17 @@ pub fn terminal_environment(
             "CODUX_SSH_PROFILES_FILE".to_string(),
             support_dir.join("ssh_profiles.json").display().to_string(),
         );
+        values.insert(
+            "CODUX_DB_PROFILES_FILE".to_string(),
+            support_dir.join("db_profiles.json").display().to_string(),
+        );
     }
+    let root_project_id = context
+        .map(|context| context.root_project_id.clone())
+        .or_else(|| config.project_id.clone())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| project_id.clone());
+    values.insert("CODUX_DB_PROJECT_ID".to_string(), root_project_id);
     if let Some(path) = config
         .tool_permissions_file
         .as_ref()
@@ -3473,6 +3484,7 @@ mod tests {
         )
         .unwrap();
         let context = TerminalLaunchContext {
+            root_project_id: "project-1".to_string(),
             project_id: "project-1".to_string(),
             project_name: "Codux".to_string(),
             project_path: PathBuf::from("/workspace/codux"),
@@ -3539,6 +3551,14 @@ mod tests {
             Some("/support/Codux/ssh_profiles.json")
         );
         assert_eq!(
+            env.get("CODUX_DB_PROFILES_FILE").map(String::as_str),
+            Some("/support/Codux/db_profiles.json")
+        );
+        assert_eq!(
+            env.get("CODUX_DB_PROJECT_ID").map(String::as_str),
+            Some("project-1")
+        );
+        assert_eq!(
             env.get("DMUX_USER_ZDOTDIR").map(String::as_str),
             env.get("HOME").map(String::as_str)
         );
@@ -3592,6 +3612,7 @@ mod tests {
         )
         .unwrap();
         let context = TerminalLaunchContext {
+            root_project_id: "project-1".to_string(),
             project_id: "project-1".to_string(),
             project_name: "Codux".to_string(),
             project_path: PathBuf::from("/workspace/codux"),
@@ -3665,6 +3686,7 @@ mod tests {
         let runtime_root = temp.join("runtime-root");
         fs::create_dir_all(runtime_root.join("scripts/shell-hooks/zsh")).unwrap();
         let context = TerminalLaunchContext {
+            root_project_id: "project-1".to_string(),
             project_id: "project-1".to_string(),
             project_name: "Codux".to_string(),
             project_path: PathBuf::from("/workspace/codux"),
@@ -3707,6 +3729,7 @@ mod tests {
     #[test]
     fn terminal_environment_keeps_runtime_context_compact() {
         let context = TerminalLaunchContext {
+            root_project_id: "project-1".to_string(),
             project_id: "project-1".to_string(),
             project_name: "Codux".to_string(),
             project_path: PathBuf::from("/workspace/codux"),
@@ -4169,6 +4192,7 @@ mod tests {
         fs::create_dir_all(&project_cwd).unwrap();
         fs::create_dir_all(&worktree_cwd).unwrap();
         let context = TerminalLaunchContext {
+            root_project_id: "project-1".to_string(),
             project_id: "worktree-context".to_string(),
             project_name: "Context Worktree".to_string(),
             project_path: project_cwd.clone(),

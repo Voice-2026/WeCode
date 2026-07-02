@@ -1,6 +1,31 @@
 use crate::ai_runtime::tool_driver::{AIRuntimeMemoryInjectionDriver, runtime_tool_driver};
+use percent_encoding::{AsciiSet, CONTROLS, utf8_percent_encode};
 use serde_json::{Value, json};
-use std::{env, fs, path::Path};
+use sqlx::{Any, AnyConnection, Column, Connection, Row, TypeInfo, ValueRef, any::AnyRow, query};
+use std::{env, fs, path::Path, time::Duration};
+
+const DB_QUERY_TIMEOUT_SECONDS: u64 = 15;
+const DB_QUERY_MAX_ROWS: usize = 100;
+const DB_QUERY_MAX_CELL_CHARS: usize = 240;
+const DB_URL_ENCODE_SET: &AsciiSet = &CONTROLS
+    .add(b' ')
+    .add(b'"')
+    .add(b'#')
+    .add(b'%')
+    .add(b'<')
+    .add(b'>')
+    .add(b'?')
+    .add(b'`')
+    .add(b'{')
+    .add(b'}')
+    .add(b'/')
+    .add(b':')
+    .add(b'@')
+    .add(b'[')
+    .add(b']')
+    .add(b'\\')
+    .add(b'^')
+    .add(b'|');
 
 pub fn handle_args(args: &[String]) -> Result<bool, String> {
     let Some(command) = args.first().map(String::as_str) else {
@@ -26,6 +51,8 @@ pub fn handle_args(args: &[String]) -> Result<bool, String> {
         "claude-memory-context" => print_claude_memory_context(),
         "ssh-list-profiles" => print_ssh_profiles(),
         "ssh-profile-shell" => print_ssh_profile_shell(),
+        "db-list-profiles" => print_db_profiles(),
+        "db-query" => print_db_query(),
         _ => return Err(format!("unknown wrapper helper subcommand: {subcommand}")),
     }?;
     Ok(true)
@@ -297,6 +324,41 @@ fn print_ssh_profile_shell() -> Result<(), String> {
     Ok(())
 }
 
+fn print_db_profiles() -> Result<(), String> {
+    let path = env_value("CODUX_DB_PROFILES_FILE");
+    let project_id = env_value("CODUX_DB_PROJECT_ID");
+    let root = read_json_file(&path)
+        .ok_or_else(|| "codux-db: failed to read database profiles".to_string())?;
+    let profiles = db_profiles_array(&root)
+        .ok_or_else(|| "codux-db: invalid database profile file".to_string())?;
+    let public_profiles = profiles
+        .iter()
+        .filter_map(|profile| public_db_profile(profile, &project_id))
+        .collect::<Vec<_>>();
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&json!({ "profiles": public_profiles }))
+            .map_err(|error| error.to_string())?
+    );
+    Ok(())
+}
+
+fn print_db_query() -> Result<(), String> {
+    let profile = selected_db_profile()?;
+    let statement = db_statement()?;
+    let output_json = env_value("CODUX_DB_OUTPUT_JSON") == "true";
+    let result = run_db_query(&profile, &statement)?;
+    if output_json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&result).map_err(|error| error.to_string())?
+        );
+    } else {
+        print_db_query_table(&result);
+    }
+    Ok(())
+}
+
 fn ssh_control_path(profile_id: &str) -> Option<String> {
     let socket_name = format!("cxs-{:016x}", stable_hash64(profile_id.as_bytes()));
     #[cfg(target_os = "macos")]
@@ -444,6 +506,12 @@ fn ssh_profiles_array(root: &Value) -> Option<&Vec<Value>> {
         .or_else(|| root.as_array())
 }
 
+fn db_profiles_array(root: &Value) -> Option<&Vec<Value>> {
+    root.get("dbProfiles")
+        .and_then(Value::as_array)
+        .or_else(|| root.as_array())
+}
+
 fn public_ssh_profile(profile: &Value) -> Option<Value> {
     let profile_id = string_field(profile, "id");
     let host = string_field(profile, "host");
@@ -479,6 +547,487 @@ fn public_ssh_profile(profile: &Value) -> Option<Value> {
     }))
 }
 
+fn public_db_profile(profile: &Value, project_id: &str) -> Option<Value> {
+    let profile_project_id = string_field(profile, "projectId");
+    if profile_project_id.is_empty() || profile_project_id != project_id {
+        return None;
+    }
+    let profile_id = string_field(profile, "id");
+    let engine = string_field(profile, "engine");
+    let database = string_field(profile, "database");
+    if profile_id.is_empty() || engine.is_empty() || database.is_empty() {
+        return None;
+    }
+    let host = string_field(profile, "host");
+    let port = db_port_field(profile);
+    let name = {
+        let value = string_field(profile, "name");
+        if value.is_empty() {
+            format!("{engine} · {database}")
+        } else {
+            value
+        }
+    };
+    let endpoint = if engine == "sqlite" {
+        database.clone()
+    } else {
+        format!("{host}:{port}/{database}")
+    };
+    Some(json!({
+        "id": profile_id,
+        "name": name,
+        "engine": engine,
+        "database": database,
+        "endpoint": endpoint,
+        "readOnly": profile.get("readOnly").and_then(Value::as_bool).unwrap_or(false),
+    }))
+}
+
+fn selected_db_profile() -> Result<Value, String> {
+    let profile_id = env_value("CODUX_DB_PROFILE_ID");
+    let project_id = env_value("CODUX_DB_PROJECT_ID");
+    if profile_id.trim().is_empty() {
+        return Err("codux-db: missing database profile id".to_string());
+    }
+    if project_id.trim().is_empty() {
+        return Err("codux-db: missing Codux project context".to_string());
+    }
+    let path = env_value("CODUX_DB_PROFILES_FILE");
+    let root = read_json_file(&path)
+        .ok_or_else(|| "codux-db: failed to read database profiles".to_string())?;
+    let profiles = db_profiles_array(&root)
+        .ok_or_else(|| "codux-db: invalid database profile file".to_string())?;
+    profiles
+        .iter()
+        .find(|profile| {
+            string_field(profile, "id") == profile_id
+                && string_field(profile, "projectId") == project_id
+        })
+        .cloned()
+        .ok_or_else(|| "codux-db: database profile not found for this project".to_string())
+}
+
+fn db_statement() -> Result<String, String> {
+    let statement = env_value("CODUX_DB_STATEMENT");
+    let statement = statement.trim();
+    if statement.is_empty() {
+        return Err("codux-db: missing SQL statement".to_string());
+    }
+    Ok(statement.to_string())
+}
+
+fn run_db_query(profile: &Value, statement: &str) -> Result<Value, String> {
+    if !statement_allowed(profile, statement) {
+        return Err("codux-db: read-only database profile only allows SELECT/SHOW/WITH/EXPLAIN/PRAGMA statements".to_string());
+    }
+    let url = db_connection_url(profile)?;
+    let read_only = profile
+        .get("readOnly")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let engine = string_field(profile, "engine").to_ascii_lowercase();
+    let future = async move {
+        sqlx::any::install_default_drivers();
+        let mut connection = AnyConnection::connect(&url)
+            .await
+            .map_err(|error| format!("codux-db: failed to connect: {error}"))?;
+        apply_db_session_guard(&mut connection, &engine, read_only).await?;
+        let rows = query::<Any>(statement)
+            .fetch_all(&mut connection)
+            .await
+            .map_err(|error| format!("codux-db: query failed: {error}"))?;
+        Ok::<Value, String>(db_rows_json(rows))
+    };
+    run_with_tokio_timeout(future)
+}
+
+fn run_with_tokio_timeout<F>(future: F) -> Result<Value, String>
+where
+    F: std::future::Future<Output = Result<Value, String>>,
+{
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| format!("codux-db: failed to start query runtime: {error}"))?;
+    runtime.block_on(async {
+        tokio::time::timeout(Duration::from_secs(DB_QUERY_TIMEOUT_SECONDS), future)
+            .await
+            .map_err(|_| {
+                format!("codux-db: query timed out after {DB_QUERY_TIMEOUT_SECONDS} seconds")
+            })?
+    })
+}
+
+async fn apply_db_session_guard(
+    connection: &mut AnyConnection,
+    engine: &str,
+    read_only: bool,
+) -> Result<(), String> {
+    if !read_only {
+        return Ok(());
+    }
+    match engine {
+        "sqlite" | "sqlite3" => {
+            query::<Any>("PRAGMA query_only = ON")
+                .execute(&mut *connection)
+                .await
+                .map_err(|error| {
+                    format!("codux-db: failed to enable sqlite read-only guard: {error}")
+                })?;
+        }
+        "postgres" | "postgresql" | "pg" => {
+            query::<Any>("SET default_transaction_read_only = on")
+                .execute(&mut *connection)
+                .await
+                .map_err(|error| {
+                    format!("codux-db: failed to enable postgres read-only guard: {error}")
+                })?;
+        }
+        "mysql" | "mariadb" => {
+            query::<Any>("SET SESSION TRANSACTION READ ONLY")
+                .execute(&mut *connection)
+                .await
+                .map_err(|error| {
+                    format!("codux-db: failed to enable mysql read-only guard: {error}")
+                })?;
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn db_connection_url(profile: &Value) -> Result<String, String> {
+    let engine = string_field(profile, "engine").to_ascii_lowercase();
+    let database = string_field(profile, "database");
+    if database.is_empty() {
+        return Err("codux-db: database name/path cannot be empty".to_string());
+    }
+    if matches!(engine.as_str(), "sqlite" | "sqlite3") {
+        return Ok(format!("sqlite://{}", encode_sqlite_path(&database)));
+    }
+    let host = string_field(profile, "host");
+    let username = string_field(profile, "username");
+    if host.is_empty() || username.is_empty() {
+        return Err("codux-db: database host and username are required".to_string());
+    }
+    let password = string_field(profile, "password");
+    let port = db_port_field(profile);
+    let scheme = match engine.as_str() {
+        "postgres" | "postgresql" | "pg" => "postgres",
+        "mysql" | "mariadb" => "mysql",
+        _ => return Err("codux-db: unsupported database engine".to_string()),
+    };
+    let user_info = if password.is_empty() {
+        percent_encode(&username)
+    } else {
+        format!(
+            "{}:{}",
+            percent_encode(&username),
+            percent_encode(&password)
+        )
+    };
+    let ssl_mode = normalized_db_ssl_mode(&string_field(profile, "sslMode"), scheme);
+    let ssl_key = if scheme == "postgres" {
+        "sslmode"
+    } else {
+        "ssl-mode"
+    };
+    Ok(format!(
+        "{scheme}://{user_info}@{}:{}/{}?{}={}",
+        percent_encode_host(&host),
+        port,
+        percent_encode(&database),
+        ssl_key,
+        ssl_mode
+    ))
+}
+
+fn statement_allowed(profile: &Value, statement: &str) -> bool {
+    if !profile
+        .get("readOnly")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        return true;
+    }
+    let first = first_sql_keyword(statement);
+    matches!(
+        first.as_deref(),
+        Some("select" | "show" | "with" | "explain" | "pragma" | "describe" | "desc")
+    ) && is_single_sql_statement(statement)
+}
+
+fn first_sql_keyword(statement: &str) -> Option<String> {
+    let mut text = statement.trim_start();
+    loop {
+        if let Some(rest) = text.strip_prefix("--") {
+            if let Some(index) = rest.find('\n') {
+                text = &rest[index + 1..];
+                continue;
+            }
+            return None;
+        }
+        if let Some(rest) = text.strip_prefix("/*") {
+            if let Some(index) = rest.find("*/") {
+                text = &rest[index + 2..];
+                continue;
+            }
+            return None;
+        }
+        break;
+    }
+    text.split(|ch: char| !ch.is_ascii_alphabetic())
+        .find(|part| !part.is_empty())
+        .map(|part| part.to_ascii_lowercase())
+}
+
+fn is_single_sql_statement(statement: &str) -> bool {
+    let mut characters = statement.char_indices().peekable();
+    while let Some((index, character)) = characters.next() {
+        match character {
+            '\'' | '"' => skip_sql_quoted_string(&mut characters, character),
+            '-' if statement[index..].starts_with("--") => skip_sql_line_comment(&mut characters),
+            '/' if statement[index..].starts_with("/*") => skip_sql_block_comment(&mut characters),
+            ';' => return only_sql_trivia_remains(&statement[index + character.len_utf8()..]),
+            _ => {}
+        }
+    }
+    true
+}
+
+fn skip_sql_quoted_string(
+    characters: &mut std::iter::Peekable<std::str::CharIndices<'_>>,
+    quote: char,
+) {
+    while let Some((_, character)) = characters.next() {
+        if character != quote {
+            continue;
+        }
+        if characters
+            .peek()
+            .is_some_and(|(_, next_character)| *next_character == quote)
+        {
+            let _ = characters.next();
+            continue;
+        }
+        break;
+    }
+}
+
+fn skip_sql_line_comment(characters: &mut std::iter::Peekable<std::str::CharIndices<'_>>) {
+    let _ = characters.next();
+    while let Some((_, character)) = characters.next() {
+        if character == '\n' {
+            break;
+        }
+    }
+}
+
+fn skip_sql_block_comment(characters: &mut std::iter::Peekable<std::str::CharIndices<'_>>) {
+    let _ = characters.next();
+    let mut previous = '\0';
+    while let Some((_, character)) = characters.next() {
+        if previous == '*' && character == '/' {
+            break;
+        }
+        previous = character;
+    }
+}
+
+fn only_sql_trivia_remains(statement: &str) -> bool {
+    let mut text = statement.trim_start();
+    loop {
+        if text.is_empty() {
+            return true;
+        }
+        if let Some(rest) = text.strip_prefix("--") {
+            if let Some(index) = rest.find('\n') {
+                text = rest[index + 1..].trim_start();
+                continue;
+            }
+            return true;
+        }
+        if let Some(rest) = text.strip_prefix("/*") {
+            if let Some(index) = rest.find("*/") {
+                text = rest[index + 2..].trim_start();
+                continue;
+            }
+        }
+        return false;
+    }
+}
+
+fn db_rows_json(rows: Vec<AnyRow>) -> Value {
+    let total_rows = rows.len();
+    let rows = rows
+        .into_iter()
+        .take(DB_QUERY_MAX_ROWS)
+        .map(|row| {
+            let columns = row
+                .columns()
+                .iter()
+                .enumerate()
+                .map(|(index, column)| {
+                    (
+                        column.name().to_string(),
+                        db_cell_json(&row, index, column.type_info().name()),
+                    )
+                })
+                .collect::<serde_json::Map<_, _>>();
+            Value::Object(columns)
+        })
+        .collect::<Vec<_>>();
+    json!({
+        "ok": true,
+        "rowCount": rows.len(),
+        "totalRows": total_rows,
+        "truncated": total_rows > DB_QUERY_MAX_ROWS,
+        "rows": rows,
+    })
+}
+
+fn db_cell_json(row: &AnyRow, index: usize, type_name: &str) -> Value {
+    if row
+        .try_get_raw(index)
+        .map(|value| value.is_null())
+        .unwrap_or(false)
+    {
+        return Value::Null;
+    }
+    match type_name {
+        "BOOLEAN" => row
+            .try_get::<bool, _>(index)
+            .map(Value::Bool)
+            .unwrap_or_else(|_| fallback_db_cell_json(row, index)),
+        "SMALLINT" => row
+            .try_get::<i16, _>(index)
+            .map(|value| json!(value))
+            .unwrap_or_else(|_| fallback_db_cell_json(row, index)),
+        "INTEGER" => row
+            .try_get::<i32, _>(index)
+            .map(|value| json!(value))
+            .unwrap_or_else(|_| fallback_db_cell_json(row, index)),
+        "BIGINT" => row
+            .try_get::<i64, _>(index)
+            .map(|value| json!(value))
+            .unwrap_or_else(|_| fallback_db_cell_json(row, index)),
+        "REAL" => row
+            .try_get::<f32, _>(index)
+            .map(|value| json!(value))
+            .unwrap_or_else(|_| fallback_db_cell_json(row, index)),
+        "DOUBLE" => row
+            .try_get::<f64, _>(index)
+            .map(|value| json!(value))
+            .unwrap_or_else(|_| fallback_db_cell_json(row, index)),
+        "BLOB" => row
+            .try_get::<Vec<u8>, _>(index)
+            .map(|value| Value::String(format!("<{} blob bytes>", value.len())))
+            .unwrap_or_else(|_| fallback_db_cell_json(row, index)),
+        "NULL" => Value::Null,
+        _ => fallback_db_cell_json(row, index),
+    }
+}
+
+fn fallback_db_cell_json(row: &AnyRow, index: usize) -> Value {
+    row.try_get::<String, _>(index)
+        .map(|value| Value::String(truncate_cell(&value)))
+        .unwrap_or_else(|_| Value::String("<decode error>".to_string()))
+}
+
+fn print_db_query_table(result: &Value) {
+    let rows = result
+        .get("rows")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    if rows.is_empty() {
+        println!("ok: 0 rows");
+        return;
+    }
+    let columns = rows
+        .first()
+        .and_then(Value::as_object)
+        .map(|object| object.keys().cloned().collect::<Vec<_>>())
+        .unwrap_or_default();
+    println!("{}", columns.join("\t"));
+    for row in rows {
+        let object = row.as_object();
+        let cells = columns
+            .iter()
+            .map(|column| {
+                object
+                    .and_then(|object| object.get(column))
+                    .map(db_cell_display)
+                    .unwrap_or_default()
+            })
+            .collect::<Vec<_>>();
+        println!("{}", cells.join("\t"));
+    }
+    if result
+        .get("truncated")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        println!("[truncated at {DB_QUERY_MAX_ROWS} rows]");
+    }
+}
+
+fn db_cell_display(value: &Value) -> String {
+    match value {
+        Value::Null => "NULL".to_string(),
+        Value::String(value) => value.clone(),
+        Value::Bool(value) => value.to_string(),
+        Value::Number(value) => value.to_string(),
+        other => serde_json::to_string(other).unwrap_or_default(),
+    }
+}
+
+fn truncate_cell(value: &str) -> String {
+    let mut output = value
+        .chars()
+        .take(DB_QUERY_MAX_CELL_CHARS)
+        .collect::<String>();
+    if value.chars().count() > DB_QUERY_MAX_CELL_CHARS {
+        output.push('…');
+    }
+    output
+}
+
+fn percent_encode(value: &str) -> String {
+    utf8_percent_encode(value, DB_URL_ENCODE_SET).to_string()
+}
+
+fn percent_encode_host(value: &str) -> String {
+    if value.contains(':') && !value.starts_with('[') {
+        format!("[{value}]")
+    } else {
+        value.to_string()
+    }
+}
+
+fn encode_sqlite_path(value: &str) -> String {
+    if value == ":memory:" {
+        return ":memory:".to_string();
+    }
+    value.replace('\\', "/")
+}
+
+fn normalized_db_ssl_mode(value: &str, scheme: &str) -> &'static str {
+    match (scheme, value.trim().to_ascii_lowercase().as_str()) {
+        ("postgres", "disable") => "disable",
+        ("postgres", "allow") => "allow",
+        ("postgres", "require") => "require",
+        ("postgres", "verify-ca") => "verify-ca",
+        ("postgres", "verify-full") => "verify-full",
+        ("mysql", "disable" | "disabled") => "DISABLED",
+        ("mysql", "require" | "required") => "REQUIRED",
+        ("mysql", "verify-ca") => "VERIFY_CA",
+        ("mysql", "verify-identity" | "verify-full") => "VERIFY_IDENTITY",
+        ("mysql", _) => "PREFERRED",
+        _ => "prefer",
+    }
+}
+
 fn string_field(value: &Value, key: &str) -> String {
     value
         .get(key)
@@ -497,6 +1046,26 @@ fn port_field(profile: &Value) -> u16 {
                 .or_else(|| value.as_str().and_then(|text| text.parse::<u64>().ok()))
         })
         .unwrap_or(22);
+    raw.clamp(1, 65535) as u16
+}
+
+fn db_port_field(profile: &Value) -> u16 {
+    let default = match string_field(profile, "engine")
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "mysql" | "mariadb" => 3306,
+        "sqlite" | "sqlite3" => 1,
+        _ => 5432,
+    };
+    let raw = profile
+        .get("port")
+        .and_then(|value| {
+            value
+                .as_u64()
+                .or_else(|| value.as_str().and_then(|text| text.parse::<u64>().ok()))
+        })
+        .unwrap_or(default);
     raw.clamp(1, 65535) as u16
 }
 
@@ -607,5 +1176,77 @@ mod tests {
             path.len() < 104,
             "ControlPath must fit macOS sockaddr_un.sun_path: {path}"
         );
+    }
+
+    #[test]
+    fn public_db_profile_filters_project_and_redacts_secrets() {
+        let profile = serde_json::json!({
+            "id": "db-1",
+            "projectId": "project-a",
+            "name": "Production",
+            "engine": "postgres",
+            "host": "db.example.com",
+            "port": 5432,
+            "database": "app",
+            "username": "app_user",
+            "password": "secret-password",
+            "readOnly": true
+        });
+
+        let public = public_db_profile(&profile, "project-a").expect("public profile");
+        assert_eq!(public.get("id").and_then(Value::as_str), Some("db-1"));
+        assert_eq!(
+            public.get("endpoint").and_then(Value::as_str),
+            Some("db.example.com:5432/app")
+        );
+        assert!(public.get("username").is_none());
+        assert!(public.get("password").is_none());
+        assert!(public_db_profile(&profile, "project-b").is_none());
+    }
+
+    #[test]
+    fn readonly_db_statement_gate_blocks_writes() {
+        let profile = serde_json::json!({ "readOnly": true });
+        assert!(statement_allowed(&profile, " /* comment */ SELECT 1"));
+        assert!(statement_allowed(
+            &profile,
+            "-- hi\nWITH x AS (SELECT 1) SELECT * FROM x"
+        ));
+        assert!(statement_allowed(
+            &profile,
+            "SELECT ';' AS literal; -- trailing comment"
+        ));
+        assert!(!statement_allowed(&profile, "DELETE FROM users"));
+        assert!(!statement_allowed(&profile, "INSERT INTO users VALUES (1)"));
+        assert!(!statement_allowed(&profile, "SELECT 1; DELETE FROM users"));
+    }
+
+    #[test]
+    fn sqlite_db_query_executes_without_exposing_passwords() {
+        let dir = std::env::temp_dir().join(format!("codux-db-query-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let database = dir.join("app.sqlite3");
+        {
+            let conn = rusqlite::Connection::open(&database).unwrap();
+            conn.execute("CREATE TABLE users (id INTEGER, name TEXT)", [])
+                .unwrap();
+            conn.execute("INSERT INTO users VALUES (1, 'Ada')", [])
+                .unwrap();
+        }
+        let profile = serde_json::json!({
+            "id": "db-1",
+            "projectId": "project-a",
+            "engine": "sqlite",
+            "database": database.display().to_string(),
+            "readOnly": true,
+            "password": "secret-password"
+        });
+
+        let result = run_db_query(&profile, "SELECT id, name FROM users").unwrap();
+        assert_eq!(result.get("rowCount").and_then(Value::as_u64), Some(1));
+        let output = serde_json::to_string(&result).unwrap();
+        assert!(output.contains("Ada"));
+        assert!(!output.contains("secret-password"));
+        fs::remove_dir_all(dir).ok();
     }
 }

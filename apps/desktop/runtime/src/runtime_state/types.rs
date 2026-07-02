@@ -21,6 +21,7 @@ pub struct RuntimeState {
     pub memory_manager: MemoryManagerSnapshot,
     pub notifications: NotificationSummary,
     pub ssh: SSHSummary,
+    pub db: DBSummary,
     pub worktrees: WorktreeSummary,
     pub terminal_layout: TerminalLayoutSummary,
     pub terminal_runtime: TerminalRuntimeSummary,

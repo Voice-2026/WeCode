@@ -207,12 +207,8 @@ pub(super) fn pet_persona_id(stats: &PetStats) -> &'static str {
         return "observer";
     }
     let dominant_gap = strongest.1 - second;
-    let dominance_ratio = if second > 0 {
-        strongest.1 as f64 / second as f64
-    } else {
-        strongest.1 as f64
-    };
-    if dominant_gap < 18.max(strongest.1 / 8) || dominance_ratio < 1.12 {
+    let mean = values.iter().map(|item| item.1).sum::<i64>() as f64 / values.len() as f64;
+    if (strongest.1 as f64) < mean * 1.15 {
         return "balanced";
     }
     if strongest.0 == "wisdom"
