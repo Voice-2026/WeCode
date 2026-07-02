@@ -617,6 +617,21 @@ extension _HomePageTerminal on HomeController {
     int? bufferLength,
   ) {
     if (outputSeq == null) return;
+    final lastSeq = _terminalOutputAckSeqBySession[sessionId];
+    if (lastSeq != null && outputSeq <= lastSeq) return;
+    final lastAt = _terminalOutputAckAtBySession[sessionId];
+    final now = DateTime.now();
+    final seqLag = lastSeq == null
+        ? _terminalOutputAckSeqInterval
+        : outputSeq - lastSeq;
+    final timeDue =
+        lastAt == null ||
+        now.difference(lastAt) >= _terminalOutputAckMinInterval;
+    if (lastSeq != null && seqLag < _terminalOutputAckSeqInterval && !timeDue) {
+      return;
+    }
+    _terminalOutputAckSeqBySession[sessionId] = outputSeq;
+    _terminalOutputAckAtBySession[sessionId] = now;
     _sendTerminalOutputAck(sessionId, outputSeq, bufferLength);
   }
 

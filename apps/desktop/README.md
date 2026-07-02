@@ -6,7 +6,7 @@ Codux Desktop is the Rust + GPUI application. It is the primary controller UI an
 
 - GPUI windows, panels, menus, shortcuts, terminal renderer, and desktop-specific UX.
 - Workspace orchestration for projects, worktrees, Git, files, memory, updates, SSH, and AI CLI sessions.
-- Desktop host runtime for v3.1 remote protocol domains.
+- Desktop host runtime for v3.2 remote protocol domains.
 - Desktop adapters around shared terminal and runtime crates when extra AI/runtime policy is required.
 - Packaging and release scripts for the native desktop app.
 

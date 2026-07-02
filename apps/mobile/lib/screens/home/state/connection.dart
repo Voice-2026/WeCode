@@ -175,6 +175,8 @@ extension _HomePageConnection on HomeController {
     _terminalInputSender.clear();
     _terminalBindingCoordinator.reset();
     _viewportOwnerRefreshAfterBaseline.clear();
+    _terminalOutputAckSeqBySession.clear();
+    _terminalOutputAckAtBySession.clear();
     final message = _t('connection.upgradeRequired');
     _applyState(() {
       _transportReady = false;
@@ -211,6 +213,8 @@ extension _HomePageConnection on HomeController {
     _terminalInputSender.clear();
     _terminalBindingCoordinator.reset();
     _viewportOwnerRefreshAfterBaseline.clear();
+    _terminalOutputAckSeqBySession.clear();
+    _terminalOutputAckAtBySession.clear();
     _terminalBufferRetry.reset();
   }
 
@@ -380,6 +384,8 @@ extension _HomePageConnection on HomeController {
     _terminalBindingCoordinator.reset();
     _terminalBaselineResyncRequestedAt.clear();
     _viewportOwnerRefreshAfterBaseline.clear();
+    _terminalOutputAckSeqBySession.clear();
+    _terminalOutputAckAtBySession.clear();
     _terminalViewportController.resetSizes();
     _terminalViewportInteractive = false;
     _syncRuntimeViewState();
@@ -391,6 +397,8 @@ extension _HomePageConnection on HomeController {
     _terminalBindingCoordinator.reset();
     _terminalBaselineResyncRequestedAt.clear();
     _viewportOwnerRefreshAfterBaseline.clear();
+    _terminalOutputAckSeqBySession.clear();
+    _terminalOutputAckAtBySession.clear();
     _terminalViewportController.resetSizes();
     // Drop version watermarks: a new connection / host restart restarts the
     // host's per-key version sequence, so an old high watermark would wrongly
@@ -409,6 +417,8 @@ extension _HomePageConnection on HomeController {
     _terminalBindingCoordinator.reset();
     _terminalBaselineResyncRequestedAt.clear();
     _viewportOwnerRefreshAfterBaseline.clear();
+    _terminalOutputAckSeqBySession.clear();
+    _terminalOutputAckAtBySession.clear();
     _remoteStateVersions.reset();
     _terminalInputBatcher.reset();
     _terminalInputSender.clear();
@@ -485,6 +495,8 @@ extension _HomePageConnection on HomeController {
       _terminalBindingCoordinator.reset();
       _terminalBaselineResyncRequestedAt.clear();
       _viewportOwnerRefreshAfterBaseline.clear();
+      _terminalOutputAckSeqBySession.clear();
+      _terminalOutputAckAtBySession.clear();
       _terminalViewportController.resetSizes();
     }
     _applyState(() {

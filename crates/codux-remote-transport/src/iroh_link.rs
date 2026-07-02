@@ -56,17 +56,14 @@ const IROH_DIAL_BASE_TIMEOUT: Duration = Duration::from_secs(4);
 const IROH_DIAL_ATTEMPTS: usize = 3;
 
 type IrohSender = mpsc::UnboundedSender<Vec<u8>>;
+static HOST_PEER_ID: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone)]
 struct PeerSenders {
+    id: u64,
     control: IrohSender,
     terminal: IrohSender,
-}
-
-impl PeerSenders {
-    fn same_channels(&self, other: &Self) -> bool {
-        self.control.same_channel(&other.control) && self.terminal.same_channel(&other.terminal)
-    }
+    closed: Arc<AtomicBool>,
 }
 
 pub struct RemoteIrohHostTransport {
@@ -214,8 +211,10 @@ impl RemoteIrohHostTransport {
         let (control_tx, control_rx) = mpsc::unbounded_channel::<Vec<u8>>();
         let (terminal_tx, terminal_rx) = mpsc::unbounded_channel::<Vec<u8>>();
         let peer_senders = PeerSenders {
+            id: HOST_PEER_ID.fetch_add(1, Ordering::Relaxed),
             control: control_tx,
             terminal: terminal_tx,
+            closed: Arc::new(AtomicBool::new(false)),
         };
         let mut control_rx = Some(control_rx);
         let mut terminal_rx = Some(terminal_rx);
@@ -255,7 +254,13 @@ impl RemoteIrohHostTransport {
                         ));
                         continue;
                     }
-                    spawn_writer(send, rx, self.on_log.clone());
+                    spawn_writer(send, rx, self.on_log.clone(), {
+                        let transport = Arc::clone(&self);
+                        let peer_key = peer_key.clone();
+                        let peer_id = peer_senders.id;
+                        let closed = Arc::clone(&peer_senders.closed);
+                        move || transport.close_peer(peer_id, &peer_key, "control_write", &closed)
+                    });
                     self.spawn_peer_reader(recv, peer_key.clone(), peer_senders.clone(), "control");
                 }
                 STREAM_KIND_TERMINAL => {
@@ -272,7 +277,13 @@ impl RemoteIrohHostTransport {
                         ));
                         continue;
                     }
-                    spawn_writer(send, rx, self.on_log.clone());
+                    spawn_writer(send, rx, self.on_log.clone(), {
+                        let transport = Arc::clone(&self);
+                        let peer_key = peer_key.clone();
+                        let peer_id = peer_senders.id;
+                        let closed = Arc::clone(&peer_senders.closed);
+                        move || transport.close_peer(peer_id, &peer_key, "terminal_write", &closed)
+                    });
                     self.spawn_peer_reader(
                         recv,
                         peer_key.clone(),
@@ -285,8 +296,12 @@ impl RemoteIrohHostTransport {
                 )),
             }
         }
-        self.remove_peer_aliases(&peer_senders);
-        (self.on_state)(peer_key, "closed".to_string());
+        self.close_peer(
+            peer_senders.id,
+            &peer_key,
+            "accept_loop",
+            &peer_senders.closed,
+        );
     }
 
     async fn handle_web_tunnel_connection(self: Arc<Self>, connection: Connection) {
@@ -384,13 +399,16 @@ impl RemoteIrohHostTransport {
         tokio::spawn(async move {
             let transport_for_frame = Arc::clone(&transport);
             let peer_key_for_frame = peer_key.clone();
+            let senders_for_frame = senders.clone();
+            let peer_id = senders.id;
+            let closed = Arc::clone(&senders.closed);
             let read_result = read_loop(
                 recv,
                 peer_key.clone(),
                 Arc::new(move |device_id, data| {
                     transport_for_frame.handle_frame(
                         &peer_key_for_frame,
-                        &senders,
+                        &senders_for_frame,
                         device_id,
                         data,
                     );
@@ -403,6 +421,7 @@ impl RemoteIrohHostTransport {
                     peer_key
                 ));
             }
+            transport.close_peer(peer_id, &peer_key, label, &closed);
         });
     }
 
@@ -479,9 +498,23 @@ impl RemoteIrohHostTransport {
         }
     }
 
-    fn remove_peer_aliases(&self, senders: &PeerSenders) {
-        if let Ok(mut peers) = self.peers.lock() {
-            peers.retain(|_, current| !current.same_channels(senders));
+    fn remove_peer_aliases_by_id(&self, peer_id: u64) -> Vec<String> {
+        let Ok(mut peers) = self.peers.lock() else {
+            return Vec::new();
+        };
+        remove_peer_aliases_by_id(&mut peers, peer_id)
+    }
+
+    fn close_peer(&self, peer_id: u64, peer_key: &str, reason: &str, closed: &Arc<AtomicBool>) {
+        if closed.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let aliases = self.remove_peer_aliases_by_id(peer_id);
+        self.log(format!(
+            "iroh_host_peer_closed peer={peer_key} reason={reason}"
+        ));
+        for alias in aliases {
+            (self.on_state)(alias, "closed".to_string());
         }
     }
 
@@ -497,11 +530,17 @@ impl RemoteIrohHostTransport {
         if let Some(device_id) = device_id.filter(|value| !value.trim().is_empty()) {
             return peers
                 .get(device_id)
+                .filter(|peer| !peer.closed.load(Ordering::SeqCst))
                 .map(|peer| select(peer).send(data).is_ok())
                 .unwrap_or(false);
         }
         let mut sent = false;
-        let unique = unique_senders(peers.values().map(select));
+        let unique = unique_senders(
+            peers
+                .values()
+                .filter(|peer| !peer.closed.load(Ordering::SeqCst))
+                .map(select),
+        );
         for tx in unique {
             sent |= tx.send(data.clone()).is_ok();
         }
@@ -526,6 +565,18 @@ pub(crate) fn unique_senders<'a>(
         unique.push(tx.clone());
     }
     unique
+}
+
+fn remove_peer_aliases_by_id(
+    peers: &mut HashMap<String, PeerSenders>,
+    peer_id: u64,
+) -> Vec<String> {
+    let aliases = peers
+        .iter()
+        .filter_map(|(alias, current)| (current.id == peer_id).then(|| alias.clone()))
+        .collect::<Vec<_>>();
+    peers.retain(|_, current| current.id != peer_id);
+    aliases
 }
 
 #[async_trait]
@@ -838,26 +889,31 @@ impl RemoteIrohControllerTransport {
             upload_control_tx,
             on_log.clone(),
         );
+        let close_controller: Arc<dyn Fn() + Send + Sync + 'static> = {
+            let transport = Arc::clone(&transport);
+            let on_state = Arc::clone(&on_state);
+            Arc::new(move || {
+                if transport.close_sender() {
+                    on_state(String::new(), "closed".to_string());
+                }
+            })
+        };
         spawn_terminal_stream(
             terminal_send,
             terminal_recv,
             terminal_rx,
             Arc::clone(&on_message),
             on_log.clone(),
+            Arc::clone(&close_controller),
         );
-        spawn_control_stream(send, recv, rx, on_message, on_log.clone(), {
-            let reader_transport = Arc::clone(&transport);
-            let on_state = Arc::clone(&on_state);
-            move || {
-                reader_transport.close_sender();
-                on_state(String::new(), "closed".to_string());
-            }
-        });
+        spawn_control_stream(send, recv, rx, on_message, on_log.clone(), close_controller);
         Ok(transport)
     }
 
-    fn close_sender(&self) {
-        self.closed.store(true, Ordering::SeqCst);
+    fn close_sender(&self) -> bool {
+        if self.closed.swap(true, Ordering::SeqCst) {
+            return false;
+        }
         if let Ok(mut tx) = self.tx.lock() {
             *tx = None;
         }
@@ -870,6 +926,7 @@ impl RemoteIrohControllerTransport {
         if let Ok(mut connection) = self.connection.lock() {
             *connection = None;
         }
+        true
     }
 
     async fn open_web_tunnel_connection(&self) -> Result<Connection, String> {
@@ -973,7 +1030,7 @@ impl RemoteTransport for RemoteIrohControllerTransport {
         // acquire_controller_endpoint), so closing it here would kill every other
         // controller connection and force the next one to cold-start. Dropping our
         // connection (close_sender) is enough; the pool keeps the endpoint warm.
-        self.close_sender();
+        let _ = self.close_sender();
     }
 }
 
@@ -1108,6 +1165,7 @@ fn spawn_writer(
     mut send: SendStream,
     mut rx: mpsc::UnboundedReceiver<Vec<u8>>,
     on_log: Option<RemoteTransportLogHandler>,
+    on_close: impl Fn() + Send + 'static,
 ) {
     tokio::spawn(async move {
         while let Some(data) = rx.recv().await {
@@ -1115,6 +1173,7 @@ fn spawn_writer(
                 if let Some(on_log) = on_log.as_ref() {
                     on_log(format!("iroh_write failed error={error}"));
                 }
+                on_close();
                 break;
             }
         }
@@ -1127,7 +1186,7 @@ fn spawn_control_stream(
     rx: mpsc::UnboundedReceiver<Vec<u8>>,
     on_message: RemoteTransportMessageHandler,
     on_log: Option<RemoteTransportLogHandler>,
-    on_close: impl FnOnce() + Send + 'static,
+    on_close: Arc<dyn Fn() + Send + Sync + 'static>,
 ) {
     tokio::spawn(async move {
         let write_result = write_stream_kind(&mut send, STREAM_KIND_CONTROL).await;
@@ -1138,7 +1197,10 @@ fn spawn_control_stream(
             on_close();
             return;
         }
-        spawn_writer(send, rx, on_log.clone());
+        spawn_writer(send, rx, on_log.clone(), {
+            let on_close = Arc::clone(&on_close);
+            move || on_close()
+        });
         let result = match read_stream_kind(&mut recv).await {
             Ok(STREAM_KIND_CONTROL) => read_loop(recv, String::new(), on_message).await,
             Ok(kind) => Err(format!("unexpected controller stream kind {kind}")),
@@ -1159,6 +1221,7 @@ fn spawn_terminal_stream(
     rx: mpsc::UnboundedReceiver<Vec<u8>>,
     on_message: RemoteTransportMessageHandler,
     on_log: Option<RemoteTransportLogHandler>,
+    on_close: Arc<dyn Fn() + Send + Sync + 'static>,
 ) {
     tokio::spawn(async move {
         if let Err(error) = write_stream_kind(&mut send, STREAM_KIND_TERMINAL).await {
@@ -1167,9 +1230,13 @@ fn spawn_terminal_stream(
                     "iroh_controller_terminal_init failed error={error}"
                 ));
             }
+            on_close();
             return;
         }
-        spawn_writer(send, rx, on_log.clone());
+        spawn_writer(send, rx, on_log.clone(), {
+            let on_close = Arc::clone(&on_close);
+            move || on_close()
+        });
         let result = match read_stream_kind(&mut recv).await {
             Ok(STREAM_KIND_TERMINAL) => read_loop(recv, String::new(), on_message).await,
             Ok(kind) => Err(format!("unexpected terminal stream kind {kind}")),
@@ -1182,6 +1249,7 @@ fn spawn_terminal_stream(
                 ));
             }
         }
+        on_close();
     });
 }
 
@@ -1531,4 +1599,52 @@ fn parse_relay_url(value: &str) -> Result<RelayUrl, String> {
     value
         .parse::<RelayUrl>()
         .map_err(|error| format!("invalid iroh relay url `{value}`: {error}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn peer(id: u64) -> PeerSenders {
+        let (control, _control_rx) = mpsc::unbounded_channel::<Vec<u8>>();
+        let (terminal, _terminal_rx) = mpsc::unbounded_channel::<Vec<u8>>();
+        PeerSenders {
+            id,
+            control,
+            terminal,
+            closed: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    #[test]
+    fn remove_peer_aliases_by_id_returns_all_aliases() {
+        let mut peers = HashMap::new();
+        peers.insert("node-id".to_string(), peer(7));
+        peers.insert("device-id".to_string(), peer(7));
+        peers.insert("other".to_string(), peer(8));
+
+        let mut aliases = remove_peer_aliases_by_id(&mut peers, 7);
+        aliases.sort();
+
+        assert_eq!(
+            aliases,
+            vec!["device-id".to_string(), "node-id".to_string()]
+        );
+        assert!(!peers.contains_key("node-id"));
+        assert!(!peers.contains_key("device-id"));
+        assert!(peers.contains_key("other"));
+    }
+
+    #[test]
+    fn remove_peer_aliases_by_id_keeps_rebound_aliases() {
+        let mut peers = HashMap::new();
+        peers.insert("node-id".to_string(), peer(8));
+        peers.insert("device-id".to_string(), peer(8));
+
+        let aliases = remove_peer_aliases_by_id(&mut peers, 7);
+
+        assert!(aliases.is_empty());
+        assert_eq!(peers.get("node-id").map(|peer| peer.id), Some(8));
+        assert_eq!(peers.get("device-id").map(|peer| peer.id), Some(8));
+    }
 }

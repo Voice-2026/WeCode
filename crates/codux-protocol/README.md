@@ -1,6 +1,6 @@
 # codux-protocol
 
-Shared v3.1 remote protocol definitions.
+Shared v3.2 remote protocol definitions.
 
 ## Owns
 
@@ -10,6 +10,7 @@ Shared v3.1 remote protocol definitions.
 - Transport candidate DTOs.
 - Resource subscription target parsing and routing helpers.
 - Terminal buffer payload chunking rules.
+- The compatibility reference in `../../docs/protocol.md`.
 
 ## Does Not Own
 

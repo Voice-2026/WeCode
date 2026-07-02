@@ -15,7 +15,11 @@ void main() {
           'chunking': true,
           'maxChars': 180000,
           'chunkChars': 32768,
+          'screenData': true,
+          'baselineFailed': true,
         },
+        'terminalOutput': {'staleOutput': true},
+        'terminalViewport': {'keyframe': true},
       },
     }, clientMaxChars: 200000);
 
@@ -23,6 +27,10 @@ void main() {
     expect(capability.maxChars, 180000);
     expect(capability.chunkChars, 32768);
     expect(capability.requestId, isFalse);
+    expect(capability.screenData, isTrue);
+    expect(capability.baselineFailed, isTrue);
+    expect(capability.staleOutput, isTrue);
+    expect(capability.viewportKeyframe, isTrue);
   });
 
   test('parses request id capability', () {

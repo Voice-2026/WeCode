@@ -43,7 +43,7 @@ The mobile client focuses on three things:
 
 - **Reliable terminal rendering on Android** — remote PTY bytes are parsed by the shared Rust `codux-terminal-core` headless screen model and rendered by Flutter, not WebView or a platform-specific terminal plugin.
 - **Mobile-safe input** — quick-key toolbar, IME toggle, paste, image upload, and keyboard avoidance tuned for terminal TUI apps.
-- **Codux workspace integration** — QR pairing, device list, project tabs, terminal split list, file browser, and AI usage panels all connect to the Codux desktop host through the v3.1 remote protocol.
+- **Codux workspace integration** — QR pairing, device list, project tabs, terminal split list, file browser, and AI usage panels all connect to the Codux desktop host through the v3.2 remote protocol.
 
 ## Features
 
@@ -64,7 +64,7 @@ The mobile client focuses on three things:
 Codux Mobile (Flutter controller)
   ├─ UI shell: renders runtime state and emits user intent
   ├─ Runtime store: selected project, active terminal, sync state
-  ├─ Protocol client: v3.1 envelopes, capabilities, chunk assembly, ack/retry
+  ├─ Protocol client: v3.2 envelopes, capabilities, chunk assembly, ack/retry
   ├─ Rust transport FFI: Iroh QUIC host/controller link
   └─ Rust terminal-core FFI: RemotePtySession + libghostty-vt headless screen model
 
@@ -73,7 +73,9 @@ Codux Desktop host
   └─ Confirms mobile pairing and serves runtime-domain protocol messages
 ```
 
-The mobile app is controller-only. It does not try to become the source of truth for terminal sessions, files, Git state, or projects. It renders and interacts with the host-owned workspace through explicit runtime-domain protocol messages. Business payloads are wrapped as end-to-end encrypted `secure.message` envelopes, while terminal history uses bounded v3.1 buffer windows with chunk assembly and progress reporting. Terminal bytes always enter `RemotePtySession` before rendering; Flutter reads the resulting screen cells and only owns drawing and input intent.
+The mobile app is controller-only. It does not try to become the source of truth for terminal sessions, files, Git state, or projects. It renders and interacts with the host-owned workspace through explicit runtime-domain protocol messages. Business payloads are wrapped as end-to-end encrypted `secure.message` envelopes, while terminal history uses bounded v3.2 buffer windows with chunk assembly and progress reporting. Terminal bytes always enter `RemotePtySession` before rendering; Flutter reads the resulting screen cells and only owns drawing and input intent.
+
+Protocol details live in `../../docs/protocol.md`.
 
 ## Requirements
 

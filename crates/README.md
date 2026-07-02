@@ -6,7 +6,7 @@ This directory contains cross-platform Rust crates used by desktop, mobile FFI, 
 
 | Crate | Role |
 | --- | --- |
-| `codux-protocol` | v3.1 protocol constants, relay envelope DTOs, transport candidates, capabilities, resource subscription helpers, and terminal buffer payload rules. |
+| `codux-protocol` | v3.2 protocol constants, relay envelope DTOs, transport candidates, capabilities, resource subscription helpers, and terminal buffer payload rules. |
 | `codux-remote-transport` | Shared transport layer: Iroh host/controller links, local memory transport, relay URL normalization for pairing tickets, and transport factory rules. |
 | `codux-protocol-ffi` | C ABI consumed by Flutter. Exposes protocol helpers, controller transport handles, terminal-core session state, and output sequencing. |
 | `codux-runtime-core` | Shared runtime-domain payload rules and subscription router for host.info, project, file, Git, worktree, upload, and terminal domains. |
@@ -18,6 +18,7 @@ This directory contains cross-platform Rust crates used by desktop, mobile FFI, 
 - Shared behavior goes here before app code grows duplicate logic.
 - Crates must not depend on GPUI, Flutter, or app-specific UI state.
 - Protocol and transport crates must not own business runtime state.
+- Protocol changes must update `../docs/protocol.md`.
 - Terminal core must not launch processes; process launching belongs in `codux-terminal-pty`.
 - FFI APIs should expose opaque handles and JSON payloads where ownership crosses Dart/Rust boundaries.
 

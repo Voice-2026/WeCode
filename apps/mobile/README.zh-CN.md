@@ -43,7 +43,7 @@ Codux Desktop 负责真实项目、终端会话、AI 工具运行、Git/worktree
 
 - **稳定的 Android 终端渲染**：远程 PTY 字节先进入共享 Rust `codux-terminal-core` 无头屏幕模型，再由 Flutter 自绘，不再走 WebView 或平台专用终端插件。
 - **移动端输入体验**：支持快捷工具栏、输入法开关、粘贴、图片上传，以及针对 TUI 程序调过的输入法避让。
-- **接入 Codux 工作台**：扫码配对、设备列表、项目标签、终端分屏、文件浏览、AI 用量面板都通过 v3.1 远程协议连接 Codux 桌面 host。
+- **接入 Codux 工作台**：扫码配对、设备列表、项目标签、终端分屏、文件浏览、AI 用量面板都通过 v3.2 远程协议连接 Codux 桌面 host。
 
 ## 功能
 
@@ -64,7 +64,7 @@ Codux Desktop 负责真实项目、终端会话、AI 工具运行、Git/worktree
 Codux Mobile (Flutter 主控端)
   ├─ UI 外壳：渲染 runtime 状态并发出用户意图
   ├─ Runtime store：选中项目、当前终端、同步状态
-  ├─ 协议客户端：v3.1 envelope、capabilities、分片组包、ack/retry
+  ├─ 协议客户端：v3.2 envelope、capabilities、分片组包、ack/retry
   ├─ Rust 传输 FFI：Iroh QUIC 主控/被控链路
   └─ Rust terminal-core FFI：RemotePtySession + libghostty-vt 无头屏幕模型
 
@@ -73,7 +73,9 @@ Codux Desktop host
   └─ 确认移动端配对并提供 runtime domain 协议消息
 ```
 
-移动端只作为主控端，不作为终端会话、文件、Git 状态或项目列表的源头。真实会话仍由桌面端工作台管理。业务 payload 会封装为端到端加密的 `secure.message`，终端历史使用有界 v3.1 buffer window，支持分片组包和进度显示。终端字节必须先进入 `RemotePtySession`，Flutter 只读取生成后的屏幕 cell 并负责绘制和输入意图。
+移动端只作为主控端，不作为终端会话、文件、Git 状态或项目列表的源头。真实会话仍由桌面端工作台管理。业务 payload 会封装为端到端加密的 `secure.message`，终端历史使用有界 v3.2 buffer window，支持分片组包和进度显示。终端字节必须先进入 `RemotePtySession`，Flutter 只读取生成后的屏幕 cell 并负责绘制和输入意图。
+
+协议细节见 `../../docs/protocol.md`。
 
 ## 环境要求
 

@@ -2597,16 +2597,26 @@ impl RemoteHostRuntime {
         let Some(session_id) = envelope.session_id.as_deref() else {
             return;
         };
-        let cols = envelope
+        let Some(cols) = envelope
             .payload
             .get("cols")
             .and_then(Value::as_u64)
-            .unwrap_or(100) as u16;
-        let rows = envelope
+            .and_then(|value| u16::try_from(value).ok())
+            .filter(|value| *value > 0)
+        else {
+            self.send_error(envelope, "terminal.resize requires positive cols.");
+            return;
+        };
+        let Some(rows) = envelope
             .payload
             .get("rows")
             .and_then(Value::as_u64)
-            .unwrap_or(30) as u16;
+            .and_then(|value| u16::try_from(value).ok())
+            .filter(|value| *value > 0)
+        else {
+            self.send_error(envelope, "terminal.resize requires positive rows.");
+            return;
+        };
         if self
             .ensure_remote_terminal_started(session_id, envelope)
             .is_err()
@@ -7773,6 +7783,58 @@ mod tests {
         assert_eq!(state.owner, "remote:device-1");
         assert_eq!(state.cols, 80);
         assert_eq!(state.rows, 24);
+
+        fs::remove_dir_all(support_dir).ok();
+    }
+
+    #[test]
+    fn terminal_resize_without_dimensions_is_rejected() {
+        let support_dir = temp_support_dir("codux-remote-terminal-resize-reject");
+        let terminals = Arc::new(TerminalManager::new());
+        let runtime = Arc::new(RemoteHostRuntime::new_with_ai_history_and_terminals(
+            support_dir.clone(),
+            Default::default(),
+            Arc::clone(&terminals),
+        ));
+        let transport = Arc::new(CapturingTransport::default());
+        if let Ok(mut current) = runtime.transport.lock() {
+            *current = Some(transport.clone());
+        }
+        let session_id = terminals
+            .create(
+                TerminalPtyConfig {
+                    shell: Some("sh".to_string()),
+                    command: Some("printf ready".to_string()),
+                    cwd: Some(support_dir.to_string_lossy().to_string()),
+                    cols: Some(100),
+                    rows: Some(32),
+                    ..Default::default()
+                },
+                |_| {},
+            )
+            .expect("create terminal");
+
+        runtime.handle_terminal_resize(&RemoteEnvelope {
+            kind: "terminal.resize".to_string(),
+            device_id: Some("device-1".to_string()),
+            session_id: Some(session_id.clone()),
+            seq: None,
+            payload: json!({}),
+        });
+
+        let messages = transport.take_messages();
+        assert_eq!(messages.len(), 1);
+        let envelope: RemoteEnvelope =
+            serde_json::from_slice(&messages[0].1).expect("error envelope");
+        assert_eq!(envelope.kind, REMOTE_ERROR);
+        assert_eq!(
+            envelope.payload["message"],
+            "terminal.resize requires positive cols."
+        );
+        let state = terminals
+            .viewport_state(&session_id)
+            .expect("viewport state");
+        assert_ne!(state.owner, "remote:device-1");
 
         fs::remove_dir_all(support_dir).ok();
     }

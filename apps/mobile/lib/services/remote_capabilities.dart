@@ -4,6 +4,10 @@ class TerminalBufferCapability {
     this.maxChars = mobileMaxChars,
     this.chunkChars = 16384,
     this.requestId = false,
+    this.screenData = false,
+    this.baselineFailed = false,
+    this.staleOutput = false,
+    this.viewportKeyframe = false,
   });
 
   static const int mobileMaxChars = 200000;
@@ -12,6 +16,10 @@ class TerminalBufferCapability {
   final int maxChars;
   final int chunkChars;
   final bool requestId;
+  final bool screenData;
+  final bool baselineFailed;
+  final bool staleOutput;
+  final bool viewportKeyframe;
 
   static const fallback = TerminalBufferCapability();
 
@@ -24,6 +32,8 @@ class TerminalBufferCapability {
     if (capabilities is! Map) return fallback;
     final terminalBuffer = capabilities['terminalBuffer'];
     if (terminalBuffer is! Map) return fallback;
+    final terminalOutput = capabilities['terminalOutput'];
+    final terminalViewport = capabilities['terminalViewport'];
     final effectiveClientMax = clientMaxChars < 1
         ? mobileMaxChars
         : clientMaxChars;
@@ -40,6 +50,12 @@ class TerminalBufferCapability {
         65536,
       ),
       requestId: terminalBuffer['requestId'] == true,
+      screenData: terminalBuffer['screenData'] == true,
+      baselineFailed: terminalBuffer['baselineFailed'] == true,
+      staleOutput:
+          terminalOutput is Map && terminalOutput['staleOutput'] == true,
+      viewportKeyframe:
+          terminalViewport is Map && terminalViewport['keyframe'] == true,
     );
   }
 }

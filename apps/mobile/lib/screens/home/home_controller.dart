@@ -6,7 +6,9 @@ part of 'home_page.dart';
 /// Concern logic lives in the `state/` part extensions on this class.
 const double _padLayoutMinWidth = 900;
 const int _terminalBufferMaxChars = TerminalBufferCapability.mobileMaxChars;
+const int _terminalOutputAckSeqInterval = 4;
 const Duration _terminalBaselineResyncBackoff = Duration(milliseconds: 2500);
+const Duration _terminalOutputAckMinInterval = Duration(milliseconds: 500);
 
 class HomeController extends ChangeNotifier with WidgetsBindingObserver {
   // HomeController is an internal same-library store; the view type is private.
@@ -56,6 +58,8 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
   late final RemoteTerminalBindingCoordinator _terminalBindingCoordinator;
   final Set<String> _protocolBlockedHostIds = {};
   final Set<String> _viewportOwnerRefreshAfterBaseline = {};
+  final Map<String, int> _terminalOutputAckSeqBySession = {};
+  final Map<String, DateTime> _terminalOutputAckAtBySession = {};
   int _terminalBufferRequestCounter = 0;
   bool _keyboardRequested = false;
   int _keyboardRequestSerial = 0;

@@ -15,9 +15,6 @@ pub const REMOTE_RELAY_RATE_WINDOW_SECS: u64 = 10;
 
 pub const REMOTE_RESOURCE_SUBSCRIBE: &str = "resource.subscribe";
 pub const REMOTE_RESOURCE_UNSUBSCRIBE: &str = "resource.unsubscribe";
-pub const REMOTE_RESOURCE_BASELINE: &str = "resource.baseline";
-pub const REMOTE_RESOURCE_DELTA: &str = "resource.delta";
-pub const REMOTE_RESOURCE_RESYNC: &str = "resource.resync";
 pub const REMOTE_RESOURCE_PROJECTS: &str = "projects";
 pub const REMOTE_RESOURCE_TERMINALS: &str = "terminals";
 pub const REMOTE_RESOURCE_WORKTREES: &str = "worktrees";
@@ -1006,14 +1003,17 @@ pub fn host_capabilities() -> Value {
             "chunkChars": REMOTE_TERMINAL_BUFFER_CHUNK_CHARS,
             "requestId": true,
             "screenData": true,
+            "baselineFailed": true,
         },
         "terminalOutput": {
             "sequence": true,
+            "staleOutput": true,
         },
         "terminalViewport": {
             "ownership": true,
             "state": true,
             "scroll": true,
+            "keyframe": true,
         },
         "webTunnel": {
             "version": 1,
@@ -1194,12 +1194,15 @@ mod tests {
         assert_eq!(capabilities["terminalBuffer"]["chunking"], true);
         assert_eq!(capabilities["terminalBuffer"]["requestId"], true);
         assert_eq!(capabilities["terminalBuffer"]["screenData"], true);
+        assert_eq!(capabilities["terminalBuffer"]["baselineFailed"], true);
         assert_eq!(capabilities["terminalOutput"]["sequence"], true);
+        assert_eq!(capabilities["terminalOutput"]["staleOutput"], true);
         // Live `terminal.output` no longer carries a screen keyframe (it
         // duplicated the screen in the viewer's scrollback); the baseline buffer
         // still does — hence terminalBuffer.screenData above but not here.
         assert!(capabilities["terminalOutput"].get("screenData").is_none());
         assert_eq!(capabilities["terminalViewport"]["ownership"], true);
+        assert_eq!(capabilities["terminalViewport"]["keyframe"], true);
         assert_eq!(capabilities["webTunnel"]["version"], 1);
         assert_eq!(capabilities["webTunnel"]["hostBrowser"], true);
         assert_eq!(capabilities["webTunnel"]["tcpConnect"], true);

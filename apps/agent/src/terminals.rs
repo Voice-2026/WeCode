@@ -808,16 +808,36 @@ impl RemoteTerminalDispatch for AgentTerminalCtx<'_> {
     }
 
     fn handle_terminal_resize_msg(&self, msg: &TerminalMessage) {
-        let cols = msg
+        let Some(cols) = msg
             .payload
             .get("cols")
             .and_then(Value::as_u64)
-            .unwrap_or(80) as u16;
-        let rows = msg
+            .and_then(|value| u16::try_from(value).ok())
+            .filter(|value| *value > 0)
+        else {
+            reply(
+                self.transport,
+                msg.device_id,
+                REMOTE_ERROR,
+                json!({ "message": "terminal.resize requires positive cols." }),
+            );
+            return;
+        };
+        let Some(rows) = msg
             .payload
             .get("rows")
             .and_then(Value::as_u64)
-            .unwrap_or(24) as u16;
+            .and_then(|value| u16::try_from(value).ok())
+            .filter(|value| *value > 0)
+        else {
+            reply(
+                self.transport,
+                msg.device_id,
+                REMOTE_ERROR,
+                json!({ "message": "terminal.resize requires positive rows." }),
+            );
+            return;
+        };
         if let Some(id) = msg.session_id {
             let _ = self.driver.resize(id, cols, rows);
         }
