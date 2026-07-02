@@ -2,11 +2,19 @@
   <img src="docs/images/icon.png" width="128" height="128" alt="Codux">
 </p>
 
-<h1 align="center">Codux Terminal</h1>
+<h1 align="center">Codux</h1>
 
 <p align="center">
-  <b>The high-performance, cross-device terminal built for AI coding</b><br/>
-  Built with <b>Rust + GPUI</b>, Codux unifies Codex, Claude Code, and 6+ AI coding CLIs with live status, token analytics, local memory, secure SSH, and a desktop ⇄ phone ⇄ headless-host link for taking over long-running agent work from anywhere.
+  <b>The high-performance AI coding terminal — desktop, phone, and server, one workspace</b><br/>
+  Built with <b>Rust + GPUI</b>, Codux unifies Codex, Claude Code, and 8+ AI coding CLIs with live agent status, token analytics, local memory, credential-isolated SSH &amp; database access, and encrypted device links for taking over long-running agent work from anywhere.
+</p>
+
+<p align="center">
+  <a href="https://github.com/duxweb/codux/releases/latest"><img src="https://img.shields.io/github/v/release/duxweb/codux?label=release&color=blue" alt="Latest release"></a>
+  <a href="https://github.com/duxweb/codux/releases"><img src="https://img.shields.io/github/downloads/duxweb/codux/total?label=downloads&color=brightgreen" alt="Total downloads"></a>
+  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-8250df" alt="Platform">
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/duxweb/codux?color=orange" alt="License"></a>
+  <a href="https://github.com/duxweb/codux/stargazers"><img src="https://img.shields.io/github/stars/duxweb/codux?color=yellow" alt="GitHub stars"></a>
 </p>
 
 <p align="center">
@@ -24,34 +32,54 @@
 
 ---
 
-![Codux AI](docs/images/screenshot.png)
+![Codux](docs/images/screenshot.png)
 
-## Why Codux AI
+https://github.com/user-attachments/assets/cabf21a9-8649-4e65-9e8a-db27ccaccdf3
 
-AI coding CLIs are incredibly powerful — and incredibly easy to lose control of. Real work sprawls across projects, Git worktrees, terminals, sessions, tokens, remote shells, and context you half-remember. **Codux AI turns that chaos into one durable, native workspace built for serious AI coding.**
+<p align="center">
+  <a href="https://github.com/user-attachments/assets/cabf21a9-8649-4e65-9e8a-db27ccaccdf3">▶ Watch the demo</a>
+</p>
 
-| When AI coding gets messy | Codux AI gives you |
-| :------------------------ | :----------------- |
+## Why Codux
+
+AI coding CLIs are incredibly powerful — and incredibly easy to lose control of. Real work sprawls across projects, Git worktrees, terminals, sessions, tokens, remote shells, and context you half-remember. **Codux turns that chaos into one durable, native workspace built for serious AI coding.**
+
+| When AI coding gets messy | Codux gives you |
+| :------------------------ | :-------------- |
 | Every AI CLI has its own state | One project-aware view across Codex, Claude Code, OpenCode, Kiro CLI, Kimi Code, CodeWhale, MiMo Code, and Agy. |
 | Long agent runs are hard to resume | Live status, local history, session restore, and context that follows each worktree. |
 | Parallel tasks collide | A worktree-first model where every task keeps its own terminals, Git state, files, and AI sessions. |
 | Token spend is a black box | Usage by tool, model, project, worktree, and day — no spreadsheets. |
 | Context evaporates between sessions | Local memory for habits, project profiles, and module notes, injected back into supported CLIs automatically. |
-| Server access is fragile | Saved, tested SSH profiles and a `codux-ssh` command agents can use **without ever seeing your credentials**. |
+| Credentials end up in prompts | Saved, tested SSH and database profiles, plus `codux-ssh` / `codux-db` commands agents can use **without ever seeing your credentials**. |
 | You walk away mid-run | Pair your phone over P2P / relay links and keep driving the session from anywhere. |
 | The code lives on another machine | Connect a headless host — a server, spare Mac, or Linux box — and drive its terminals, Git, and AI as if they were local. |
 
-Codux AI is **not** another editor. It's the control plane for developers who live in AI coding CLIs and need a rock-solid way to run multi-project, long-running agent work.
+Codux is **not** another editor. It's the control plane for developers who live in AI coding CLIs and need a rock-solid way to run multi-project, long-running agent work.
 
-## What You Can Do
+## Quick Start
 
-Codux keeps AI coding work readable, recoverable, and connected across devices.
+macOS — install with [Homebrew](https://brew.sh):
 
-- Run Codex, Claude Code, and other AI coding CLIs in one workspace.
-- Track live agent status, history, resume, and token usage without leaving the terminal workflow.
-- Keep parallel tasks isolated by project and Git worktree so sessions, files, and Git state do not collide.
-- Continue long-running work from your desktop, your phone, or a headless host running `codux`.
-- Keep terminals, files, memory, and AI sessions on the machine that owns the work.
+```bash
+brew install --cask duxweb/tap/codux
+```
+
+1. **Open a project.** Git worktrees, project state, and per-project sessions are picked up automatically.
+2. **Start your AI CLI in the built-in terminal** — `codex`, `claude`, `opencode`, and friends. The non-invasive wrapper lights up live status, token tracking, and memory injection with zero configuration.
+3. **Leave the desk.** Pair your phone or a headless host once, then take over the same running session from anywhere.
+
+On Windows, or without Homebrew: see [Download](#download).
+
+## Your Credentials Never Reach the AI
+
+Agents constantly need servers and databases — but pasting a password into a prompt, or letting the model read your config files, is exactly how credentials leak. Codux stores connection profiles locally and hands agents two safe commands instead:
+
+- **`codux-ssh`** — the agent runs `codux-ssh list`, sees profile names and hosts only, and connects through the wrapper. Passwords and keys are injected inside Codux's helper process; they never enter the model's context, the transcript, or your shell history.
+- **`codux-db`** — the same isolation for MySQL / PostgreSQL / SQLite: saved once in Codux, queried by profile name. Read-only profiles are enforced inside the wrapper with a single-statement allowlist, so the model can't escalate its own access.
+- **Zero per-project setup.** Every supported CLI learns about these commands automatically through Codux's environment directives.
+
+<p align="center"><img src="docs/images/credential-isolation.png" alt="codux-ssh list shows profile names and hosts only — never passwords"></p>
 
 ## AI CLI Support
 
@@ -102,6 +130,20 @@ Any controller — a **desktop** or a **phone** — can connect to any host — 
 - **Headless host.** Run `codux` on a server, spare Mac, or Linux box and drive its terminals, Git, and AI as if they were local. See [`apps/agent/README.md`](apps/agent/README.md).
 - **Session continuity.** Reconnect to the same running shells and agent sessions after disconnects.
 
+## Your Terminal Pet
+
+Every token your agents burn feeds a pixel pet that lives in your workspace. Hatch it, name it, and watch it level up as you code — its five stats (Wisdom, Chaos, Night, Stamina, Empathy) grow out of how, and when, you actually work. Install custom sprite pets, or retire old companions into your hall of fame.
+
+Completely useless. Absolutely essential.
+
+<p align="center"><img src="docs/images/pet.png" width="320" alt="Codux terminal pet"></p>
+
+## Local-First by Design
+
+- **Your data stays yours.** Projects, terminals, sessions, memory, token stats, and credentials live on your machines — there is no Codux cloud and no account to sign up for.
+- **Encrypted device links.** Desktop ⇄ phone ⇄ host traffic is end-to-end encrypted; relays only forward ciphertext when a direct P2P path isn't possible.
+- **Non-invasive by principle.** Codux never writes prompt files into your repositories and never mutates your AI CLIs' global configs — all context injection goes through wrappers and per-tool adapters you can inspect.
+
 ## Download
 
 **Desktop app**
@@ -142,7 +184,10 @@ Flags: `--beta` · `--version <x.y.z>` · `--dir <path>` · `--setup` · `--mirr
 
 Put the binary on your `PATH` as `codux`, then run `codux config` → `codux install` → `codux qrcode`.
 
-## Headless host commands (`codux-agent`)
+Run `codux <command> --help` for details, or see [`apps/agent/README.md`](apps/agent/README.md).
+
+<details>
+<summary><b>All headless host commands</b></summary>
 
 | Command | What it does |
 | :--- | :--- |
@@ -155,25 +200,20 @@ Put the binary on your `PATH` as `codux`, then run `codux config` → `codux ins
 | `codux update` | Download, verify, and replace this binary, then restart the host. |
 | `codux uninstall` | Stop and remove the service. |
 
-Run `codux <command> --help` for details, or see [`apps/agent/README.md`](apps/agent/README.md).
+</details>
 
 ## Web Tunnel Browser
 
-When you control a paired headless host from Codux Desktop, the globe **Web
-Tunnel Browser** button opens a proxy-isolated Chromium browser for web apps
-running on that host.
+When you control a paired headless host from Codux Desktop, the globe **Web Tunnel Browser** button opens a proxy-isolated Chromium that browses **as the host**: if the host runs Vite at `http://127.0.0.1:5173/`, type that URL and it opens through the encrypted Codux link — HTTPS, WebSocket, HMR, LAN addresses, `.local` names, and VPN routes included.
 
-- Host-local URLs are resolved on the host, not on your controller machine. If
-  the host runs Vite at `http://127.0.0.1:5173/`, type that URL in the tunnel
-  browser and it opens through the encrypted Codux link.
-- The tunnel also covers HTTPS, WebSocket, HMR, LAN addresses, `.local` names,
-  VPN routes, and host-bound development domains reachable from the host.
-- Every `codux-agent` serves a built-in diagnostic page at
-  `http://127.0.0.1:8765/`. Open it through the Web Tunnel Browser to verify the
-  tunnel health and live round-trip latency.
-- Testing on one computer still exercises the same tunnel path, but true
-  cross-machine reachability should be verified with the Codux host running on a
-  different machine.
+<details>
+<summary><b>Diagnostics &amp; notes</b></summary>
+
+- Host-local URLs are resolved on the host, not on your controller machine.
+- Every `codux-agent` serves a built-in diagnostic page at `http://127.0.0.1:8765/`. Open it through the Web Tunnel Browser to verify tunnel health and live round-trip latency.
+- Testing on one computer still exercises the same tunnel path, but true cross-machine reachability should be verified with the Codux host running on a different machine.
+
+</details>
 
 ## Keyboard Shortcuts
 
@@ -186,10 +226,6 @@ running on that host.
 | Switch Project | `⌘1` – `⌘9` |
 
 Customize everything in **Settings → Shortcuts**.
-
-## Demo Video
-
-GitHub READMEs can't embed third-party players — watch the demo on [Bilibili](https://www.bilibili.com/video/BV1mK9vBCEYD/).
 
 ## System Requirements
 
@@ -239,6 +275,8 @@ Add the author on WeChat, or buy the author a coffee.
 </p>
 
 ## GitHub Star Trend
+
+If Codux ever rescued one of your long agent runs, a ⭐ helps more people find it.
 
 [![Star History Chart](https://api.star-history.com/svg?repos=duxweb/codux&type=Date)](https://star-history.com/#duxweb/codux&Date)
 

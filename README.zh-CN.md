@@ -2,11 +2,19 @@
   <img src="docs/images/icon.png" width="128" height="128" alt="Codux">
 </p>
 
-<h1 align="center">Codux Terminal</h1>
+<h1 align="center">Codux</h1>
 
 <p align="center">
-  <b>为 AI 编程而生的高性能跨端互联终端</b><br/>
-  用 <b>Rust + GPUI</b> 原生打造，统一 Codex、Claude Code 等 8+ AI 编程 CLI，整合实时状态、Token 统计、本地记忆与安全 SSH，并连接桌面、手机和主机端，让你随时随地接管长时间运行的 agent 任务。
+  <b>为 AI 编程而生的高性能终端 —— 桌面、手机、服务器,一套工作区</b><br/>
+  用 <b>Rust + GPUI</b> 原生打造，统一 Codex、Claude Code 等 8+ AI 编程 CLI，整合实时状态、Token 统计、本地记忆与凭证隔离的 SSH / 数据库访问，并用加密链路连通桌面、手机和主机端，让你随时随地接管长时间运行的 agent 任务。
+</p>
+
+<p align="center">
+  <a href="https://github.com/duxweb/codux/releases/latest"><img src="https://img.shields.io/github/v/release/duxweb/codux?label=release&color=blue" alt="最新版本"></a>
+  <a href="https://github.com/duxweb/codux/releases"><img src="https://img.shields.io/github/downloads/duxweb/codux/total?label=downloads&color=brightgreen" alt="总下载量"></a>
+  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-8250df" alt="支持平台">
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/duxweb/codux?color=orange" alt="开源协议"></a>
+  <a href="https://github.com/duxweb/codux/stargazers"><img src="https://img.shields.io/github/stars/duxweb/codux?color=yellow" alt="GitHub stars"></a>
 </p>
 
 <p align="center">
@@ -24,34 +32,54 @@
 
 ---
 
-![Codux AI](docs/images/screenshot.png)
+![Codux](docs/images/screenshot.png)
 
-## 为什么用 Codux AI
+https://github.com/user-attachments/assets/cabf21a9-8649-4e65-9e8a-db27ccaccdf3
 
-AI 编程 CLI 很强——也极其容易失控。真正干活时，工作会散落到项目、Git worktree、终端、历史会话、Token、远程 shell，和你只记得一半的上下文里。**Codux AI 把这片混乱收进一个稳定的原生工作台，专为认真做 AI 编程的人打造。**
+<p align="center">
+  <a href="https://github.com/user-attachments/assets/cabf21a9-8649-4e65-9e8a-db27ccaccdf3">▶ 观看演示视频</a>
+</p>
 
-| AI 编程哪里容易乱 | Codux AI 给你什么 |
-| :---------------- | :---------------- |
+## 为什么用 Codux
+
+AI 编程 CLI 很强——也极其容易失控。真正干活时，工作会散落到项目、Git worktree、终端、历史会话、Token、远程 shell，和你只记得一半的上下文里。**Codux 把这片混乱收进一个稳定的原生工作台，专为认真做 AI 编程的人打造。**
+
+| AI 编程哪里容易乱 | Codux 给你什么 |
+| :---------------- | :------------- |
 | 每个 AI CLI 各管各的状态 | 一个按项目组织的视图，统一 Codex、Claude Code、OpenCode、Kiro CLI、Kimi Code、CodeWhale、MiMo Code、Agy。 |
 | 长 agent 任务难恢复 | 实时运行状态、本地历史、会话恢复，还有跟着 worktree 走的上下文。 |
 | 并行任务互相打架 | 以 worktree 为核心：每个任务保留自己的终端、Git 状态、文件和 AI 会话。 |
 | Token 花销是个黑盒 | 按工具、模型、项目、worktree、日期统计用量——不用再记账。 |
 | 会话之间上下文蒸发 | 本地记忆保存习惯、项目画像、模块笔记，并自动注入回支持的 CLI。 |
-| 服务器连接又脆又危险 | 已保存、已测试的 SSH 配置，加一个 **凭证永不外泄** 的 `codux-ssh` 命令给 agent 用。 |
+| 凭证被贴进提示词 | 已保存、已测试的 SSH 与数据库配置，加 `codux-ssh` / `codux-db` 两个 **凭证永不外泄** 的命令给 agent 用。 |
 | 任务跑一半离开电脑 | 用手机通过 P2P / 中继链路配对，随时随地接着控制会话。 |
 | 代码在另一台机器上 | 连上一台 Codux 主机——服务器、闲置的 Mac 或 Linux——像操作本地一样驱动它的终端、Git 和 AI。 |
 
-Codux AI **不是** 又一个编辑器。它是给重度泡在 AI 编程 CLI 里的开发者的控制台，让多项目、长会话的 agent 工作稳得住。
+Codux **不是** 又一个编辑器。它是给重度泡在 AI 编程 CLI 里的开发者的控制台，让多项目、长会话的 agent 工作稳得住。
 
-## 你可以用 Codux 做什么
+## 三步上手
 
-Codux 让 AI 编程工作在多设备之间依然清晰、可恢复、可持续接管。
+macOS —— 用 [Homebrew](https://brew.sh) 安装：
 
-- 在一个工作区里运行 Codex、Claude Code 和其他 AI 编程 CLI。
-- 直接看到 agent 的实时状态、历史、恢复与 Token 用量，不用离开终端工作流。
-- 按项目和 Git worktree 隔离并行任务，不让会话、文件和 Git 状态互相串扰。
-- 从桌面、手机或运行 `codux` 的主机端继续接管长时间运行的工作。
-- 让终端、文件、记忆和 AI 会话始终留在真正干活的那台机器上。
+```bash
+brew install --cask duxweb/tap/codux
+```
+
+1. **打开一个项目。** Git worktree、项目状态和会话按项目自动就位。
+2. **在内置终端里启动你的 AI CLI** —— `codex`、`claude`、`opencode` 都行。非侵入 wrapper 自动点亮实时状态、Token 统计和记忆注入，零配置。
+3. **起身走人。** 手机或主机端配对一次，之后在任何地方接管同一个正在运行的会话。
+
+Windows 或不用 Homebrew：见[下载](#下载)。
+
+## 凭证永远不进 AI 的上下文
+
+Agent 干活离不开服务器和数据库——但把密码贴进提示词、或让模型去读你的配置文件，正是凭证泄露的常见方式。Codux 把连接配置存在本地，只给 agent 两个安全命令：
+
+- **`codux-ssh`** —— agent 运行 `codux-ssh list` 只能看到配置名和主机，连接由 wrapper 代为完成。密码和密钥在 Codux 的辅助进程内部注入，永远不会进入模型上下文、会话记录或 shell 历史。
+- **`codux-db`** —— 对 MySQL / PostgreSQL / SQLite 做同样的隔离：在 Codux 里保存一次，agent 按配置名查询。只读配置由 wrapper 强制执行单语句白名单，模型无法自行提权。
+- **零项目配置。** 所有支持的 CLI 都会通过 Codux 环境指令自动知道这两个命令的存在。
+
+<p align="center"><img src="docs/images/credential-isolation.png" alt="codux-ssh list 只显示配置名和主机——没有任何密码"></p>
 
 ## AI CLI 支持
 
@@ -102,6 +130,20 @@ flowchart LR
 - **主机端。** 把 `codux` 跑在服务器、闲置 Mac 或 Linux 上，像本地一样驱动它的终端、Git 和 AI。详见 [`apps/agent/README.md`](apps/agent/README.md)。
 - **会话不断。** 断线重连后，恢复的是同一批正在运行的 shell 和 agent 会话。
 
+## 你的终端宠物
+
+Agent 烧掉的每一个 Token，都会喂养一只住在工作区里的像素宠物。孵化它、给它起名，看它随着你写代码一路升级——智慧、混沌、夜行、体力、共情五维属性，长自你真实的工作方式和作息。还可以安装自定义像素宠，或让老伙计光荣退役、进入传承名册。
+
+毫无用处，但不可或缺。
+
+<p align="center"><img src="docs/images/pet.png" width="320" alt="Codux 终端宠物"></p>
+
+## 本地优先
+
+- **数据是你的。** 项目、终端、会话、记忆、Token 统计和凭证全都留在你自己的机器上——没有 Codux 云端，也不需要注册账号。
+- **链路加密。** 桌面 ⇄ 手机 ⇄ 主机之间端到端加密；走不通 P2P 时，中继也只转发密文。
+- **原则性非侵入。** Codux 不会往你的仓库里写提示词文件，也不会改 AI CLI 的全局配置——所有上下文注入都经由可审查的 wrapper 和各工具适配器完成。
+
 ## 下载
 
 **桌面端**
@@ -142,7 +184,10 @@ curl -fsSL https://raw.githubusercontent.com/duxweb/codux/main/apps/agent/script
 
 把二进制放到 `PATH` 上（命名为 `codux`），然后 `codux config` → `codux install` → `codux qrcode`。
 
-## 主机端命令（`codux-agent`）
+运行 `codux <命令> --help` 查看详情，或见 [`apps/agent/README.md`](apps/agent/README.md)。
+
+<details>
+<summary><b>主机端全部命令</b></summary>
 
 | 命令 | 作用 |
 | :--- | :--- |
@@ -155,21 +200,20 @@ curl -fsSL https://raw.githubusercontent.com/duxweb/codux/main/apps/agent/script
 | `codux update` | 下载、校验并替换当前二进制，再重启主机端。 |
 | `codux uninstall` | 停止并移除该服务。 |
 
-运行 `codux <命令> --help` 查看详情，或见 [`apps/agent/README.md`](apps/agent/README.md)。
+</details>
 
 ## Web 隧道浏览器
 
-当桌面端连接到已配对的主机端后，工具栏里的地球图标 **Web Tunnel
-Browser** 会打开一个独立代理的 Chromium 浏览器，用来访问运行在主机端的 Web
-服务。
+当桌面端连接到已配对的主机端后，工具栏里的地球图标 **Web Tunnel Browser** 会打开一个独立代理的 Chromium 浏览器，**以主机的身份**上网：主机端跑着 Vite `http://127.0.0.1:5173/`，在隧道浏览器里输入这个地址，就会通过加密的 Codux 链路打开——HTTPS、WebSocket、HMR、局域网地址、`.local` 和 VPN 路由都支持。
 
-- `localhost` 等地址会在主机端解析，而不是在当前桌面端解析。比如主机端跑着
-  Vite `http://127.0.0.1:5173/`，在隧道浏览器里输入这个地址，就会通过加密的
-  Codux 链路打开。
-- 隧道支持 HTTPS、WebSocket、HMR、局域网地址、`.local`、VPN 路由，以及主机端能访问到的开发域名。
-- 每个 `codux-agent` 都内置诊断页 `http://127.0.0.1:8765/`。通过 Web
-  隧道浏览器打开它，可以检查隧道健康状态和实时往返延迟。
+<details>
+<summary><b>诊断与说明</b></summary>
+
+- `localhost` 等地址在主机端解析，而不是在当前桌面端解析。
+- 每个 `codux-agent` 都内置诊断页 `http://127.0.0.1:8765/`。通过 Web 隧道浏览器打开它，可以检查隧道健康状态和实时往返延迟。
 - 在同一台电脑上测试也会走同一套隧道链路；但要验证跨机器网络可达性，仍应把 Codux 主机端跑在另一台机器上。
+
+</details>
 
 ## 快捷键
 
@@ -182,10 +226,6 @@ Browser** 会打开一个独立代理的 Chromium 浏览器，用来访问运行
 | 切换项目 | `⌘1` – `⌘9` |
 
 所有快捷键都能在 **设置 → 快捷键** 里自定义。
-
-## 演示视频
-
-GitHub README 不渲染第三方播放器，可前往 [Bilibili](https://www.bilibili.com/video/BV1mK9vBCEYD/) 观看演示。
 
 ## 作者微信
 
@@ -243,6 +283,8 @@ GitHub README 不渲染第三方播放器，可前往 [Bilibili](https://www.bil
 </p>
 
 ## GitHub Star 趋势
+
+如果 Codux 救回过你哪次跑了一半的 agent 任务，点个 ⭐ 能让更多人找到它。
 
 [![Star History Chart](https://api.star-history.com/svg?repos=duxweb/codux&type=Date)](https://star-history.com/#duxweb/codux&Date)
 
