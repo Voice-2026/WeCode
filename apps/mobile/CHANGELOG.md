@@ -4,6 +4,18 @@ Important changes to this project are documented here.
 
 ## [Unreleased]
 
+## [2.0.0-beta.8] - 2026-07-02
+
+### Fixed
+
+- Fixed remote terminal restoration when switching between desktop, phone, and tablet viewers so active sessions recover from owner changes without blank or corrupted screens.
+- Fixed stalled mobile terminal loading after host baseline failures by relying on explicit failed-baseline and stale-output recovery signals.
+
+### Changed
+
+- Added mobile parsing for v3.2 terminal recovery capabilities including baseline failures, stale output, and viewport keyframes.
+- Reduced mobile terminal output ack traffic while keeping viewport leases and stale-output recovery responsive.
+
 ## [2.0.0-beta.5] - 2026-07-01
 
 ### Changed

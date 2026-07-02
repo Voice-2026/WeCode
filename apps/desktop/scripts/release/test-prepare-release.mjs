@@ -68,5 +68,25 @@ assert.doesNotMatch(notes, /codux-\*/);
 assert.doesNotMatch(notes, /latest\.json/);
 assert.doesNotMatch(notes, /updater\.app\.tar\.gz/);
 
+const missingNotesResult = spawnSync(
+  "node",
+  ["apps/desktop/scripts/release/prepare-release.mjs", "v9.9.9-beta.99", "--dry-run"],
+  {
+    cwd: root,
+    env: {
+      ...process.env,
+      RELEASE_NOTES_PATH: path.join(tempDir, "missing-release-notes.md"),
+    },
+    encoding: "utf8",
+  },
+);
+
+assert.notEqual(missingNotesResult.status, 0);
+assert.match(
+  missingNotesResult.stderr,
+  /Missing release notes for 9\.9\.9-beta\.99/,
+);
+assert.ok(!fs.existsSync(path.join(tempDir, "missing-release-notes.md")));
+
 fs.rmSync(tempDir, { recursive: true, force: true });
 console.log("prepare-release notes test passed");

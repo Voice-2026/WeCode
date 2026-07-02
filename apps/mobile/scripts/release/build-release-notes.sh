@@ -19,6 +19,16 @@ trap 'rm -f "$english_notes" "$chinese_notes"' EXIT
 bash "$script_dir/extract-release-notes.sh" "$version" "$english_changelog" > "$english_notes"
 bash "$script_dir/extract-release-notes.sh" "$version" "$chinese_changelog" > "$chinese_notes"
 
+if [[ ! -s "$english_notes" ]]; then
+  echo "Missing or empty English mobile release notes for $version in $english_changelog" >&2
+  exit 2
+fi
+
+if [[ ! -s "$chinese_notes" ]]; then
+  echo "Missing or empty Chinese mobile release notes for $version in $chinese_changelog" >&2
+  exit 2
+fi
+
 {
   echo "# Codux Mobile v$version"
   echo

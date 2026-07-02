@@ -109,11 +109,19 @@ function extractChangelogSection(relativePath, nextVersion) {
 function buildReleaseNotes(nextVersion) {
   const english = extractChangelogSection("CHANGELOG.md", nextVersion);
   const chinese = extractChangelogSection("CHANGELOG.zh-CN.md", nextVersion);
-  const downloadGuide = buildDownloadGuide();
-  if (chinese && english) {
-    return [`## 中文`, chinese, `---`, `## English`, english, downloadGuide].join("\n\n");
+  if (!english || !chinese) {
+    const missing = [
+      !english ? "CHANGELOG.md" : "",
+      !chinese ? "CHANGELOG.zh-CN.md" : "",
+    ].filter(Boolean);
+    throw new Error(
+      `Missing release notes for ${nextVersion} in ${missing.join(
+        " and ",
+      )}. Add a "## [${nextVersion}]" section before publishing.`,
+    );
   }
-  return [english || chinese || `Codux ${nextVersion}`, downloadGuide].join("\n\n");
+  const downloadGuide = buildDownloadGuide();
+  return [`## 中文`, chinese, `---`, `## English`, english, downloadGuide].join("\n\n");
 }
 
 function buildDownloadGuide() {

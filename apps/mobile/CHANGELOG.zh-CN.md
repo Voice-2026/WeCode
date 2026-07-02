@@ -4,6 +4,18 @@
 
 ## [Unreleased]
 
+## [2.0.0-beta.8] - 2026-07-02
+
+### 修复
+
+- 修复桌面、手机、平板多端查看 / 接管终端时的恢复问题，活跃会话在 owner 变化后不再出现空白或画面错乱。
+- 修复主机 baseline 失败后移动端终端加载卡住的问题，改为依赖明确的 baseline 失败与 stale-output 恢复信号。
+
+### 调整
+
+- 移动端新增 v3.2 终端恢复 capability 解析，包括 baseline 失败、stale output 与 viewport keyframe。
+- 降低移动端终端 output ack 频率，同时保持 viewport lease 与 stale-output 恢复的响应性。
+
 ## [2.0.0-beta.5] - 2026-07-01
 
 ### Changed

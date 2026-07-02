@@ -4,6 +4,24 @@
 
 ## [Unreleased]
 
+## [2.0.0-beta.8] - 2026-07-02
+
+### 新增
+
+- 新增远程协议 v3.2 兼容性文档 `docs/protocol.md`，明确 envelope 语义、终端订阅、viewport 所有权、baseline/live output 双模式、恢复状态机与保活分工。
+
+### 修复
+
+- 修复桌面端、移动端与无界面 agent 之间的远程终端 viewport 交接恢复问题，过期 baseline、owner 变化和多设备查看不再导致终端空白或画面错乱。
+- 修复 Iroh 传输 writer/read 失败后的静默丢帧问题，失效 peer sender 会被移除并触发 controller 重连。
+- 修复桌面端与 agent 旧版 `terminal.resize` 消息处理：缺失或非法尺寸会直接报错，不再把 PTY 缩放到 fallback 尺寸。
+
+### 调整
+
+- 新增 host capability 标记，用于声明 terminal baseline 失败、stale-output 恢复与 viewport keyframe 等 v3.2 终端恢复能力。
+- 降低移动端终端 output ack 频率，同时保持在主机 stale-output 容差范围内。
+- 移除未使用的远程 resource 消息常量，并在协议文档中标注旧终端订阅 / resize 兼容路径。
+
 ## [2.0.0-beta.7] - 2026-07-02
 
 ### 新增

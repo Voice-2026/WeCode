@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [2.0.0-beta.8] - 2026-07-02
+
+### Added
+
+- Added the remote protocol v3.2 compatibility reference in `docs/protocol.md`, covering envelope semantics, terminal subscriptions, viewport ownership, baseline/live output modes, recovery, and keepalive roles.
+
+### Fixed
+
+- Fixed remote terminal viewport handoff recovery across desktop, mobile, and headless agent hosts so stale baselines, owner changes, and multi-device viewing no longer leave terminals blank or corrupted.
+- Fixed Iroh transport writer/read failures so dead peer senders are removed and controllers reconnect instead of silently dropping subsequent frames.
+- Fixed legacy `terminal.resize` handling on desktop and agent hosts so missing or invalid dimensions are rejected instead of resizing PTYs to fallback dimensions.
+
+### Changed
+
+- Added host capability flags for terminal baseline failures, stale-output recovery, and viewport keyframes so clients can detect v3.2 terminal recovery features.
+- Reduced mobile terminal output ack traffic while staying within the host stale-output tolerance.
+- Removed unused remote resource message constants and documented deprecated terminal subscription/resize compatibility paths.
+
 ## [2.0.0-beta.7] - 2026-07-02
 
 ### Added
