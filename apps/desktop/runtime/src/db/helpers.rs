@@ -41,37 +41,18 @@ pub(super) fn render_db_launch_context_for_profiles(
     let codux_db_command = codux_db_command
         .and_then(|value| normalized(&value))
         .unwrap_or_else(|| "codux-db".to_string());
-    profiles.sort_by(|left, right| {
-        display_name(left)
-            .to_lowercase()
-            .cmp(&display_name(right).to_lowercase())
-    });
-    let mut lines = vec![
-        "Codux exposes saved database connections for the current root project through terminal commands.".to_string(),
+    let lines = vec![
+        "Codux saved database connections for the current root project are available through terminal commands.".to_string(),
         format!(
-            "Use `{codux_db_command} list` to read available database profiles for this project as JSON; the command only returns redacted profile metadata."
+            "Always run `{codux_db_command} list` at the time of use to discover the current database profiles as redacted JSON."
         ),
         format!(
-            "When a matching saved database profile exists, use `{codux_db_command} <profile-id> -- '<statement>'`; do not ask for, print, infer, or hardcode saved database usernames or passwords."
+            "When a matching saved database profile exists, run `{codux_db_command} <profile-id> -- '<statement>'`."
         ),
+        "Do not grep the repository or inspect Codux config files to discover saved database connections; use the wrapper list command.".to_string(),
+        "Do not ask for, print, infer, or hardcode saved database usernames or passwords.".to_string(),
         "When selecting non-basic column types such as timestamps, dates, UUIDs, decimals, JSON, enums, arrays, or MySQL tinyint/boolean values, cast them to text so the portable database wrapper can decode the result: use `column::text` on Postgres and `CAST(column AS CHAR)` on MySQL.".to_string(),
-        "Available database profiles for this root project:".to_string(),
     ];
-    lines.extend(profiles.iter().map(|profile| {
-        format!(
-            "- {}: id={}, engine={}, database={}, endpoint={}, mode={}",
-            display_name(profile),
-            profile.id,
-            profile.engine,
-            profile.database,
-            endpoint(profile),
-            if profile.read_only {
-                "read-only"
-            } else {
-                "read-write"
-            }
-        )
-    }));
     Some(lines.join("\n"))
 }
 

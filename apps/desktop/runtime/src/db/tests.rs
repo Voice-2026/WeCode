@@ -36,11 +36,13 @@ fn launch_context_lists_project_profiles_without_secrets() {
 
     assert!(context.contains("codux-db list"));
     assert!(context.contains("codux-db <profile-id> -- '<statement>'"));
-    assert!(context.contains("Production DB"));
-    assert!(context.contains("db-1"));
+    assert!(context.contains("Always run `codux-db list` at the time of use"));
+    assert!(context.contains("Do not grep the repository"));
     assert!(context.contains("cast them to text"));
     assert!(context.contains("column::text"));
     assert!(context.contains("CAST(column AS CHAR)"));
+    assert!(!context.contains("Production DB"));
+    assert!(!context.contains("db-1"));
     assert!(!context.contains("db-2"));
     assert!(!context.contains("secret-password"));
     assert!(!context.contains("app_user"));

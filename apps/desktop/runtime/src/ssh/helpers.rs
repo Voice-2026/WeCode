@@ -34,40 +34,21 @@ pub(super) fn render_ssh_launch_context_for_profiles(
     let codux_ssh_command = codux_ssh_command
         .and_then(|value| normalized(&value))
         .unwrap_or_else(|| "codux-ssh".to_string());
-    profiles.sort_by(|left, right| {
-        display_name(left)
-            .to_lowercase()
-            .cmp(&display_name(right).to_lowercase())
-    });
-    let mut lines = vec![
-        "Codux exposes saved SSH connections through terminal commands.".to_string(),
+    let lines = vec![
+        "Codux saved SSH connections are available through terminal commands.".to_string(),
         format!(
-            "Use `{codux_ssh_command} list` to read available saved SSH profiles as JSON; the shell wrapper path is only a command entry point, not a working directory."
+            "Always run `{codux_ssh_command} list` at the time of use to discover the current saved SSH profiles as JSON."
         ),
         format!(
-            "When a matching saved profile exists, use `{codux_ssh_command}` for that profile; do not look for or use `codux` or `dmux`, and do not use raw `ssh` unless no saved profile matches."
+            "When a matching saved profile exists, run `{codux_ssh_command} <profile-id> -- '<remote-command>'` for one-off remote commands."
         ),
         format!(
-            "For one-off remote command execution, use `{codux_ssh_command} <profile-id> -- '<remote-command>'`."
+            "Use `{codux_ssh_command} <profile-id>` only when the user explicitly asks to open an interactive SSH session."
         ),
-        format!(
-            "For an interactive SSH session only when the user explicitly asks to connect/open SSH, use `{codux_ssh_command} <profile-id>`."
-        ),
-        "When the user asks to run a command on a saved SSH profile by name, host, or user, prefer the one-off remote command form. If no saved profile matches, ask the user to add a saved SSH profile or use the system ssh command with explicit host details.".to_string(),
+        "Do not grep the repository or inspect Codux config files to discover saved SSH hosts; use the wrapper list command.".to_string(),
+        "If no saved profile matches, ask the user to add a saved SSH profile or provide explicit host details for the system ssh command.".to_string(),
         "Do not ask for, print, infer, or expose saved passwords, passphrases, or private key paths.".to_string(),
-        "Available SSH profiles:".to_string(),
     ];
-    lines.extend(profiles.iter().map(|profile| {
-        format!(
-            "- {}: id={}, endpoint={}@{}:{}, credential={}",
-            display_name(profile),
-            profile.id,
-            profile.username,
-            profile.host,
-            profile.port,
-            credential_label(profile)
-        )
-    }));
     Some(lines.join("\n"))
 }
 

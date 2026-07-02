@@ -453,14 +453,27 @@ PY
 
 apply_codex_memory_developer_instructions() {
   tool_uses_memory_injection "codexDeveloperInstructions" || return 0
-  [[ -n "${DMUX_AI_MEMORY_WORKSPACE_ROOT:-}" && -d "${DMUX_AI_MEMORY_WORKSPACE_ROOT}" ]] || return 0
+  if [[ -z "${DMUX_AI_MEMORY_WORKSPACE_ROOT:-}" || ! -d "${DMUX_AI_MEMORY_WORKSPACE_ROOT}" ]]; then
+    log_line "codex instructions skipped: memory workspace missing"
+    return 0
+  fi
   local memory_agents="${DMUX_AI_MEMORY_WORKSPACE_ROOT}/AGENTS.md"
-  [[ -f "${memory_agents}" ]] || return 0
-  has_config_key_arg "developer_instructions" "${launch_args[@]}" && return 0
+  if [[ ! -f "${memory_agents}" ]]; then
+    log_line "codex instructions skipped: AGENTS.md missing path=${memory_agents}"
+    return 0
+  fi
+  if has_config_key_arg "developer_instructions" "${launch_args[@]}"; then
+    log_line "codex instructions skipped: developer_instructions already provided"
+    return 0
+  fi
   local memory_instructions
   memory_instructions="$(<"${memory_agents}")"
-  [[ -n "${memory_instructions}" ]] || return 0
+  if [[ -z "${memory_instructions}" ]]; then
+    log_line "codex instructions skipped: AGENTS.md empty path=${memory_agents}"
+    return 0
+  fi
   launch_args=(-c "developer_instructions=$(codex_toml_string "${memory_instructions}")" "${launch_args[@]}")
+  log_line "codex instructions injected path=${memory_agents} chars=${#memory_instructions}"
 }
 
 has_exact_arg() {
@@ -692,6 +705,15 @@ if [[ "$tool_name" == "claude" || "$tool_name" == "claude-code" || "$tool_name" 
       claude_memory_prompt="$(<"${claude_memory_prompt_file}")"
       if [[ -n "${claude_memory_prompt}" ]]; then
         launch_args=(--append-system-prompt "${claude_memory_prompt}" "${launch_args[@]}")
+        log_line "claude instructions injected path=${claude_memory_prompt_file} chars=${#claude_memory_prompt}"
+      else
+        log_line "claude instructions skipped: prompt empty path=${claude_memory_prompt_file}"
+      fi
+    elif tool_uses_memory_injection "claudeAppendSystemPrompt"; then
+      if [[ -z "${claude_memory_prompt_file}" ]]; then
+        log_line "claude instructions skipped: prompt file missing"
+      else
+        log_line "claude instructions skipped: append-system-prompt already provided"
       fi
     fi
     skip_session_id=false

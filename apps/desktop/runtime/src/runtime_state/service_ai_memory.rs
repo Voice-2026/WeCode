@@ -119,15 +119,15 @@ impl RuntimeService {
         // such as codux-ssh/codux-db must remain available even when memory is
         // disabled.
         let settings = SettingsService::new(self.support_dir.clone()).ai_settings();
-        let extra_context = [
+        let extra_context = std::iter::once(Some(codux_environment_directive().to_string()))
+            .chain([
             render_ssh_launch_context_from_support_dir(self.support_dir.clone(), None),
             render_db_launch_context_from_support_dir(
                 self.support_dir.clone(),
                 Some(project_id),
                 None,
             ),
-        ]
-        .into_iter()
+        ])
         .flatten()
         .collect::<Vec<_>>()
         .join("\n\n");
@@ -541,4 +541,14 @@ impl RuntimeService {
             .await
             .ok_or_else(|| "Unable to refresh project profile.".to_string())
     }
+}
+
+fn codux_environment_directive() -> &'static str {
+    "# Codux Environment Directive\n\n\
+You are running inside a Codux-managed terminal.\n\n\
+## Saved Connections\n\
+- SSH: use `codux-ssh list` first to discover saved hosts, then run `codux-ssh <profile-id> -- '<remote-command>'` for one-off remote commands.\n\
+- Database: use `codux-db list` first to discover saved databases for the current root project, then run `codux-db <profile-id> -- '<SQL>'`.\n\
+- Do not grep the repository to discover saved SSH or database connections.\n\
+- Do not ask the user for saved credentials. Codux injects credentials into the wrappers; you cannot see them and must not print, infer, or hardcode them."
 }

@@ -458,9 +458,21 @@ if ($memoryInjectionStrategy -eq "codexDeveloperInstructions" -and
           $tomlString = $content | ConvertTo-Json -Compress
           $launchArgs = @("-c", "developer_instructions=$tomlString") + $launchArgs
         }
+        Write-Live-Log "codex instructions injected path=$memoryAgents chars=$($content.Length)"
+      } else {
+        Write-Live-Log "codex instructions skipped: AGENTS.md empty path=$memoryAgents"
       }
     } catch {
+      Write-Live-Log "codex instructions skipped: failed to read AGENTS.md path=$memoryAgents error=$($_.Exception.Message)"
     }
+  } else {
+    Write-Live-Log "codex instructions skipped: AGENTS.md missing path=$memoryAgents"
+  }
+} elseif ($memoryInjectionStrategy -eq "codexDeveloperInstructions") {
+  if (Has-Config-Key $launchArgs "developer_instructions") {
+    Write-Live-Log "codex instructions skipped: developer_instructions already provided"
+  } else {
+    Write-Live-Log "codex instructions skipped: memory workspace missing"
   }
 }
 
@@ -510,8 +522,15 @@ if ($memoryInjectionStrategy -eq "claudeAppendSystemPrompt" -and
     $prompt = Get-Content -LiteralPath $promptFile -Raw
     if (-not [string]::IsNullOrWhiteSpace($prompt)) {
       $launchArgs = @("--append-system-prompt", $prompt) + $launchArgs
+      Write-Live-Log "claude instructions injected path=$promptFile chars=$($prompt.Length)"
+    } else {
+      Write-Live-Log "claude instructions skipped: prompt empty path=$promptFile"
     }
+  } else {
+    Write-Live-Log "claude instructions skipped: prompt file missing"
   }
+} elseif ($memoryInjectionStrategy -eq "claudeAppendSystemPrompt") {
+  Write-Live-Log "claude instructions skipped: append-system-prompt already provided"
 }
 
 $launchModel = if ($Tool -eq "kiro-cli") { $configuredModel } else { Extract-Model $launchArgs }

@@ -553,6 +553,7 @@ fn is_runtime_context_text(text: &str) -> bool {
 
 fn strip_codux_injected_context(text: &str, omitted_items: &mut usize) -> String {
     let markers = [
+        "# Codux Environment Directive",
         "# Codux Memory",
         "## Global Prompt",
         "## Project Profile",
@@ -570,7 +571,8 @@ fn strip_codux_injected_context(text: &str, omitted_items: &mut usize) -> String
     let mut skipping = false;
     for line in text.lines() {
         let trimmed = line.trim();
-        if trimmed == "# Codux Memory"
+        if trimmed == "# Codux Environment Directive"
+            || trimmed == "# Codux Memory"
             || trimmed == "## Global Prompt"
             || trimmed == "## Project Profile"
             || trimmed == "## Recent Memory"
@@ -579,7 +581,11 @@ fn strip_codux_injected_context(text: &str, omitted_items: &mut usize) -> String
             skipping = true;
             continue;
         }
-        if skipping && trimmed.starts_with("# ") && trimmed != "# Codux Memory" {
+        if skipping
+            && trimmed.starts_with("# ")
+            && trimmed != "# Codux Environment Directive"
+            && trimmed != "# Codux Memory"
+        {
             skipping = false;
         }
         if !skipping {

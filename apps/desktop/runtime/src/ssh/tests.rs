@@ -43,10 +43,11 @@ fn launch_context_lists_profiles_without_secrets() {
     assert!(context.contains("codux-ssh list"));
     assert!(context.contains("codux-ssh <profile-id>"));
     assert!(context.contains("codux-ssh <profile-id> -- '<remote-command>'"));
-    assert!(context.contains("do not look for or use `codux` or `dmux`"));
-    assert!(context.contains("Production"));
-    assert!(context.contains("root@example.com:2222"));
-    assert!(context.contains("profile-1"));
+    assert!(context.contains("Always run `codux-ssh list` at the time of use"));
+    assert!(context.contains("Do not grep the repository"));
+    assert!(!context.contains("Production"));
+    assert!(!context.contains("root@example.com:2222"));
+    assert!(!context.contains("profile-1"));
     assert!(!context.contains("secret-password"));
     assert!(!context.contains("secret-passphrase"));
     assert!(!context.contains("/Users/me/.ssh/id_ed25519"));

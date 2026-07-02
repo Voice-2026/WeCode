@@ -1303,7 +1303,11 @@ fi
         let project_root = dir.join("project");
         fs::create_dir_all(&memory_root).unwrap();
         fs::create_dir_all(&project_root).unwrap();
-        fs::write(memory_root.join("AGENTS.md"), "Use project memory.").unwrap();
+        fs::write(
+            memory_root.join("AGENTS.md"),
+            "# Codux Environment Directive\nUse `codux-ssh list` first.\n",
+        )
+        .unwrap();
 
         let search_path = format!("{}:/usr/bin:/bin:/usr/sbin:/sbin", real_bin.display());
         let output = Command::new(bridge.wrapper_bin_dir().join("codex"))
@@ -1344,6 +1348,8 @@ fi
             args.lines()
                 .any(|arg| arg.starts_with("developer_instructions="))
         );
+        assert!(args.contains("# Codux Environment Directive"));
+        assert!(args.contains("codux-ssh list"));
         fs::remove_dir_all(dir).unwrap();
     }
 

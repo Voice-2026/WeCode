@@ -754,7 +754,7 @@ fn statement_allowed(profile: &Value, statement: &str) -> bool {
     matches!(
         first.as_deref(),
         Some("select" | "show" | "with" | "explain" | "pragma" | "describe" | "desc")
-    ) && is_single_sql_statement(statement)
+    ) && statement_has_only_readonly_keywords(statement)
 }
 
 fn first_sql_keyword(statement: &str) -> Option<String> {
@@ -781,18 +781,71 @@ fn first_sql_keyword(statement: &str) -> Option<String> {
         .map(|part| part.to_ascii_lowercase())
 }
 
-fn is_single_sql_statement(statement: &str) -> bool {
+fn statement_has_only_readonly_keywords(statement: &str) -> bool {
     let mut characters = statement.char_indices().peekable();
+    let mut word_start = None;
     while let Some((index, character)) = characters.next() {
         match character {
-            '\'' | '"' => skip_sql_quoted_string(&mut characters, character),
-            '-' if statement[index..].starts_with("--") => skip_sql_line_comment(&mut characters),
-            '/' if statement[index..].starts_with("/*") => skip_sql_block_comment(&mut characters),
-            ';' => return only_sql_trivia_remains(&statement[index + character.len_utf8()..]),
-            _ => {}
+            '\'' | '"' => {
+                if !readonly_word_allowed(statement, &mut word_start, index) {
+                    return false;
+                }
+                skip_sql_quoted_string(&mut characters, character);
+            }
+            '-' if statement[index..].starts_with("--") => {
+                if !readonly_word_allowed(statement, &mut word_start, index) {
+                    return false;
+                }
+                skip_sql_line_comment(&mut characters);
+            }
+            '/' if statement[index..].starts_with("/*") => {
+                if !readonly_word_allowed(statement, &mut word_start, index) {
+                    return false;
+                }
+                skip_sql_block_comment(&mut characters);
+            }
+            character if character.is_ascii_alphabetic() => {
+                word_start.get_or_insert(index);
+            }
+            _ => {
+                if !readonly_word_allowed(statement, &mut word_start, index) {
+                    return false;
+                }
+            }
         }
     }
-    true
+    readonly_word_allowed(statement, &mut word_start, statement.len())
+}
+
+fn readonly_word_allowed(statement: &str, word_start: &mut Option<usize>, end: usize) -> bool {
+    let Some(start) = word_start.take() else {
+        return true;
+    };
+    let word = statement[start..end].to_ascii_lowercase();
+    !matches!(
+        word.as_str(),
+        "insert"
+            | "update"
+            | "delete"
+            | "replace"
+            | "alter"
+            | "drop"
+            | "truncate"
+            | "create"
+            | "grant"
+            | "revoke"
+            | "merge"
+            | "upsert"
+            | "call"
+            | "execute"
+            | "exec"
+            | "load"
+            | "copy"
+            | "set"
+            | "begin"
+            | "commit"
+            | "rollback"
+    )
 }
 
 fn skip_sql_quoted_string(
@@ -831,29 +884,6 @@ fn skip_sql_block_comment(characters: &mut std::iter::Peekable<std::str::CharInd
             break;
         }
         previous = character;
-    }
-}
-
-fn only_sql_trivia_remains(statement: &str) -> bool {
-    let mut text = statement.trim_start();
-    loop {
-        if text.is_empty() {
-            return true;
-        }
-        if let Some(rest) = text.strip_prefix("--") {
-            if let Some(index) = rest.find('\n') {
-                text = rest[index + 1..].trim_start();
-                continue;
-            }
-            return true;
-        }
-        if let Some(rest) = text.strip_prefix("/*") {
-            if let Some(index) = rest.find("*/") {
-                text = rest[index + 2..].trim_start();
-                continue;
-            }
-        }
-        return false;
     }
 }
 
@@ -1216,9 +1246,16 @@ mod tests {
             &profile,
             "SELECT ';' AS literal; -- trailing comment"
         ));
+        assert!(statement_allowed(&profile, "SHOW TABLES"));
+        assert!(statement_allowed(&profile, "SELECT 1; SHOW TABLES"));
         assert!(!statement_allowed(&profile, "DELETE FROM users"));
         assert!(!statement_allowed(&profile, "INSERT INTO users VALUES (1)"));
         assert!(!statement_allowed(&profile, "SELECT 1; DELETE FROM users"));
+        assert!(statement_allowed(&profile, "SELECT 'delete' AS literal"));
+        assert!(statement_allowed(
+            &profile,
+            "-- delete is a comment\nSELECT 1"
+        ));
     }
 
     #[test]
