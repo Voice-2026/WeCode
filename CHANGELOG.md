@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [2.0.0-beta.7] - 2026-07-02
+
+### Added
+
+- Added a project-scoped database connection manager and `codux-db` runtime command so AI sessions can discover saved databases without seeing credentials.
+- Added a README AI CLI support matrix that documents live status, token usage, settings support, and which tools receive non-invasive environment directives.
+
+### Fixed
+
+- Fixed Codux environment directive delivery so `codux-ssh` and `codux-db` instructions are injected independently of memory settings for supported AI CLIs.
+- Fixed Kimi Code environment directive injection through a managed `--agent-file` and kept CodeWhale marked as non-injected for interactive sessions because it has no confirmed non-invasive prompt channel.
+- Fixed memory extraction preflight gating, memory relevance ranking, secret redaction, completion-state races, and launch-artifact test isolation.
+- Fixed mobile takeover of active remote terminal history by closing empty baseline loading states and moving host baseline generation out of the synchronous receive path.
+
+### Changed
+
+- Clarified unsupported AI CLI injection behavior for Kiro CLI, CodeWhale, and Agy instead of forcing project or user-level prompt configuration.
+- Refined database and SSH launch guidance so agents discover current profiles at runtime with `codux-db list` and `codux-ssh list`.
+
 ## [2.0.0-beta.6] - 2026-07-01
 
 ### Fixed
