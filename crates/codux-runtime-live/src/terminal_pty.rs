@@ -45,6 +45,8 @@ const INPUT_CAPTURE_LIMIT: usize = 20;
 const OUTPUT_CAPTURE_LIMIT: usize = 16 * 1024;
 const MIN_HISTORY_BYTES: usize = 128 * 1024;
 const MAX_CONFIGURED_HISTORY_BYTES: usize = 8 * 1024 * 1024;
+// Runtime screen only serves remote scrollback views, so cap it to mobile depth.
+const REMOTE_SCREEN_SCROLLBACK_CAP: usize = 2_000;
 const TERMINAL_VIEWPORT_LEASE_TTL: Duration = Duration::from_secs(20);
 const COMMON_PASSTHROUGH_ENV_KEYS: &[&str] = &[
     "LANG",
@@ -910,9 +912,7 @@ impl TerminalPtySession {
         let screen = Arc::new(parking_lot::Mutex::new(HeadlessTerminalScreen::new(
             cols as usize,
             rows as usize,
-            // Serves remote scrollback views (terminal.viewport.scroll);
-            // deep enough for meaningful mobile history browsing.
-            config.scrollback_lines.unwrap_or(5000),
+            remote_screen_scrollback_lines(config.scrollback_lines),
         )));
         let output_subscribers = Arc::new(parking_lot::Mutex::new(Vec::new()));
         let event_subscribers = Arc::new(parking_lot::Mutex::new(Vec::new()));
@@ -2838,6 +2838,12 @@ fn terminal_history_bytes(scrollback_lines: Option<usize>, cols: u16) -> usize {
         .clamp(MIN_HISTORY_BYTES, MAX_CONFIGURED_HISTORY_BYTES)
 }
 
+fn remote_screen_scrollback_lines(scrollback_lines: Option<usize>) -> usize {
+    scrollback_lines
+        .unwrap_or(5000)
+        .min(REMOTE_SCREEN_SCROLLBACK_CAP)
+}
+
 fn decode_utf8_output(bytes: &[u8], pending: &mut Vec<u8>) -> String {
     if pending.is_empty() {
         return decode_utf8_complete_prefix(bytes, pending);
@@ -3412,6 +3418,19 @@ mod tests {
     fn terminal_history_bytes_respects_configured_scrollback() {
         assert_eq!(terminal_history_bytes(Some(10_000), 100), 4 * 100 * 10_000);
         assert_eq!(terminal_history_bytes(Some(1), 100), MIN_HISTORY_BYTES);
+    }
+
+    #[test]
+    fn remote_screen_scrollback_is_capped() {
+        assert_eq!(
+            remote_screen_scrollback_lines(None),
+            REMOTE_SCREEN_SCROLLBACK_CAP
+        );
+        assert_eq!(
+            remote_screen_scrollback_lines(Some(10_000)),
+            REMOTE_SCREEN_SCROLLBACK_CAP
+        );
+        assert_eq!(remote_screen_scrollback_lines(Some(1200)), 1200);
     }
 
     #[test]
