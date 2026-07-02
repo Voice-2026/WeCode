@@ -28,7 +28,8 @@ extension _HomePageSync on HomeController {
       // so a gap-free switch stays current without a reload.
       final needsBaseline =
           reason == 'foreground' ||
-          _terminalOutputController.hasSequenceGap(sessionId);
+          _terminalOutputController.hasSequenceGap(sessionId) ||
+          _terminalBindingCoordinator.isSessionBaselineStale(sessionId);
       if (_transportConnected && _remoteProtocolReady && needsBaseline) {
         final requested = _terminalBindingCoordinator.subscribeSessionBaseline(
           sessionId: sessionId,

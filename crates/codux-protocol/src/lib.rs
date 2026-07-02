@@ -740,6 +740,7 @@ pub struct RemoteTerminalBufferWindow {
     pub request_id: Option<String>,
     pub tail: bool,
     pub has_previous: bool,
+    pub baseline_failed: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1079,6 +1080,9 @@ fn terminal_buffer_payload(
         "tail": window.tail,
         "hasPrevious": window.has_previous,
     });
+    if window.baseline_failed {
+        payload["baselineFailed"] = json!(true);
+    }
     if let Some(request_id) = window.request_id.as_deref() {
         payload["requestId"] = json!(request_id);
     }
@@ -1142,6 +1146,7 @@ mod tests {
             request_id: Some("request-1".to_string()),
             tail: true,
             has_previous: true,
+            baseline_failed: false,
         };
 
         let payloads = terminal_buffer_payloads(&window, 7, Some(2));

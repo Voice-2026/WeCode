@@ -53,6 +53,44 @@ void main() {
     expect(controller.pendingRows, 10);
   });
 
+  test('baseline viewport uses protected rows while keyboard is visible', () {
+    final controller = TerminalViewportController();
+
+    final base = controller.resize(
+      sessionId: 'session-1',
+      cols: 80,
+      rows: 24,
+      keyboardVisible: false,
+    );
+    controller.markSent('session-1', base!);
+    controller.resize(
+      sessionId: 'session-1',
+      cols: 100,
+      rows: 10,
+      keyboardVisible: true,
+    );
+
+    final pending = controller.pendingSizeFor('session-1');
+
+    expect(pending, isNotNull);
+    expect(pending!.cols, 100);
+    expect(pending.rows, 24);
+  });
+
+  test(
+    'recorded measured size drives baseline viewport before first resize',
+    () {
+      final controller = TerminalViewportController();
+
+      controller.recordMeasured(90, 30);
+
+      final pending = controller.pendingSizeFor('session-1');
+      expect(pending, isNotNull);
+      expect(pending!.cols, 90);
+      expect(pending.rows, 30);
+    },
+  );
+
   test('flushes pending keyboard resize when forced', () {
     final controller = TerminalViewportController();
 
@@ -106,7 +144,7 @@ void main() {
     expect(nextSession.rows, 24);
   });
 
-  test('force flush does not repeat an already sent session size', () {
+  test('force flush repeats an already sent session size', () {
     final controller = TerminalViewportController();
 
     final first = controller.resize(
@@ -117,12 +155,11 @@ void main() {
     );
     controller.markSent('session-1', first!);
 
-    final duplicate = controller.flushPending(
-      sessionId: 'session-1',
-      force: true,
-    );
+    final forced = controller.flushPending(sessionId: 'session-1', force: true);
 
-    expect(duplicate, isNull);
+    expect(forced, isNotNull);
+    expect(forced!.cols, 80);
+    expect(forced.rows, 24);
   });
 
   test('force flush emits a pending resize that was not sent while hidden', () {

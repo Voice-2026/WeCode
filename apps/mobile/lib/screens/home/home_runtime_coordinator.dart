@@ -172,6 +172,7 @@ class HomeRuntimeCoordinator {
     final evicted = outputController.evictInactiveSessions(bindSessionId);
     for (final sessionId in evicted) {
       terminalInputSender.clear(sessionId: sessionId);
+      terminalBindingCoordinator.markSessionBaselineStale(sessionId);
     }
     if (evicted.isNotEmpty) {
       CoduxLog.info(

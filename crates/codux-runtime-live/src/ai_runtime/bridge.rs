@@ -764,9 +764,13 @@ mod tests {
         assert!(launch_config["tools"].as_array().unwrap().iter().any(
             |tool| tool["id"] == "mimo" && tool["memoryInjection"] == "opencodeSystemTransform"
         ));
-        assert!(launch_config["tools"].as_array().unwrap().iter().any(
-            |tool| tool["id"] == "kimi" && tool["memoryInjection"] == "kimiAgentFile"
-        ));
+        assert!(
+            launch_config["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|tool| tool["id"] == "kimi" && tool["memoryInjection"] == "kimiAgentFile")
+        );
         let codewhale_driver = launch_config["tools"]
             .as_array()
             .unwrap()

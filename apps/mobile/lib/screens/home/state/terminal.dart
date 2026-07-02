@@ -1,5 +1,7 @@
 part of '../home_page.dart';
 
+const int _terminalStaleOutputSeqTolerance = 8;
+
 /// Terminal session handling for [_CoduxHomePageState]: output/upload
 /// effects, buffer-resync bookkeeping, viewport claim/release, resize, input
 /// send, and terminal create/lookup. Split into a part + extension to keep the
@@ -7,19 +9,33 @@ part of '../home_page.dart';
 /// [_CoduxHomePageState._applyState] (`setState` is `@protected`).
 extension _HomePageTerminal on HomeController {
   void _handleTerminalViewportState(RelayEnvelope message) {
-    final applied = _terminalViewportController.applyRemoteState(message);
-    if (!applied) return;
     final sessionId = message.sessionId?.trim();
     if (sessionId == null || sessionId.isEmpty) return;
-    // Handoff: if the desktop (owner is local, not "remote:") took ownership,
-    // YIELD instead of reclaiming. Flag the session as handed-away so the UI
-    // shows a "taken over" placeholder and we stop auto-claiming/resizing (which
-    // would fight the new owner and ping-pong with its "Take over"). The user
-    // taps "Take over here" to grab it back. (Another remote viewer is left
-    // alone, as before.)
+    final previousOwner =
+        _terminalViewportController.ownerFor(sessionId)?.trim() ?? '';
+    final applied = _terminalViewportController.applyRemoteState(message);
+    if (!applied) return;
+    final payload = message.payload is Map ? message.payload as Map : null;
+    final owner = _terminalViewportController.ownerFor(sessionId) ?? '';
+    final localOwner = _activeDevice == null
+        ? ''
+        : 'remote:${_activeDevice!.deviceId.trim()}';
+    final becameLocalOwner =
+        localOwner.isNotEmpty && owner == localOwner && previousOwner != owner;
+    // Handoff: if any other owner (desktop or another remote device) took the
+    // viewport, yield instead of reclaiming/resizing. The user explicitly taps
+    // "Take over here" to move the PTY grid to this device.
+    final handedAway =
+        owner.isNotEmpty && (localOwner.isEmpty || owner != localOwner);
+    final staleOutput =
+        payload != null &&
+        payload['staleOutput'] == true &&
+        !handedAway &&
+        _terminalViewportOutputLagRequiresResync(sessionId, payload);
+    if (staleOutput) {
+      _terminalBindingCoordinator.markSessionBaselineStale(sessionId);
+    }
     if (sessionId == _sessionId) {
-      final owner = _terminalViewportController.ownerFor(sessionId) ?? '';
-      final handedAway = owner.isNotEmpty && !owner.startsWith('remote:');
       if (handedAway != _remoteHandedAway) {
         _applyState(() {
           _remoteHandedAway = handedAway;
@@ -50,6 +66,64 @@ extension _HomePageTerminal on HomeController {
       rows: size.rows,
     );
     _terminalRepaint.tick();
+    if (becameLocalOwner && sessionId == _sessionId) {
+      _requestTerminalViewportOwnerBaseline(sessionId);
+    }
+    if (staleOutput &&
+        sessionId == _sessionId &&
+        !_terminalOutputController.hasActiveBufferRequest(sessionId)) {
+      if (!_terminalBaselineResyncAllowed(sessionId)) return;
+      final requested = _terminalBindingCoordinator.subscribeSessionBaseline(
+        sessionId: sessionId,
+        reason: 'stale-output-state',
+        capability: _terminalBufferCapability,
+        replaceActive: true,
+      );
+      if (requested) {
+        _trackTerminalBaselineRequest(sessionId);
+      }
+    }
+  }
+
+  bool _terminalViewportOutputLagRequiresResync(String sessionId, Map payload) {
+    if (_terminalOutputController.hasSequenceGap(sessionId)) return true;
+    final hostSeq = _intFromPayload(payload['outputSeq']);
+    if (hostSeq == null) return true;
+    final localSeq = _terminalOutputController.outputSequence(sessionId);
+    return hostSeq - localSeq > _terminalStaleOutputSeqTolerance;
+  }
+
+  void _requestTerminalViewportOwnerBaseline(String sessionId) {
+    if (!_transportConnected || !_remoteProtocolReady) return;
+    if (!_terminalViewportClaimable) return;
+    if (_terminalOutputController.hasActiveBufferRequest(sessionId)) {
+      _viewportOwnerRefreshAfterBaseline.add(sessionId);
+      return;
+    }
+    if (!_terminalBaselineResyncAllowed(sessionId)) return;
+    _viewportOwnerRefreshAfterBaseline.remove(sessionId);
+    final requested = _terminalBindingCoordinator.subscribeSessionBaseline(
+      sessionId: sessionId,
+      reason: 'viewport-owner-refresh',
+      capability: _terminalBufferCapability,
+      replaceActive: true,
+    );
+    if (requested) {
+      _trackTerminalBaselineRequest(sessionId);
+    }
+  }
+
+  ({int cols, int rows})? _terminalBaselineViewportSize(String sessionId) {
+    final id = sessionId.trim();
+    if (id.isEmpty) return null;
+    final owner = _terminalViewportController.ownerFor(id)?.trim() ?? '';
+    if (owner.isNotEmpty) {
+      final localOwner = _activeDevice == null
+          ? ''
+          : 'remote:${_activeDevice!.deviceId.trim()}';
+      if (localOwner.isEmpty || owner != localOwner) return null;
+    }
+    return _terminalViewportController.pendingSizeFor(id);
   }
 
   void _handleTerminalOutput(RelayEnvelope message) {
@@ -98,7 +172,19 @@ extension _HomePageTerminal on HomeController {
             );
           }
         case RemoteTerminalOutputEffectKind.markBufferReceived:
-          _markTerminalBufferReceived(effect.sessionId);
+          _terminalBindingCoordinator.clearSessionBaselineStale(
+            effect.sessionId,
+          );
+          final sessionId = effect.sessionId;
+          if (sessionId != null) {
+            _terminalBaselineResyncRequestedAt.remove(sessionId);
+          }
+          _markTerminalBufferReceived(sessionId);
+          if (sessionId != null && effect.baselineScreenKeyframe == false) {
+            _requestPendingViewportOwnerRefresh(sessionId);
+          } else if (sessionId != null) {
+            _viewportOwnerRefreshAfterBaseline.remove(sessionId);
+          }
         case RemoteTerminalOutputEffectKind.sessionUpdated:
           // The self-drawn renderer reads the Rust cell snapshot directly; tick
           // the shared notifier so it repaints only that subtree (no full-page
@@ -120,6 +206,7 @@ extension _HomePageTerminal on HomeController {
     if (!mounted || _disposing) return;
     if (sessionId != _sessionId) return;
     if (_terminalOutputController.hasActiveBufferRequest(sessionId)) return;
+    if (!_terminalBaselineResyncAllowed(sessionId)) return;
     CoduxLog.warn(
       '[codux-flutter-terminal] sequence gap resync session=$sessionId',
     );
@@ -132,6 +219,26 @@ extension _HomePageTerminal on HomeController {
     if (requested) {
       _trackTerminalBaselineRequest(sessionId);
     }
+  }
+
+  bool _terminalBaselineResyncAllowed(String sessionId) {
+    final now = DateTime.now();
+    final previous = _terminalBaselineResyncRequestedAt[sessionId];
+    if (previous != null &&
+        now.difference(previous) < _terminalBaselineResyncBackoff) {
+      return false;
+    }
+    _terminalBaselineResyncRequestedAt[sessionId] = now;
+    return true;
+  }
+
+  void _requestPendingViewportOwnerRefresh(String sessionId) {
+    if (!_viewportOwnerRefreshAfterBaseline.remove(sessionId)) return;
+    if (sessionId != _sessionId) return;
+    final owner = _terminalViewportController.ownerFor(sessionId)?.trim() ?? '';
+    if (_activeDevice == null) return;
+    if (owner != 'remote:${_activeDevice!.deviceId.trim()}') return;
+    _requestTerminalViewportOwnerBaseline(sessionId);
   }
 
   void _trackTerminalBaselineRequest(String sessionId) {
@@ -548,8 +655,10 @@ extension _HomePageTerminal on HomeController {
               scope!.projectPath!.trim().isNotEmpty)
             'projectPath': scope.projectPath!,
           'command': '',
-          if (spawnCols != null && spawnRows != null &&
-              spawnCols > 0 && spawnRows > 0) ...{
+          if (spawnCols != null &&
+              spawnRows != null &&
+              spawnCols > 0 &&
+              spawnRows > 0) ...{
             'cols': spawnCols,
             'rows': spawnRows,
           },
@@ -606,5 +715,10 @@ extension _HomePageTerminal on HomeController {
   List<TerminalInfo> _currentProjectTerminals() {
     return _remoteRuntime.currentProjectTerminals();
   }
+}
 
+int? _intFromPayload(Object? value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return int.tryParse('${value ?? ''}');
 }

@@ -174,6 +174,7 @@ extension _HomePageConnection on HomeController {
     _terminalInputBatcher.reset();
     _terminalInputSender.clear();
     _terminalBindingCoordinator.reset();
+    _viewportOwnerRefreshAfterBaseline.clear();
     final message = _t('connection.upgradeRequired');
     _applyState(() {
       _transportReady = false;
@@ -209,6 +210,7 @@ extension _HomePageConnection on HomeController {
     _terminalInputBatcher.reset();
     _terminalInputSender.clear();
     _terminalBindingCoordinator.reset();
+    _viewportOwnerRefreshAfterBaseline.clear();
     _terminalBufferRetry.reset();
   }
 
@@ -376,6 +378,9 @@ extension _HomePageConnection on HomeController {
     _remoteSyncController.resetSyncForCurrentGeneration();
     _remoteRuntime.reset();
     _terminalBindingCoordinator.reset();
+    _terminalBaselineResyncRequestedAt.clear();
+    _viewportOwnerRefreshAfterBaseline.clear();
+    _terminalViewportController.resetSizes();
     _terminalViewportInteractive = false;
     _syncRuntimeViewState();
   }
@@ -384,6 +389,9 @@ extension _HomePageConnection on HomeController {
     _remoteRuntimeEpoch += 1;
     _remoteRuntime.reset(keepProjects: keepProjects);
     _terminalBindingCoordinator.reset();
+    _terminalBaselineResyncRequestedAt.clear();
+    _viewportOwnerRefreshAfterBaseline.clear();
+    _terminalViewportController.resetSizes();
     // Drop version watermarks: a new connection / host restart restarts the
     // host's per-key version sequence, so an old high watermark would wrongly
     // reject the fresh snapshots.
@@ -399,11 +407,14 @@ extension _HomePageConnection on HomeController {
     _remoteSyncController.resetSyncForCurrentGeneration();
     _remoteSyncController.resetProtocolReady();
     _terminalBindingCoordinator.reset();
+    _terminalBaselineResyncRequestedAt.clear();
+    _viewportOwnerRefreshAfterBaseline.clear();
     _remoteStateVersions.reset();
     _terminalInputBatcher.reset();
     _terminalInputSender.clear();
     _terminalBufferRetry.reset();
     _terminalOutputController.resetAll();
+    _terminalViewportController.resetSizes();
     _terminalRepaint.tick();
     _terminalViewportInteractive = false;
     _receiveSequenceGuard.reset();
@@ -472,6 +483,9 @@ extension _HomePageConnection on HomeController {
       _terminalOutputController.resetAll();
       _terminalRepaint.tick();
       _terminalBindingCoordinator.reset();
+      _terminalBaselineResyncRequestedAt.clear();
+      _viewportOwnerRefreshAfterBaseline.clear();
+      _terminalViewportController.resetSizes();
     }
     _applyState(() {
       _transportReady = false;

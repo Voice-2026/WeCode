@@ -1755,6 +1755,11 @@ final _outputRouterHasSequenceGap = _dylib
       Bool Function(Pointer<Void>, Pointer<Utf8>),
       bool Function(Pointer<Void>, Pointer<Utf8>)
     >('codux_output_router_has_sequence_gap');
+final _outputRouterOutputSequence = _dylib
+    .lookupFunction<
+      Int64 Function(Pointer<Void>, Pointer<Utf8>),
+      int Function(Pointer<Void>, Pointer<Utf8>)
+    >('codux_output_router_output_sequence');
 final _outputRouterActiveBufferRequestId = _dylib
     .lookupFunction<
       Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>),
@@ -1920,6 +1925,11 @@ class RemoteOutputRouter {
   bool hasSequenceGap(String sessionId) => _withSession(
     sessionId,
     (ptr) => _outputRouterHasSequenceGap(_liveHandle(), ptr),
+  );
+
+  int outputSequence(String sessionId) => _withSession(
+    sessionId,
+    (ptr) => _outputRouterOutputSequence(_liveHandle(), ptr),
   );
 
   String? activeBufferRequestId(String sessionId) => _withSession(

@@ -311,10 +311,7 @@ void main() {
       ),
       activeSessionId: 'session-1',
     );
-    expect(
-      controller.cachedOutput('session-1'),
-      'history',
-    );
+    expect(controller.cachedOutput('session-1'), 'history');
     expect(
       controller.startBufferRequest(
         'session-1',
@@ -340,10 +337,7 @@ void main() {
       RemoteTerminalOutputEffectKind.loading,
       RemoteTerminalOutputEffectKind.ack,
     ]);
-    expect(
-      controller.cachedOutput('session-1'),
-      'history',
-    );
+    expect(controller.cachedOutput('session-1'), 'history');
   });
 
   test(
@@ -491,11 +485,9 @@ void main() {
       );
 
       expect(_kinds(result), [..._activeBufferUpdate]);
+      expect(_markBufferReceived(result).baselineScreenKeyframe, isTrue);
       expect(controller.cachedOutput('session-1'), 'raw tail fragment');
-      expect(
-        controller.cachedOutput('session-1'),
-        'raw tail fragment',
-      );
+      expect(controller.cachedOutput('session-1'), 'raw tail fragment');
     },
   );
 
@@ -521,10 +513,7 @@ void main() {
         RemoteTerminalOutputEffectKind.ack,
       ]);
       expect(controller.cachedOutput('session-1'), 'partial live raw');
-      expect(
-        controller.cachedOutput('session-1'),
-        'partial live raw',
-      );
+      expect(controller.cachedOutput('session-1'), 'partial live raw');
     },
   );
 
@@ -1066,6 +1055,12 @@ RelayEnvelope _liveOutputForSession(
 List<RemoteTerminalOutputEffectKind> _kinds(
   List<RemoteTerminalOutputEffect> effects,
 ) => effects.map((effect) => effect.kind).toList();
+
+RemoteTerminalOutputEffect _markBufferReceived(
+  List<RemoteTerminalOutputEffect> effects,
+) => effects.firstWhere(
+  (effect) => effect.kind == RemoteTerminalOutputEffectKind.markBufferReceived,
+);
 
 const _activeBufferUpdate = [
   RemoteTerminalOutputEffectKind.sessionUpdated,

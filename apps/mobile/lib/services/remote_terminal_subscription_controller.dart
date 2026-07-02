@@ -52,6 +52,9 @@ class RemoteTerminalSubscriptionController {
     int? maxChars,
     int? chunkChars,
     String? requestId,
+    String? baselineSessionId,
+    int? viewportCols,
+    int? viewportRows,
   }) {
     final cleanProjectId = projectId.trim();
     if (cleanProjectId.isEmpty) {
@@ -61,18 +64,40 @@ class RemoteTerminalSubscriptionController {
     final baselineAlreadyRequested = _baselineRequestedProjectIds.contains(
       cleanProjectId,
     );
-    if (alreadySubscribed && (!baseline || baselineAlreadyRequested)) {
+    final previousProjectId = _projectId?.trim();
+    final switchingProject =
+        previousProjectId != null &&
+        previousProjectId.isNotEmpty &&
+        previousProjectId != cleanProjectId;
+    if (!switchingProject &&
+        alreadySubscribed &&
+        (!baseline || baselineAlreadyRequested)) {
       _projectId = cleanProjectId;
       return const RemoteTerminalSubscriptionPlan();
     }
+    final shouldUnsubscribePrevious =
+        switchingProject && _subscribedProjectIds.contains(previousProjectId);
+    final effectiveBaseline = baseline || switchingProject;
     return RemoteTerminalSubscriptionPlan(
+      unsubscribe: shouldUnsubscribePrevious
+          ? remoteResourceUnsubscribeEnvelope(
+              resource: RemoteResourceType.terminals,
+              projectId: previousProjectId,
+            )
+          : null,
+      unsubscribeProjectId: shouldUnsubscribePrevious
+          ? previousProjectId
+          : null,
       subscribe: remoteResourceSubscribeEnvelope(
         resource: RemoteResourceType.terminals,
         projectId: cleanProjectId,
-        baseline: baseline,
+        baseline: effectiveBaseline,
         maxChars: maxChars,
         chunkChars: chunkChars,
         requestId: requestId,
+        baselineSessionId: baselineSessionId,
+        viewportCols: viewportCols,
+        viewportRows: viewportRows,
       ),
       subscribeProjectId: cleanProjectId,
       requestId: requestId,
@@ -103,6 +128,13 @@ class RemoteTerminalSubscriptionController {
   }) {
     final cleanProjectId = projectId.trim();
     if (cleanProjectId.isEmpty) return;
+    final previousProjectId = _projectId?.trim();
+    if (previousProjectId != null &&
+        previousProjectId.isNotEmpty &&
+        previousProjectId != cleanProjectId) {
+      _subscribedProjectIds.remove(previousProjectId);
+      _baselineRequestedProjectIds.remove(previousProjectId);
+    }
     _projectId = cleanProjectId;
     _subscribedProjectIds.add(cleanProjectId);
     if (baselineRequested) {

@@ -22,6 +22,7 @@ class TerminalViewportController {
   int? _lastRows;
   int? _pendingCols;
   int? _pendingRows;
+  int? _pendingBaselineRows;
   final Map<String, _ViewportSize> _sentBySession = {};
   final Map<String, int> _generationBySession = {};
   final Map<String, String?> _ownerBySession = {};
@@ -45,12 +46,25 @@ class TerminalViewportController {
     return (cols: size.cols, rows: size.rows);
   }
 
+  ({int cols, int rows})? pendingSizeFor(String sessionId) {
+    final cols = _pendingCols;
+    final rows = _pendingBaselineRows ?? _pendingRows;
+    if (cols == null || rows == null || cols <= 0 || rows <= 0) {
+      return reportedSize(sessionId);
+    }
+    return (cols: cols, rows: rows);
+  }
+
   void resetSizes() {
     _lastCols = null;
     _lastRows = null;
     _pendingCols = null;
     _pendingRows = null;
+    _pendingBaselineRows = null;
     _sentBySession.clear();
+    _generationBySession.clear();
+    _ownerBySession.clear();
+    _generation = 0;
   }
 
   /// Record the phone's freshly measured grid even when there is no session to
@@ -64,6 +78,7 @@ class TerminalViewportController {
     if (cols <= 0 || rows <= 0) return;
     _pendingCols = cols;
     _pendingRows = rows;
+    _pendingBaselineRows = rows;
   }
 
   bool applyRemoteState(RelayEnvelope message) {
@@ -116,6 +131,7 @@ class TerminalViewportController {
     final nextRows = keyboardVisible
         ? (lastSessionSize?.rows ?? _lastRows ?? rows)
         : rows;
+    _pendingBaselineRows = nextRows;
     if (lastSessionSize?.matches(cols, nextRows) == true) return null;
     return TerminalViewportResize(cols: cols, rows: nextRows);
   }
@@ -129,9 +145,9 @@ class TerminalViewportController {
     final cols = _pendingCols;
     final rows = _pendingRows;
     if (cols == null || rows == null || cols <= 0 || rows <= 0) return null;
-    final lastSessionSize = _sentBySession[id];
-    if (lastSessionSize?.matches(cols, rows) == true) return null;
     if (!force) {
+      final lastSessionSize = _sentBySession[id];
+      if (lastSessionSize?.matches(cols, rows) == true) return null;
       if (_lastCols == cols && _lastRows == rows) return null;
     }
     return TerminalViewportResize(cols: cols, rows: rows);

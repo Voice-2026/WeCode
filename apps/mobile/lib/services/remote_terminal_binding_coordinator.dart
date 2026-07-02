@@ -9,6 +9,8 @@ import 'remote_terminal_subscription_controller.dart';
 typedef RemoteTerminalSend = bool Function(RelayEnvelope envelope);
 typedef RemoteTerminalLookup = TerminalInfo? Function(String sessionId);
 typedef RemoteTerminalRequestIdFactory = String Function(String scope);
+typedef RemoteTerminalViewportSizeProvider =
+    ({int cols, int rows})? Function(String sessionId);
 
 class RemoteTerminalBindResult {
   const RemoteTerminalBindResult({
@@ -26,11 +28,13 @@ class RemoteTerminalBindingCoordinator {
     required RemoteTerminalSend send,
     required RemoteTerminalLookup terminalById,
     required RemoteTerminalRequestIdFactory nextRequestId,
+    RemoteTerminalViewportSizeProvider? viewportSize,
     int maxCharsLimit = TerminalBufferCapability.mobileMaxChars,
   }) : _outputController = outputController,
        _send = send,
        _terminalById = terminalById,
        _nextRequestId = nextRequestId,
+       _viewportSize = viewportSize,
        _maxCharsLimit = maxCharsLimit;
 
   final RemoteTerminalOutputController _outputController;
@@ -39,10 +43,29 @@ class RemoteTerminalBindingCoordinator {
   final RemoteTerminalSend _send;
   final RemoteTerminalLookup _terminalById;
   final RemoteTerminalRequestIdFactory _nextRequestId;
+  final RemoteTerminalViewportSizeProvider? _viewportSize;
   final int _maxCharsLimit;
+  final Set<String> _baselineStaleSessionIds = <String>{};
 
   void reset() {
     _subscriptions.reset();
+    _baselineStaleSessionIds.clear();
+  }
+
+  void markSessionBaselineStale(String sessionId) {
+    final cleanSessionId = sessionId.trim();
+    if (cleanSessionId.isEmpty) return;
+    _baselineStaleSessionIds.add(cleanSessionId);
+  }
+
+  bool isSessionBaselineStale(String sessionId) {
+    return _baselineStaleSessionIds.contains(sessionId.trim());
+  }
+
+  void clearSessionBaselineStale(String? sessionId) {
+    final cleanSessionId = sessionId?.trim();
+    if (cleanSessionId == null || cleanSessionId.isEmpty) return;
+    _baselineStaleSessionIds.remove(cleanSessionId);
   }
 
   bool replaceProjectSubscription({
@@ -54,12 +77,18 @@ class RemoteTerminalBindingCoordinator {
   }) {
     final maxChars = capability.maxChars.clamp(1, _maxCharsLimit);
     final requestId = _nextRequestId('project-$projectId');
+    final viewportSize = activeSessionId == null
+        ? null
+        : _viewportSize?.call(activeSessionId);
     final plan = _subscriptions.replaceProject(
       projectId,
       baseline: baseline,
       maxChars: maxChars,
       chunkChars: capability.chunking ? capability.chunkChars : null,
       requestId: requestId,
+      baselineSessionId: activeSessionId,
+      viewportCols: viewportSize?.cols,
+      viewportRows: viewportSize?.rows,
     );
     if (!plan.hasWork) return false;
 
@@ -81,7 +110,8 @@ class RemoteTerminalBindingCoordinator {
           activeSessionId != null &&
           activeSessionId.isNotEmpty &&
           currentTerminal?.projectId == projectId;
-      if (baseline && activeBelongsToProject) {
+      final commit = _subscriptions.commitFor(plan);
+      if (commit.baseline && activeBelongsToProject) {
         final started = _outputController.startBufferRequest(
           activeSessionId,
           requestId,
@@ -96,13 +126,12 @@ class RemoteTerminalBindingCoordinator {
       );
       final sent = _send(subscribe);
       if (sent) {
-        final commit = _subscriptions.commitFor(plan);
         _subscriptions.markProjectSubscribed(
           commit.projectId,
           baselineRequested: commit.baseline,
         );
         baselineRequested = commit.baseline;
-      } else if (baseline && activeBelongsToProject) {
+      } else if (commit.baseline && activeBelongsToProject) {
         _outputController.resetSessionTransient(activeSessionId);
       }
     }
@@ -120,6 +149,7 @@ class RemoteTerminalBindingCoordinator {
     if (cleanSessionId.isEmpty) return false;
     final requestId = _nextRequestId('session-$cleanSessionId');
     final maxChars = capability.maxChars.clamp(1, _maxCharsLimit);
+    final viewportSize = _viewportSize?.call(cleanSessionId);
     final envelope = remoteResourceSubscribeEnvelope(
       resource: RemoteResourceType.terminals,
       sessionId: cleanSessionId,
@@ -127,6 +157,8 @@ class RemoteTerminalBindingCoordinator {
       maxChars: maxChars,
       chunkChars: capability.chunking ? capability.chunkChars : null,
       requestId: requestId,
+      viewportCols: viewportSize?.cols,
+      viewportRows: viewportSize?.rows,
     );
     if (baseline) {
       final started = _outputController.startBufferRequest(
@@ -220,7 +252,8 @@ class RemoteTerminalBindingCoordinator {
     var baselineRequested = false;
     final hasCachedOutput =
         _outputController.hasCachedOutput(bindSessionId) &&
-        !_outputController.hasSequenceGap(bindSessionId);
+        !_outputController.hasSequenceGap(bindSessionId) &&
+        !_baselineStaleSessionIds.contains(bindSessionId);
     // A gap-free cached session switched back to must NOT reload its baseline:
     // replaying the trimmed raw history rebuilds the screen from a truncated,
     // mid-escape byte window, which for a repainting TUI (codex/claude in the
@@ -246,6 +279,9 @@ class RemoteTerminalBindingCoordinator {
         reason: 'bind-$reason',
         capability: capability,
       );
+    }
+    if (baselineRequested) {
+      _baselineStaleSessionIds.remove(bindSessionId);
     }
     return RemoteTerminalBindResult(
       baselineRequested: baselineRequested,

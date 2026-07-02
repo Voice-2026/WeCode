@@ -68,6 +68,7 @@ pub struct RemoteTerminalOutputEffect {
     pub progress: Option<f64>,
     pub phase: Option<RemoteTerminalBufferPhase>,
     pub loading: bool,
+    pub baseline_screen_keyframe: Option<bool>,
 }
 
 impl RemoteTerminalOutputEffect {
@@ -80,6 +81,7 @@ impl RemoteTerminalOutputEffect {
             progress,
             phase: Some(phase),
             loading,
+            baseline_screen_keyframe: None,
         }
     }
 
@@ -96,6 +98,7 @@ impl RemoteTerminalOutputEffect {
             progress: None,
             phase: None,
             loading: false,
+            baseline_screen_keyframe: None,
         }
     }
 
@@ -108,6 +111,20 @@ impl RemoteTerminalOutputEffect {
             progress: None,
             phase: None,
             loading: false,
+            baseline_screen_keyframe: None,
+        }
+    }
+
+    fn mark_buffer_received(session_id: &str, baseline_screen_keyframe: bool) -> Self {
+        Self {
+            kind: RemoteTerminalOutputEffectKind::MarkBufferReceived,
+            session_id: Some(session_id.to_string()),
+            output_seq: None,
+            buffer_length: None,
+            progress: None,
+            phase: None,
+            loading: false,
+            baseline_screen_keyframe: Some(baseline_screen_keyframe),
         }
     }
 
@@ -120,6 +137,7 @@ impl RemoteTerminalOutputEffect {
             "progress": self.progress,
             "phase": self.phase.map(RemoteTerminalBufferPhase::as_str),
             "loading": self.loading,
+            "baselineScreenKeyframe": self.baseline_screen_keyframe,
         })
     }
 }
@@ -131,6 +149,7 @@ struct DecodedPayload {
     offset: Option<i64>,
     buffer_length: Option<i64>,
     tail: bool,
+    baseline_failed: bool,
 }
 
 pub struct RemoteTerminalOutputRouter {
@@ -233,6 +252,15 @@ impl RemoteTerminalOutputRouter {
 
     pub fn has_sequence_gap(&self, session_id: &str) -> bool {
         self.gap_sessions.contains(session_id)
+    }
+
+    pub fn output_sequence(&self, session_id: &str) -> TerminalSequence {
+        let session_sequence = self
+            .sessions
+            .get(session_id)
+            .map(|session| session.sequence())
+            .unwrap_or(0);
+        session_sequence.max(self.sequencer.sequence_for(session_id))
     }
 
     pub fn session_ref(&self, session_id: &str) -> Option<&RemotePtySession<String>> {
@@ -628,6 +656,30 @@ impl RemoteTerminalOutputRouter {
         let mut held_live: Vec<String> = Vec::new();
 
         if is_buffer {
+            if decoded.baseline_failed && decoded.tail {
+                held_live = self.complete_empty_baseline(session_id, output_seq);
+                self.active_buffer_request_by_session.remove(session_id);
+                self.remove_restore_request(session_id);
+                self.gap_sessions.insert(session_id.to_string());
+                if is_active_session {
+                    effects.push(RemoteTerminalOutputEffect::loading(
+                        false,
+                        RemoteTerminalBufferPhase::Requesting,
+                        None,
+                    ));
+                    effects.push(RemoteTerminalOutputEffect::simple(
+                        RemoteTerminalOutputEffectKind::RequestBaselineResync,
+                        session_id,
+                    ));
+                }
+                effects.push(RemoteTerminalOutputEffect::ack(
+                    session_id,
+                    output_seq,
+                    decoded.buffer_length,
+                ));
+                self.replay_held(held_live, active_session_id, &mut effects);
+                return effects;
+            }
             let active_request_id = self
                 .active_buffer_request_by_session
                 .get(session_id)
@@ -660,9 +712,8 @@ impl RemoteTerminalOutputRouter {
                             RemoteTerminalOutputEffectKind::SessionUpdated,
                             session_id,
                         ));
-                        effects.push(RemoteTerminalOutputEffect::simple(
-                            RemoteTerminalOutputEffectKind::MarkBufferReceived,
-                            session_id,
+                        effects.push(RemoteTerminalOutputEffect::mark_buffer_received(
+                            session_id, false,
                         ));
                     }
                 } else if is_active_session && active_request_id.is_some() {
@@ -707,9 +758,9 @@ impl RemoteTerminalOutputRouter {
                         RemoteTerminalOutputEffectKind::SessionUpdated,
                         session_id,
                     ));
-                    effects.push(RemoteTerminalOutputEffect::simple(
-                        RemoteTerminalOutputEffectKind::MarkBufferReceived,
+                    effects.push(RemoteTerminalOutputEffect::mark_buffer_received(
                         session_id,
+                        decoded.screen_data.is_some(),
                     ));
                 }
             } else {
@@ -727,9 +778,9 @@ impl RemoteTerminalOutputRouter {
                         RemoteTerminalOutputEffectKind::SessionUpdated,
                         session_id,
                     ));
-                    effects.push(RemoteTerminalOutputEffect::simple(
-                        RemoteTerminalOutputEffectKind::MarkBufferReceived,
+                    effects.push(RemoteTerminalOutputEffect::mark_buffer_received(
                         session_id,
+                        decoded.screen_data.is_some(),
                     ));
                 }
             }
@@ -900,6 +951,7 @@ fn decode_terminal_output_payload(payload: &Value) -> DecodedPayload {
         offset: payload_int(payload, "offset"),
         buffer_length: payload_int(payload, "bufferLength"),
         tail: payload.get("tail").and_then(Value::as_bool) == Some(true),
+        baseline_failed: payload.get("baselineFailed").and_then(Value::as_bool) == Some(true),
     }
 }
 
@@ -1061,9 +1113,18 @@ mod tests {
         // The baseline keyframe updates only the cell-grid screen; the native
         // render content stays the raw history so the emulator can rebuild its
         // scrollback (splicing the keyframe's ESC[2J would erase it).
-        router.accept(
+        let effects = router.accept(
             &buffer_with_screen_data("session-1", "raw-history", "\x1b[2J\x1b[Hkeyframe", 10),
             Some("session-1"),
+        );
+        let received = effects
+            .iter()
+            .find(|effect| effect.kind == RemoteTerminalOutputEffectKind::MarkBufferReceived)
+            .expect("baseline received effect");
+        assert_eq!(received.baseline_screen_keyframe, Some(true));
+        assert_eq!(
+            received.to_json()["baselineScreenKeyframe"].as_bool(),
+            Some(true)
         );
 
         assert_eq!(router.content("session-1"), Some("raw-history"));
@@ -1207,6 +1268,13 @@ mod tests {
             kinds(&empty),
             ["loading", "sessionUpdated", "markBufferReceived", "ack"]
         );
+        assert_eq!(
+            empty
+                .iter()
+                .find(|effect| effect.kind == RemoteTerminalOutputEffectKind::MarkBufferReceived)
+                .and_then(|effect| effect.baseline_screen_keyframe),
+            Some(false)
+        );
         assert_eq!(router.content("session-1"), Some("history"));
         assert_eq!(router.active_buffer_request_id("session-1"), None);
     }
@@ -1249,6 +1317,13 @@ mod tests {
             kinds(&empty),
             ["loading", "sessionUpdated", "markBufferReceived", "ack"]
         );
+        assert_eq!(
+            empty
+                .iter()
+                .find(|effect| effect.kind == RemoteTerminalOutputEffectKind::MarkBufferReceived)
+                .and_then(|effect| effect.baseline_screen_keyframe),
+            Some(false)
+        );
         assert_eq!(router.content("session-1"), None);
     }
 
@@ -1279,6 +1354,36 @@ mod tests {
             ]
         );
         assert_eq!(router.content("session-1"), Some("live"));
+    }
+
+    #[test]
+    fn failed_empty_tail_baseline_requests_resync_without_marking_received() {
+        let mut router = RemoteTerminalOutputRouter::new(65536, 65536);
+        router.bind_session("session-1", true);
+
+        let failed = router.accept(
+            &json!({
+                "type": "terminal.output",
+                "sessionId": "session-1",
+                "payload": {
+                    "data": "",
+                    "buffer": true,
+                    "offset": 0,
+                    "bufferLength": 0,
+                    "truncated": false,
+                    "tail": true,
+                    "outputSeq": 11,
+                    "requestId": "failed-tail",
+                    "baselineFailed": true,
+                },
+            }),
+            Some("session-1"),
+        );
+
+        assert_eq!(kinds(&failed), ["loading", "requestBaselineResync", "ack"]);
+        assert!(router.has_sequence_gap("session-1"));
+        assert_eq!(router.content("session-1"), None);
+        assert_eq!(router.active_buffer_request_id("session-1"), None);
     }
 
     #[test]

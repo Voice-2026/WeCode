@@ -122,7 +122,107 @@ void main() {
     },
   );
 
-  test('bind restored gap-free cached session skips the baseline reload', () {
+  test(
+    'bind restored gap-free cached session skips same-project baseline reload',
+    () {
+      final sent = <RelayEnvelope>[];
+      final output = RemoteTerminalOutputController();
+      output.accept(
+        RelayEnvelope(
+          type: RemoteMessageType.terminalBuffer,
+          sessionId: 'term-1',
+          payload: const {
+            'buffer': true,
+            'data': 'cached',
+            'offset': 0,
+            'bufferLength': 6,
+            'truncated': false,
+            'outputSeq': 1,
+          },
+        ),
+        activeSessionId: 'term-1',
+      );
+      final coordinator = _coordinator(
+        output: output,
+        sent: sent,
+        terminals: {'term-1': _terminal('term-1', 'project-1')},
+      );
+
+      final result = coordinator.bindSession(
+        plan: const RemoteRuntimePlan(bindSessionId: 'term-1'),
+        bindSessionId: 'term-1',
+        reason: 'select',
+        selectedProjectId: 'project-1',
+        capability: TerminalBufferCapability.fallback,
+        restored: true,
+      );
+
+      expect(result.baselineRequested, isFalse);
+      expect(sent, hasLength(1));
+      expect(sent.single.type, RemoteMessageType.resourceSubscribe);
+      expect(sent.single.payload, containsPair('projectId', 'project-1'));
+      expect(sent.single.payload, isNot(contains('baseline')));
+      expect(output.activeBufferRequestId('term-1'), isNull);
+    },
+  );
+
+  test(
+    'bind restored cached session refreshes baseline after project switch',
+    () {
+      final sent = <RelayEnvelope>[];
+      final output = RemoteTerminalOutputController();
+      final coordinator = _coordinator(
+        output: output,
+        sent: sent,
+        terminals: {
+          'term-a': _terminal('term-a', 'project-a'),
+          'term-b': _terminal('term-b', 'project-b'),
+        },
+      );
+      coordinator.replaceProjectSubscription(
+        projectId: 'project-a',
+        reason: 'initial',
+        capability: TerminalBufferCapability.fallback,
+        activeSessionId: 'term-a',
+      );
+      sent.clear();
+      output.accept(
+        RelayEnvelope(
+          type: RemoteMessageType.terminalBuffer,
+          sessionId: 'term-b',
+          payload: const {
+            'buffer': true,
+            'data': 'cached',
+            'offset': 0,
+            'bufferLength': 6,
+            'truncated': false,
+            'outputSeq': 1,
+          },
+        ),
+        activeSessionId: 'term-b',
+      );
+
+      final result = coordinator.bindSession(
+        plan: const RemoteRuntimePlan(bindSessionId: 'term-b'),
+        bindSessionId: 'term-b',
+        reason: 'switch',
+        selectedProjectId: 'project-b',
+        capability: TerminalBufferCapability.fallback,
+        restored: true,
+      );
+
+      expect(result.baselineRequested, isTrue);
+      expect(sent, hasLength(2));
+      expect(sent.first.type, RemoteMessageType.resourceUnsubscribe);
+      expect(sent.first.payload, containsPair('projectId', 'project-a'));
+      expect(sent.last.type, RemoteMessageType.resourceSubscribe);
+      expect(sent.last.payload, containsPair('projectId', 'project-b'));
+      expect(sent.last.payload, containsPair('baseline', true));
+      expect(output.activeBufferRequestId('term-b'), 'req-project-project-b-2');
+    },
+  );
+
+  test('bind stale cached session forces baseline reload', () {
     final sent = <RelayEnvelope>[];
     final output = RemoteTerminalOutputController();
     output.accept(
@@ -145,26 +245,61 @@ void main() {
       sent: sent,
       terminals: {'term-1': _terminal('term-1', 'project-1')},
     );
+    coordinator.markSessionBaselineStale('term-1');
 
     final result = coordinator.bindSession(
       plan: const RemoteRuntimePlan(bindSessionId: 'term-1'),
       bindSessionId: 'term-1',
-      reason: 'select',
+      reason: 'return',
       selectedProjectId: 'project-1',
       capability: TerminalBufferCapability.fallback,
       restored: true,
     );
 
-    // A gap-free cached session reused on switch must NOT reload its baseline:
-    // replaying the trimmed raw history repaints residue for a repainting TUI,
-    // so the coordinator keeps the cached screen and lets the viewport re-claim
-    // push a fresh keyframe instead. It still (re)subscribes the project, but
-    // without requesting a baseline.
-    expect(result.baselineRequested, isFalse);
+    expect(result.baselineRequested, isTrue);
     expect(sent, hasLength(1));
     expect(sent.single.type, RemoteMessageType.resourceSubscribe);
     expect(sent.single.payload, containsPair('projectId', 'project-1'));
-    // A baseline-less subscribe omits the key entirely rather than sending false.
+    expect(sent.single.payload, containsPair('baseline', true));
+  });
+
+  test('clearing stale session allows cached bind to skip baseline', () {
+    final sent = <RelayEnvelope>[];
+    final output = RemoteTerminalOutputController();
+    output.accept(
+      RelayEnvelope(
+        type: RemoteMessageType.terminalBuffer,
+        sessionId: 'term-1',
+        payload: const {
+          'buffer': true,
+          'data': 'cached',
+          'offset': 0,
+          'bufferLength': 6,
+          'truncated': false,
+          'outputSeq': 1,
+        },
+      ),
+      activeSessionId: 'term-1',
+    );
+    final coordinator = _coordinator(
+      output: output,
+      sent: sent,
+      terminals: {'term-1': _terminal('term-1', 'project-1')},
+    );
+    coordinator.markSessionBaselineStale('term-1');
+    coordinator.clearSessionBaselineStale('term-1');
+
+    final result = coordinator.bindSession(
+      plan: const RemoteRuntimePlan(bindSessionId: 'term-1'),
+      bindSessionId: 'term-1',
+      reason: 'return',
+      selectedProjectId: 'project-1',
+      capability: TerminalBufferCapability.fallback,
+      restored: true,
+    );
+
+    expect(result.baselineRequested, isFalse);
+    expect(sent, hasLength(1));
     expect(sent.single.payload, isNot(contains('baseline')));
   });
 }

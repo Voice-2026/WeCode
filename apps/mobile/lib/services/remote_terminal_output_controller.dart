@@ -23,6 +23,7 @@ class RemoteTerminalOutputEffect {
     this.progress,
     this.phase,
     this.loading = false,
+    this.baselineScreenKeyframe,
   });
 
   factory RemoteTerminalOutputEffect.fromJson(Map<String, dynamic> json) {
@@ -34,6 +35,7 @@ class RemoteTerminalOutputEffect {
       progress: _doubleOrNull(json['progress']),
       phase: _phaseFromName(json['phase'] as String?),
       loading: json['loading'] == true,
+      baselineScreenKeyframe: json['baselineScreenKeyframe'] as bool?,
     );
   }
 
@@ -44,6 +46,7 @@ class RemoteTerminalOutputEffect {
   final double? progress;
   final RemoteTerminalBufferPhase? phase;
   final bool loading;
+  final bool? baselineScreenKeyframe;
 }
 
 /// Consumer-side terminal output controller. The orchestration state machine
@@ -103,6 +106,8 @@ class RemoteTerminalOutputController {
   /// True when a live output gap was observed for [sessionId] and no baseline
   /// has repaired it yet; such a session must not skip its baseline request.
   bool hasSequenceGap(String sessionId) => _router.hasSequenceGap(sessionId);
+
+  int outputSequence(String sessionId) => _router.outputSequence(sessionId);
 
   String? activeBufferRequestId(String sessionId) =>
       _router.activeBufferRequestId(sessionId);

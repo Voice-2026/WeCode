@@ -142,6 +142,9 @@ RelayEnvelope remoteResourceSubscribeEnvelope({
   int? maxChars,
   int? chunkChars,
   String? requestId,
+  String? baselineSessionId,
+  int? viewportCols,
+  int? viewportRows,
 }) {
   final envelope = RelayEnvelope.fromJson(
     codux_protocol_ffi.resourceSubscribeEnvelope(
@@ -153,11 +156,21 @@ RelayEnvelope remoteResourceSubscribeEnvelope({
       chunkChars: chunkChars,
     ),
   );
+  final payload = envelope.payload;
   final cleanRequestId = requestId?.trim();
-  if (cleanRequestId != null && cleanRequestId.isNotEmpty) {
-    final payload = envelope.payload;
-    if (payload is Map) {
+  if (payload is Map) {
+    if (cleanRequestId != null && cleanRequestId.isNotEmpty) {
       payload['requestId'] = cleanRequestId;
+    }
+    final cleanBaselineSessionId = baselineSessionId?.trim();
+    if (cleanBaselineSessionId != null && cleanBaselineSessionId.isNotEmpty) {
+      payload['baselineSessionId'] = cleanBaselineSessionId;
+    }
+    if (viewportCols != null && viewportCols > 0) {
+      payload['viewportCols'] = viewportCols;
+    }
+    if (viewportRows != null && viewportRows > 0) {
+      payload['viewportRows'] = viewportRows;
     }
   }
   return envelope;

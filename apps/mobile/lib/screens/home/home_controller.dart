@@ -5,8 +5,8 @@ part of 'home_page.dart';
 /// only renders; all mutation flows through [_applyState] (notifyListeners).
 /// Concern logic lives in the `state/` part extensions on this class.
 const double _padLayoutMinWidth = 900;
-const int _terminalBufferMaxChars =
-      TerminalBufferCapability.mobileMaxChars;
+const int _terminalBufferMaxChars = TerminalBufferCapability.mobileMaxChars;
+const Duration _terminalBaselineResyncBackoff = Duration(milliseconds: 2500);
 
 class HomeController extends ChangeNotifier with WidgetsBindingObserver {
   // HomeController is an internal same-library store; the view type is private.
@@ -18,8 +18,6 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
   BuildContext get context => _view.context;
   bool get mounted => _view.mounted;
   CoduxHomePage get widget => _view.widget;
-
-
 
   final _storage = StorageService();
   final _deviceSelection = const DeviceSelectionService();
@@ -57,6 +55,7 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
       RemoteTerminalOutputController(maxBufferChars: _terminalBufferMaxChars);
   late final RemoteTerminalBindingCoordinator _terminalBindingCoordinator;
   final Set<String> _protocolBlockedHostIds = {};
+  final Set<String> _viewportOwnerRefreshAfterBaseline = {};
   int _terminalBufferRequestCounter = 0;
   bool _keyboardRequested = false;
   int _keyboardRequestSerial = 0;
@@ -202,6 +201,7 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
   // re-requesting it so a still-connected (merely slow) link heals on its own
   // instead of staying truncated until a manual project switch / reconnect.
   Timer? _terminalBaselineRearmTimer;
+  final Map<String, DateTime> _terminalBaselineResyncRequestedAt = {};
 
   bool get _isConnected => _transportConnected && _transportReady;
   bool get _isHostReady =>
@@ -353,7 +353,9 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
     // idempotent renewals on the host.
     _viewportLeaseKeepalive = Timer.periodic(const Duration(seconds: 8), (_) {
       if (!mounted || !_appInForeground) return;
-      if (_workspaceMode != WorkspaceMode.terminal || !_hasShownTerminal) return;
+      if (_workspaceMode != WorkspaceMode.terminal || !_hasShownTerminal) {
+        return;
+      }
       if (_sessionId == null) return;
       // Renew only: a phone left idle on the terminal screen must not
       // steal the viewport back from an actively-used desktop. Explicit
@@ -403,6 +405,7 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
       send: _send,
       terminalById: _terminalById,
       nextRequestId: _nextTerminalBufferRequestId,
+      viewportSize: _terminalBaselineViewportSize,
       maxCharsLimit: _terminalBufferMaxChars,
     );
     _networkRouteRefreshController = RemoteNetworkRouteRefreshController(
@@ -775,6 +778,4 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
   void _openProjectVolumes() {
     _openFileLocation('/Volumes');
   }
-
-
 }

@@ -1167,7 +1167,10 @@ mod tests {
             Some("opencodeSystemTransform")
         );
         assert_eq!(tool_memory_injection_strategy("codewhale"), None);
-        assert_eq!(tool_memory_injection_strategy("kimi-code"), Some("kimiAgentFile"));
+        assert_eq!(
+            tool_memory_injection_strategy("kimi-code"),
+            Some("kimiAgentFile")
+        );
         assert_eq!(tool_memory_injection_strategy("unknown"), None);
     }
 

@@ -71,6 +71,7 @@ use std::{
 
 const REMOTE_TERMINAL_OUTPUT_BATCH_MS: u64 = 32;
 const REMOTE_TERMINAL_BUFFER_BASELINE_TTL: Duration = Duration::from_secs(60);
+const REMOTE_TERMINAL_STALE_OUTPUT_SEQ_LAG: TerminalSequence = 8;
 /// How often the live-output flush re-asserts the authoritative viewport owner
 /// to non-owner viewers (self-healing handoff, design 3). One in every N flushes;
 /// at the 32ms batch cadence that is ~4/s during continuous output, 0 when idle.
@@ -111,6 +112,21 @@ struct RemoteTerminalBufferBaseline {
     created_at: Instant,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct BaselineViewport {
+    cols: u16,
+    rows: u16,
+}
+
+#[derive(Clone, Debug)]
+struct TerminalBaselineOptions {
+    max_chars: usize,
+    chunk_chars: Option<usize>,
+    request_id: Option<String>,
+    tail: bool,
+    viewport: Option<BaselineViewport>,
+}
+
 pub struct RemoteHostRuntime {
     runtime_instance_id: String,
     support_dir: PathBuf,
@@ -122,6 +138,7 @@ pub struct RemoteHostRuntime {
     // read the live viewer set when a remote lease expires.
     terminal_subscriptions: Arc<RemoteTerminalSubscriptions>,
     terminal_output_seq_by_session: Mutex<HashMap<String, TerminalSequence>>,
+    terminal_output_ack_by_viewer: Mutex<HashMap<(String, String), TerminalSequence>>,
     terminal_output_batches: Mutex<HashMap<String, RemoteTerminalOutputBatch>>,
     terminal_buffer_baselines: Mutex<HashMap<String, RemoteTerminalBufferBaseline>>,
     remote_project_scope_by_device: Mutex<HashMap<String, String>>,
@@ -221,6 +238,7 @@ impl RemoteHostRuntime {
             resource_subscriptions: RuntimeSubscriptionRouter::default(),
             terminal_subscriptions,
             terminal_output_seq_by_session: Mutex::new(HashMap::new()),
+            terminal_output_ack_by_viewer: Mutex::new(HashMap::new()),
             terminal_output_batches: Mutex::new(HashMap::new()),
             terminal_buffer_baselines: Mutex::new(HashMap::new()),
             remote_project_scope_by_device: Mutex::new(HashMap::new()),
@@ -1604,12 +1622,11 @@ impl RemoteHostRuntime {
             .get("worktreeId")
             .and_then(Value::as_str)
             .filter(|value| !value.trim().is_empty());
+        let device_id = envelope.device_id.as_deref();
+        let previous_project_id = self.remote_project_scope_id(device_id);
         match self.remote_project_scope_with_worktree(project_id, preferred_worktree_id) {
             Ok(scope) => {
-                self.set_remote_project_scope(envelope.device_id.as_deref(), &scope.project_id);
-                if let Err(error) =
-                    self.ensure_remote_project_terminal(&scope, envelope.device_id.as_deref())
-                {
+                if let Err(error) = self.ensure_remote_project_terminal(&scope, device_id) {
                     crate::runtime_trace::runtime_trace(
                         "remote",
                         &format!(
@@ -1620,10 +1637,13 @@ impl RemoteHostRuntime {
                     self.send_error(envelope, &error);
                     return;
                 }
-                self.register_project_terminal_viewers(
-                    &scope.project_id,
-                    envelope.device_id.as_deref(),
-                );
+                if previous_project_id.as_deref() != Some(scope.project_id.as_str()) {
+                    if let Some(previous_project_id) = previous_project_id.as_deref() {
+                        self.remove_project_terminal_viewers(previous_project_id, device_id);
+                    }
+                }
+                self.set_remote_project_scope(device_id, &scope.project_id);
+                self.register_project_terminal_viewers(&scope.project_id, device_id);
                 self.send(
                     REMOTE_PROJECT_SELECTED,
                     envelope.device_id.as_deref(),
@@ -1663,6 +1683,7 @@ impl RemoteHostRuntime {
         ) {
             Ok(RemoteTerminalSubscriptionTarget::Project { project_id }) => {
                 self.register_project_terminal_viewers(&project_id, Some(device_id));
+                self.send_project_terminal_viewport_states(&project_id, Some(device_id));
                 if RemoteTerminalSubscriptionTarget::baseline_requested(&envelope.payload) {
                     self.send_project_terminal_baselines(&project_id, Some(device_id), envelope);
                 }
@@ -1709,6 +1730,10 @@ impl RemoteHostRuntime {
             REMOTE_RESOURCE_TERMINALS => {
                 if let Some(project_id) = change.project_id.as_deref() {
                     self.register_project_terminal_viewers(
+                        project_id,
+                        envelope.device_id.as_deref(),
+                    );
+                    self.send_project_terminal_viewport_states(
                         project_id,
                         envelope.device_id.as_deref(),
                     );
@@ -2462,10 +2487,13 @@ impl RemoteHostRuntime {
                         &session_id,
                         envelope.device_id.as_deref(),
                         0,
-                        REMOTE_TERMINAL_BUFFER_MAX_CHARS,
-                        None,
-                        None,
-                        true,
+                        TerminalBaselineOptions {
+                            max_chars: REMOTE_TERMINAL_BUFFER_MAX_CHARS,
+                            chunk_chars: None,
+                            request_id: None,
+                            tail: true,
+                            viewport: None,
+                        },
                     );
                 }
             }
@@ -2483,32 +2511,7 @@ impl RemoteHostRuntime {
             .get("offset")
             .and_then(Value::as_u64)
             .unwrap_or(0) as usize;
-        let max_chars = envelope
-            .payload
-            .get("maxChars")
-            .and_then(Value::as_u64)
-            .map(|value| value as usize)
-            .filter(|value| *value > 0)
-            .unwrap_or(REMOTE_TERMINAL_BUFFER_MAX_CHARS);
-        let chunk_chars = envelope
-            .payload
-            .get("chunkChars")
-            .and_then(Value::as_u64)
-            .map(|value| value as usize)
-            .filter(|value| *value > 0)
-            .map(|value| value.clamp(4 * 1024, 64 * 1024));
-        let request_id = envelope
-            .payload
-            .get("requestId")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(ToOwned::to_owned);
-        let tail = envelope
-            .payload
-            .get("tail")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
+        let options = self.terminal_baseline_options(envelope, false);
         if let Err(error) = self.ensure_remote_terminal_started(session_id, envelope) {
             crate::runtime_trace::runtime_trace(
                 "remote",
@@ -2518,15 +2521,7 @@ impl RemoteHostRuntime {
             return;
         }
         self.register_terminal_viewer(session_id, envelope.device_id.as_deref());
-        self.send_terminal_buffer(
-            session_id,
-            envelope.device_id.as_deref(),
-            offset,
-            max_chars,
-            chunk_chars,
-            request_id,
-            tail,
-        );
+        self.send_terminal_buffer(session_id, envelope.device_id.as_deref(), offset, options);
     }
 
     /// Friendly name of a connected device, looked up by device_id in the
@@ -3262,14 +3257,20 @@ impl RemoteHostRuntime {
         session_id: &str,
         device_id: Option<&str>,
         offset: usize,
-        max_chars: usize,
-        chunk_chars: Option<usize>,
-        request_id: Option<String>,
-        tail: bool,
+        mut options: TerminalBaselineOptions,
     ) {
         self.register_terminal_viewer(session_id, device_id);
-        let fallback_request_id = request_id.clone();
-        match self.terminal_buffer_window(session_id, offset, max_chars, request_id, tail) {
+        if !options.tail {
+            options.viewport = None;
+        } else if options.viewport.is_some()
+            && !self.apply_terminal_baseline_viewport(session_id, device_id, options.viewport)
+        {
+            options.viewport = None;
+        }
+        let fallback_request_id = options.request_id.clone();
+        let chunk_chars = options.chunk_chars;
+        let tail = options.tail;
+        match self.terminal_buffer_window(session_id, offset, options) {
             Ok(window) => {
                 let output_seq = window
                     .output_seq
@@ -3299,6 +3300,7 @@ impl RemoteHostRuntime {
                     request_id: fallback_request_id,
                     tail,
                     has_previous: false,
+                    baseline_failed: true,
                 };
                 for payload in terminal_buffer_payloads(&fallback, output_seq, chunk_chars) {
                     self.send_terminal_data(
@@ -3310,6 +3312,33 @@ impl RemoteHostRuntime {
                 }
             }
         }
+    }
+
+    fn apply_terminal_baseline_viewport(
+        &self,
+        session_id: &str,
+        device_id: Option<&str>,
+        viewport: Option<BaselineViewport>,
+    ) -> bool {
+        let (Some(device_id), Some(viewport)) = (
+            device_id.map(str::trim).filter(|value| !value.is_empty()),
+            viewport,
+        ) else {
+            return false;
+        };
+        let owner = terminal_viewport_remote_owner(device_id);
+        let Ok(state) = self.terminals.viewport_state(session_id) else {
+            return false;
+        };
+        if state.owner != owner {
+            return false;
+        }
+        self.terminals.touch_viewport_lease(session_id, &owner);
+        self.terminals
+            .resize_viewport(session_id, &owner, viewport.cols, viewport.rows)
+            .ok()
+            .flatten()
+            .is_some()
     }
 
     fn send_terminal_viewport_state(&self, session_id: &str, device_id: Option<&str>) {
@@ -3328,25 +3357,34 @@ impl RemoteHostRuntime {
             REMOTE_TERMINAL_VIEWPORT_STATE,
             device_id,
             Some(session_id),
-            json!({
-                "owner": state.owner,
-                "cols": state.cols,
-                "rows": state.rows,
-                "generation": state.generation,
-            }),
+            self.terminal_viewport_state_payload(session_id, device_id, state),
         );
+    }
+
+    fn terminal_viewport_state_payload(
+        &self,
+        session_id: &str,
+        device_id: Option<&str>,
+        state: &TerminalViewportState,
+    ) -> Value {
+        json!({
+            "owner": state.owner,
+            "cols": state.cols,
+            "rows": state.rows,
+            "generation": state.generation,
+            "staleOutput": device_id.is_some() && self.terminal_viewer_is_stale(session_id, device_id),
+            "outputSeq": self.current_terminal_output_seq(session_id),
+        })
     }
 
     fn terminal_buffer_window(
         &self,
         session_id: &str,
         offset: usize,
-        max_chars: usize,
-        request_id: Option<String>,
-        tail: bool,
+        options: TerminalBaselineOptions,
     ) -> Result<RemoteTerminalBufferWindow, anyhow::Error> {
-        let max_chars = max_chars.max(1);
-        if tail {
+        let max_chars = options.max_chars.max(1);
+        if options.tail {
             // ROOT FIX for the stale remote screen (e.g. Claude's classic-mode
             // input box frozen at its old row while "working").
             //
@@ -3381,23 +3419,29 @@ impl RemoteHostRuntime {
                 .terminals
                 .buffer_characters(session_id)
                 .unwrap_or_else(|_| start_offset + data.chars().count());
-            // Ship the screen keyframe ONLY for an alt-screen session. A normal
-            // shell's visible screen is fully reconstructed by replaying the raw
-            // history `data` above, so also replaying the keyframe on top redraws
-            // the current line a SECOND time -- and because the keyframe is
-            // encoded at the host's grid it lands at a different row/column in the
-            // viewer's reflowed grid, leaving the duplicate/ghost first prompt
-            // line seen on attach. The alternate buffer has no scrollback (absent
-            // from the raw history), so there the keyframe is the only way to
-            // restore the TUI. This matches subscribe_output()'s live-replay gate
-            // (terminal_pty.rs) so the baseline and live paths agree.
-            let screen_data = self
-                .terminals
-                .screen_snapshot(session_id)
-                .ok()
-                .filter(|snapshot| snapshot.input_mode.alternate_screen)
-                .map(|snapshot| snapshot.data)
-                .filter(|data| !data.is_empty());
+            // Default attach only keyframes alt-screen sessions: normal shells
+            // are rebuilt from raw history to avoid drawing the current line
+            // twice at the host grid. When the requester already owns the
+            // viewport, `options.viewport` means the host has just reflowed to
+            // that requester, so a target-grid keyframe is safe and is the
+            // authoritative restore primitive for normal-buffer TUIs.
+            let screen_data = if options.viewport.is_some() {
+                let max_lines = options
+                    .viewport
+                    .map(|viewport| viewport.rows.max(8) as usize)
+                    .unwrap_or(0);
+                self.terminals
+                    .remote_viewport_snapshot(session_id, 0, 0, max_lines)
+                    .ok()
+                    .map(|snapshot| snapshot.data)
+            } else {
+                self.terminals
+                    .screen_snapshot(session_id)
+                    .ok()
+                    .filter(|snapshot| snapshot.input_mode.alternate_screen)
+                    .map(|snapshot| snapshot.data)
+            }
+            .filter(|data| !data.is_empty());
             return Ok(RemoteTerminalBufferWindow {
                 data,
                 screen_data,
@@ -3405,14 +3449,16 @@ impl RemoteHostRuntime {
                 total_characters,
                 truncated: false,
                 output_seq: Some(output_seq),
-                request_id,
+                request_id: options.request_id,
                 tail: true,
                 has_previous: start_offset > 0,
+                baseline_failed: false,
             });
         }
 
-        let request_id_for_window = request_id.clone();
-        let frozen = request_id
+        let request_id_for_window = options.request_id.clone();
+        let frozen = options
+            .request_id
             .as_deref()
             .and_then(|request_id| {
                 self.terminal_buffer_baseline(session_id, request_id, offset, max_chars)
@@ -3454,6 +3500,7 @@ impl RemoteHostRuntime {
             request_id: request_id_for_window,
             tail: false,
             has_previous: clamped > 0,
+            baseline_failed: false,
         })
     }
 
@@ -4087,6 +4134,73 @@ impl RemoteHostRuntime {
         }
     }
 
+    fn record_terminal_output_ack(
+        &self,
+        session_id: &str,
+        device_id: Option<&str>,
+        output_seq: Option<TerminalSequence>,
+    ) {
+        let Some(device_id) = device_id.map(str::trim).filter(|value| !value.is_empty()) else {
+            return;
+        };
+        let Some(output_seq) = output_seq else {
+            return;
+        };
+        if let Ok(mut acks) = self.terminal_output_ack_by_viewer.lock() {
+            let key = (session_id.to_string(), device_id.to_string());
+            let current = acks.get(&key).copied().unwrap_or(0);
+            if output_seq > current {
+                acks.insert(key, output_seq);
+            }
+        }
+    }
+
+    fn terminal_viewer_ack_seq(
+        &self,
+        session_id: &str,
+        device_id: Option<&str>,
+    ) -> TerminalSequence {
+        let Some(device_id) = device_id.map(str::trim).filter(|value| !value.is_empty()) else {
+            return 0;
+        };
+        self.terminal_output_ack_by_viewer
+            .lock()
+            .ok()
+            .and_then(|acks| {
+                acks.get(&(session_id.to_string(), device_id.to_string()))
+                    .copied()
+            })
+            .unwrap_or(0)
+    }
+
+    fn terminal_viewer_is_stale(&self, session_id: &str, device_id: Option<&str>) -> bool {
+        let current = self.current_terminal_output_seq(session_id);
+        current > 0
+            && current.saturating_sub(self.terminal_viewer_ack_seq(session_id, device_id))
+                > REMOTE_TERMINAL_STALE_OUTPUT_SEQ_LAG
+    }
+
+    fn clear_terminal_viewer_ack(&self, session_id: &str, device_id: Option<&str>) {
+        let Some(device_id) = device_id.map(str::trim).filter(|value| !value.is_empty()) else {
+            return;
+        };
+        if let Ok(mut acks) = self.terminal_output_ack_by_viewer.lock() {
+            acks.remove(&(session_id.to_string(), device_id.to_string()));
+        }
+    }
+
+    fn clear_terminal_device_acks(&self, device_id: &str) {
+        if let Ok(mut acks) = self.terminal_output_ack_by_viewer.lock() {
+            acks.retain(|(_, viewer), _| viewer != device_id);
+        }
+    }
+
+    fn clear_terminal_session_acks(&self, session_id: &str) {
+        if let Ok(mut acks) = self.terminal_output_ack_by_viewer.lock() {
+            acks.retain(|(session, _), _| session != session_id);
+        }
+    }
+
     fn register_terminal_viewer(self: &Arc<Self>, session_id: &str, device_id: Option<&str>) {
         let Some(device_id) = device_id.filter(|value| !value.trim().is_empty()) else {
             return;
@@ -4140,8 +4254,42 @@ impl RemoteHostRuntime {
                     .map(str::to_string)
             })
             .collect::<Vec<_>>();
+        let target_session_id = envelope
+            .payload
+            .get("baselineSessionId")
+            .or_else(|| envelope.payload.get("sessionId"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned);
         for session_id in sessions {
-            self.spawn_terminal_baseline(&session_id, device_id, envelope);
+            let mut envelope = envelope.clone();
+            if target_session_id.as_deref() != Some(session_id.as_str()) {
+                if let Some(payload) = envelope.payload.as_object_mut() {
+                    payload.remove("viewportCols");
+                    payload.remove("viewportRows");
+                }
+            }
+            self.spawn_terminal_baseline(&session_id, device_id, &envelope);
+        }
+    }
+
+    fn send_project_terminal_viewport_states(&self, project_id: &str, device_id: Option<&str>) {
+        let sessions = self
+            .remote_terminals()
+            .into_iter()
+            .filter(|terminal| {
+                terminal.get("projectId").and_then(Value::as_str) == Some(project_id)
+            })
+            .filter_map(|terminal| {
+                terminal
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+            })
+            .collect::<Vec<_>>();
+        for session_id in sessions {
+            self.send_terminal_viewport_state(&session_id, device_id);
         }
     }
 
@@ -4178,6 +4326,18 @@ impl RemoteHostRuntime {
         device_id: Option<&str>,
         envelope: &RemoteEnvelope,
     ) {
+        let mut options = self.terminal_baseline_options(envelope, true);
+        if options.request_id.is_none() {
+            options.request_id = Some(format!("subscribe-{}-{session_id}", uuid::Uuid::new_v4()));
+        }
+        self.send_terminal_buffer(session_id, device_id, 0, options);
+    }
+
+    fn terminal_baseline_options(
+        &self,
+        envelope: &RemoteEnvelope,
+        default_tail: bool,
+    ) -> TerminalBaselineOptions {
         let max_chars = envelope
             .payload
             .get("maxChars")
@@ -4198,17 +4358,40 @@ impl RemoteHostRuntime {
             .and_then(Value::as_str)
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .map(ToOwned::to_owned)
-            .unwrap_or_else(|| format!("subscribe-{}-{session_id}", uuid::Uuid::new_v4()));
-        self.send_terminal_buffer(
-            session_id,
-            device_id,
-            0,
+            .map(ToOwned::to_owned);
+        let tail = envelope
+            .payload
+            .get("tail")
+            .and_then(Value::as_bool)
+            .unwrap_or(default_tail);
+        let viewport = if tail {
+            match (
+                envelope
+                    .payload
+                    .get("viewportCols")
+                    .and_then(Value::as_u64)
+                    .map(|value| value as u16)
+                    .filter(|value| *value > 0),
+                envelope
+                    .payload
+                    .get("viewportRows")
+                    .and_then(Value::as_u64)
+                    .map(|value| value as u16)
+                    .filter(|value| *value > 0),
+            ) {
+                (Some(cols), Some(rows)) => Some(BaselineViewport { cols, rows }),
+                _ => None,
+            }
+        } else {
+            None
+        };
+        TerminalBaselineOptions {
             max_chars,
             chunk_chars,
-            Some(request_id),
-            true,
-        );
+            request_id,
+            tail,
+            viewport,
+        }
     }
 
     fn remove_terminal_viewer_for_session(&self, session_id: &str, device_id: Option<&str>) {
@@ -4217,6 +4400,7 @@ impl RemoteHostRuntime {
         };
         self.terminal_subscriptions
             .remove_session_viewer(session_id, device_id);
+        self.clear_terminal_viewer_ack(session_id, Some(device_id));
     }
 
     fn remove_project_terminal_viewers(&self, project_id: &str, device_id: Option<&str>) {
@@ -4240,6 +4424,9 @@ impl RemoteHostRuntime {
             .collect::<Vec<_>>();
         self.terminal_subscriptions
             .remove_project_session_viewers(session_ids.iter().map(String::as_str), device_id);
+        for session_id in session_ids {
+            self.clear_terminal_viewer_ack(&session_id, Some(device_id));
+        }
     }
 
     fn remove_terminal_viewer(&self, device_id: Option<&str>) {
@@ -4248,6 +4435,7 @@ impl RemoteHostRuntime {
         };
         self.resource_subscriptions.remove_device(device_id);
         self.terminal_subscriptions.remove_device(device_id);
+        self.clear_terminal_device_acks(device_id);
         self.clear_ai_stats_watcher_device(device_id);
     }
 
@@ -4276,6 +4464,7 @@ impl RemoteHostRuntime {
                 }
                 self.terminal_subscriptions.remove_session(&session_id);
                 self.clear_terminal_output_seq(&session_id);
+                self.clear_terminal_session_acks(&session_id);
                 self.send_terminal_data(
                     REMOTE_TERMINAL_CLOSED,
                     None,
@@ -4301,17 +4490,35 @@ impl RemoteHostRuntime {
                 rows,
                 generation,
             } => {
-                self.send_terminal_data(
-                    REMOTE_TERMINAL_VIEWPORT_STATE,
-                    None,
-                    Some(&session_id),
-                    json!({
-                        "owner": owner,
-                        "cols": cols,
-                        "rows": rows,
-                        "generation": generation,
-                    }),
-                );
+                let state = TerminalViewportState {
+                    owner,
+                    cols,
+                    rows,
+                    generation,
+                    owner_label: None,
+                };
+                let viewers = self.terminal_output_viewers(&session_id);
+                if viewers.is_empty() {
+                    self.send_terminal_data(
+                        REMOTE_TERMINAL_VIEWPORT_STATE,
+                        None,
+                        Some(&session_id),
+                        self.terminal_viewport_state_payload(&session_id, None, &state),
+                    );
+                } else {
+                    for device_id in viewers {
+                        self.send_terminal_data(
+                            REMOTE_TERMINAL_VIEWPORT_STATE,
+                            Some(&device_id),
+                            Some(&session_id),
+                            self.terminal_viewport_state_payload(
+                                &session_id,
+                                Some(&device_id),
+                                &state,
+                            ),
+                        );
+                    }
+                }
             }
         }
     }
@@ -4479,6 +4686,18 @@ impl RemoteTerminalDispatch for DesktopTerminalCtx<'_> {
 
     fn handle_terminal_buffer_msg(&self, _msg: &TerminalMessage) {
         self.host.handle_terminal_buffer(self.envelope);
+    }
+
+    fn handle_terminal_output_ack_msg(&self, msg: &TerminalMessage) {
+        let Some(session_id) = msg.session_id else {
+            return;
+        };
+        let output_seq = msg.payload.get("outputSeq").and_then(Value::as_i64);
+        self.host
+            .record_terminal_output_ack(session_id, msg.device_id, output_seq);
+        let owner = self.viewport_owner_for(msg.device_id);
+        self.terminal_manager()
+            .touch_viewport_lease(session_id, &owner);
     }
 
     fn handle_terminal_input_msg(&self, _msg: &TerminalMessage) {
@@ -4718,6 +4937,36 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("{name}-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).expect("create temp support dir");
         dir
+    }
+
+    fn buffer_options(
+        max_chars: usize,
+        request_id: Option<&str>,
+        tail: bool,
+    ) -> TerminalBaselineOptions {
+        TerminalBaselineOptions {
+            max_chars,
+            chunk_chars: None,
+            request_id: request_id.map(ToOwned::to_owned),
+            tail,
+            viewport: None,
+        }
+    }
+
+    fn viewport_buffer_options(
+        max_chars: usize,
+        request_id: Option<&str>,
+        tail: bool,
+        cols: u16,
+        rows: u16,
+    ) -> TerminalBaselineOptions {
+        TerminalBaselineOptions {
+            max_chars,
+            chunk_chars: None,
+            request_id: request_id.map(ToOwned::to_owned),
+            tail,
+            viewport: Some(BaselineViewport { cols, rows }),
+        }
     }
 
     #[derive(Default)]
@@ -5481,6 +5730,76 @@ mod tests {
     }
 
     #[test]
+    fn project_select_replaces_previous_terminal_project_viewers() {
+        let support_dir = temp_support_dir("codux-project-select-terminal-viewers");
+        let (project_a, project_b) = write_two_project_state(&support_dir);
+        let terminals = Arc::new(TerminalManager::new());
+        let runtime = Arc::new(RemoteHostRuntime::new_with_ai_history_and_terminals(
+            support_dir.clone(),
+            Default::default(),
+            Arc::clone(&terminals),
+        ));
+        let session_a = terminals
+            .create(
+                TerminalPtyConfig {
+                    shell: Some("sh".to_string()),
+                    command: Some("printf a".to_string()),
+                    cwd: Some(project_a.to_string_lossy().to_string()),
+                    project_id: Some("project-a".to_string()),
+                    ..Default::default()
+                },
+                |_| {},
+            )
+            .expect("create terminal a");
+        let session_b = terminals
+            .create(
+                TerminalPtyConfig {
+                    shell: Some("sh".to_string()),
+                    command: Some("printf b".to_string()),
+                    cwd: Some(project_b.to_string_lossy().to_string()),
+                    project_id: Some("project-b".to_string()),
+                    ..Default::default()
+                },
+                |_| {},
+            )
+            .expect("create terminal b");
+
+        runtime.handle_project_select(&RemoteEnvelope {
+            kind: "project.select".to_string(),
+            device_id: Some("phone".to_string()),
+            session_id: None,
+            seq: None,
+            payload: json!({ "projectId": "project-a" }),
+        });
+        assert!(
+            runtime
+                .terminal_output_viewers(&session_a)
+                .contains("phone")
+        );
+
+        runtime.handle_project_select(&RemoteEnvelope {
+            kind: "project.select".to_string(),
+            device_id: Some("phone".to_string()),
+            session_id: None,
+            seq: None,
+            payload: json!({ "projectId": "project-b" }),
+        });
+
+        assert!(
+            !runtime
+                .terminal_output_viewers(&session_a)
+                .contains("phone")
+        );
+        assert!(
+            runtime
+                .terminal_output_viewers(&session_b)
+                .contains("phone")
+        );
+
+        fs::remove_dir_all(support_dir).ok();
+    }
+
+    #[test]
     fn resource_subscriptions_broadcast_project_scoped_git_status() {
         let support_dir = temp_support_dir("codux-remote-resource-subscriptions");
         let (project_a, _) = write_two_project_state(&support_dir);
@@ -6217,7 +6536,7 @@ mod tests {
         let mut window = None;
         for _ in 0..20 {
             let current = runtime
-                .terminal_buffer_window(&session_id, 0, 3, None, false)
+                .terminal_buffer_window(&session_id, 0, buffer_options(3, None, false))
                 .expect("terminal buffer window");
             if current.total_characters >= 6 {
                 window = Some(current);
@@ -6234,7 +6553,7 @@ mod tests {
         assert!(!window.has_previous);
 
         let next = runtime
-            .terminal_buffer_window(&session_id, 3, 3, None, false)
+            .terminal_buffer_window(&session_id, 3, buffer_options(3, None, false))
             .expect("next terminal buffer window");
         assert_eq!(next.data, "def");
         assert_eq!(next.offset, 3);
@@ -6274,9 +6593,7 @@ mod tests {
                 .terminal_buffer_window(
                     &session_id,
                     0,
-                    3,
-                    Some("request-freeze".to_string()),
-                    false,
+                    buffer_options(3, Some("request-freeze"), false),
                 )
                 .expect("first terminal buffer window");
             if current.total_characters >= 6 {
@@ -6296,7 +6613,11 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(25));
 
         let second = runtime
-            .terminal_buffer_window(&session_id, 3, 3, Some("request-freeze".to_string()), false)
+            .terminal_buffer_window(
+                &session_id,
+                3,
+                buffer_options(3, Some("request-freeze"), false),
+            )
             .expect("second terminal buffer window");
         assert_eq!(second.data, "def");
         assert_eq!(second.offset, 3);
@@ -6305,7 +6626,11 @@ mod tests {
         assert!(!second.truncated);
 
         let live = runtime
-            .terminal_buffer_window(&session_id, 0, 16, Some("request-live".to_string()), false)
+            .terminal_buffer_window(
+                &session_id,
+                0,
+                buffer_options(16, Some("request-live"), false),
+            )
             .expect("live terminal buffer window");
         assert!(live.total_characters >= 9);
         assert!(live.data.contains("XYZ"));
@@ -6337,7 +6662,7 @@ mod tests {
         let mut window = None;
         for _ in 0..20 {
             let current = runtime
-                .terminal_buffer_window(&session_id, 0, 3, Some("request-1".to_string()), true)
+                .terminal_buffer_window(&session_id, 0, buffer_options(3, Some("request-1"), true))
                 .expect("terminal buffer window");
             if current.data.contains("def") {
                 window = Some(current);
@@ -6387,7 +6712,7 @@ mod tests {
         let mut window = None;
         for _ in 0..20 {
             let current = runtime
-                .terminal_buffer_window(&session_id, 0, 64, Some("request-1".to_string()), true)
+                .terminal_buffer_window(&session_id, 0, buffer_options(64, Some("request-1"), true))
                 .expect("terminal buffer window");
             if current.data.contains("visible tui") {
                 window = Some(current);
@@ -6405,6 +6730,358 @@ mod tests {
             "normal-screen baseline must not ship a keyframe (it duplicates the prompt)"
         );
         assert!(window.tail);
+
+        fs::remove_dir_all(support_dir).ok();
+    }
+
+    #[test]
+    fn remote_terminal_buffer_window_tail_includes_target_viewport_keyframe() {
+        let support_dir = temp_support_dir("codux-remote-terminal-buffer-viewport-keyframe");
+        write_paired_remote_settings(&support_dir);
+        let terminals = Arc::new(TerminalManager::new());
+        let runtime = Arc::new(RemoteHostRuntime::new_with_ai_history_and_terminals(
+            support_dir.clone(),
+            Default::default(),
+            Arc::clone(&terminals),
+        ));
+        let transport = Arc::new(CapturingTransport::default());
+        if let Ok(mut current) = runtime.transport.lock() {
+            *current = Some(transport.clone());
+        }
+        let session_id = terminals
+            .create(
+                TerminalPtyConfig {
+                    shell: Some("sh".to_string()),
+                    command: Some(
+                        "printf 'wide normal screen\\n\\033[2J\\033[Hmobile keyframe'".to_string(),
+                    ),
+                    cwd: Some(support_dir.to_string_lossy().to_string()),
+                    cols: Some(100),
+                    rows: Some(32),
+                    ..Default::default()
+                },
+                |_| {},
+            )
+            .expect("create terminal");
+
+        for _ in 0..20 {
+            if terminals
+                .screen_snapshot(&session_id)
+                .map(|snapshot| snapshot.data.contains("mobile keyframe"))
+                .unwrap_or(false)
+            {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        terminals
+            .claim_viewport(&session_id, "remote:phone-a")
+            .expect("phone owns viewport");
+        runtime.send_terminal_buffer(
+            &session_id,
+            Some("phone-a"),
+            0,
+            viewport_buffer_options(128, Some("request-1"), true, 72, 18),
+        );
+
+        let (_, data) = transport
+            .wait_for_message(|(_, data)| {
+                let Ok(text) = std::str::from_utf8(data) else {
+                    return false;
+                };
+                let Ok(envelope) = runtime.service().parse_incoming_envelope(text) else {
+                    return false;
+                };
+                envelope.kind == REMOTE_TERMINAL_OUTPUT
+                    && envelope.payload.get("buffer").and_then(Value::as_bool) == Some(true)
+            })
+            .expect("terminal baseline");
+        let text = String::from_utf8(data).expect("utf8 transport");
+        let envelope = runtime
+            .service()
+            .parse_incoming_envelope(&text)
+            .expect("parse outgoing envelope");
+        let baseline = envelope.payload;
+
+        assert_eq!(baseline["tail"], true);
+        let screen_data = baseline["screenData"]
+            .as_str()
+            .expect("target viewport baseline must ship keyframe");
+        assert!(screen_data.contains("mobile keyframe"));
+        let snapshot = terminals
+            .screen_snapshot(&session_id)
+            .expect("screen snapshot after viewport baseline");
+        assert_eq!(snapshot.cols, 72);
+        assert_eq!(snapshot.rows, 18);
+
+        fs::remove_dir_all(support_dir).ok();
+    }
+
+    #[test]
+    fn terminal_baseline_viewport_does_not_steal_from_other_owner() {
+        let support_dir = temp_support_dir("codux-remote-terminal-baseline-no-steal");
+        write_paired_remote_settings(&support_dir);
+        let terminals = Arc::new(TerminalManager::new());
+        let runtime = Arc::new(RemoteHostRuntime::new_with_ai_history_and_terminals(
+            support_dir.clone(),
+            Default::default(),
+            Arc::clone(&terminals),
+        ));
+        let transport = Arc::new(CapturingTransport::default());
+        if let Ok(mut current) = runtime.transport.lock() {
+            *current = Some(transport.clone());
+        }
+        let session_id = terminals
+            .create(
+                TerminalPtyConfig {
+                    shell: Some("sh".to_string()),
+                    command: Some("printf 'desktop owned'".to_string()),
+                    cwd: Some(support_dir.to_string_lossy().to_string()),
+                    cols: Some(100),
+                    rows: Some(32),
+                    ..Default::default()
+                },
+                |_| {},
+            )
+            .expect("create terminal");
+        terminals
+            .claim_viewport(&session_id, "desktop")
+            .expect("desktop owns viewport");
+
+        runtime.send_terminal_buffer(
+            &session_id,
+            Some("phone-a"),
+            0,
+            viewport_buffer_options(128, Some("request-1"), true, 72, 18),
+        );
+
+        let state = terminals
+            .viewport_state(&session_id)
+            .expect("viewport state");
+        assert_eq!(state.owner, "desktop");
+        assert_eq!(state.cols, 100);
+        assert_eq!(state.rows, 32);
+
+        let (_, data) = transport
+            .wait_for_message(|(_, data)| {
+                let Ok(text) = std::str::from_utf8(data) else {
+                    return false;
+                };
+                let Ok(envelope) = runtime.service().parse_incoming_envelope(text) else {
+                    return false;
+                };
+                envelope.kind == REMOTE_TERMINAL_OUTPUT
+                    && envelope.payload.get("buffer").and_then(Value::as_bool) == Some(true)
+            })
+            .expect("terminal baseline");
+        let text = String::from_utf8(data).expect("utf8 transport");
+        let envelope = runtime
+            .service()
+            .parse_incoming_envelope(&text)
+            .expect("parse outgoing envelope");
+        assert!(envelope.payload.get("screenData").is_none());
+
+        fs::remove_dir_all(support_dir).ok();
+    }
+
+    #[test]
+    fn project_terminal_baseline_viewport_targets_active_split_only() {
+        let support_dir = temp_support_dir("codux-remote-project-baseline-active-viewport");
+        write_paired_remote_settings(&support_dir);
+        let project_dir = support_dir.join("project-a");
+        fs::create_dir_all(&project_dir).expect("create project dir");
+        let terminals = Arc::new(TerminalManager::new());
+        let runtime = Arc::new(RemoteHostRuntime::new_with_ai_history_and_terminals(
+            support_dir.clone(),
+            Default::default(),
+            Arc::clone(&terminals),
+        ));
+        let transport = Arc::new(CapturingTransport::default());
+        if let Ok(mut current) = runtime.transport.lock() {
+            *current = Some(transport.clone());
+        }
+        let session_a = terminals
+            .create(
+                TerminalPtyConfig {
+                    shell: Some("sh".to_string()),
+                    command: Some("printf '\\033[2J\\033[Hactive split'".to_string()),
+                    cwd: Some(project_dir.to_string_lossy().to_string()),
+                    project_id: Some("project-a".to_string()),
+                    cols: Some(100),
+                    rows: Some(32),
+                    ..Default::default()
+                },
+                |_| {},
+            )
+            .expect("create terminal a");
+        let session_b = terminals
+            .create(
+                TerminalPtyConfig {
+                    shell: Some("sh".to_string()),
+                    command: Some("printf '\\033[2J\\033[Hbackground split'".to_string()),
+                    cwd: Some(project_dir.to_string_lossy().to_string()),
+                    project_id: Some("project-a".to_string()),
+                    cols: Some(100),
+                    rows: Some(32),
+                    ..Default::default()
+                },
+                |_| {},
+            )
+            .expect("create terminal b");
+
+        for _ in 0..20 {
+            let ready_a = terminals
+                .screen_snapshot(&session_a)
+                .map(|snapshot| snapshot.data.contains("active split"))
+                .unwrap_or(false);
+            let ready_b = terminals
+                .screen_snapshot(&session_b)
+                .map(|snapshot| snapshot.data.contains("background split"))
+                .unwrap_or(false);
+            if ready_a && ready_b {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        terminals
+            .claim_viewport(&session_a, "remote:phone-a")
+            .expect("phone owns active split");
+        transport.take_messages();
+        runtime.handle_resource_subscribe(&RemoteEnvelope {
+            kind: REMOTE_RESOURCE_SUBSCRIBE.to_string(),
+            device_id: Some("phone-a".to_string()),
+            session_id: None,
+            seq: None,
+            payload: json!({
+                "resource": REMOTE_RESOURCE_TERMINALS,
+                "projectId": "project-a",
+                "baseline": true,
+                "baselineSessionId": session_a.clone(),
+                "viewportCols": 72,
+                "viewportRows": 18,
+            }),
+        });
+
+        let mut active_baseline = None;
+        let mut background_baseline = None;
+        for _ in 0..40 {
+            for (device_id, data) in transport.take_messages() {
+                if device_id.as_deref() != Some("phone-a") {
+                    continue;
+                }
+                let text = String::from_utf8(data).expect("utf8 transport");
+                let envelope = runtime
+                    .service()
+                    .parse_incoming_envelope(&text)
+                    .expect("parse outgoing envelope");
+                if envelope.kind != REMOTE_TERMINAL_OUTPUT
+                    || envelope.payload.get("buffer").and_then(Value::as_bool) != Some(true)
+                {
+                    continue;
+                }
+                if envelope.session_id.as_deref() == Some(session_a.as_str()) {
+                    active_baseline = Some(envelope.payload);
+                } else if envelope.session_id.as_deref() == Some(session_b.as_str()) {
+                    background_baseline = Some(envelope.payload);
+                }
+            }
+            if active_baseline.is_some() && background_baseline.is_some() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+
+        assert!(
+            active_baseline
+                .as_ref()
+                .and_then(|payload| payload.get("screenData"))
+                .and_then(Value::as_str)
+                .map(|screen_data| screen_data.contains("active split"))
+                .unwrap_or(false),
+            "active split should receive a target-viewport keyframe"
+        );
+        assert!(
+            background_baseline
+                .as_ref()
+                .and_then(|payload| payload.get("screenData"))
+                .is_none(),
+            "background splits must not be resized or keyframed to the active split viewport"
+        );
+        let active_state = terminals
+            .viewport_state(&session_a)
+            .expect("active viewport state");
+        let background_state = terminals
+            .viewport_state(&session_b)
+            .expect("background viewport state");
+        assert_eq!(active_state.cols, 72);
+        assert_eq!(active_state.rows, 18);
+        assert_eq!(background_state.cols, 100);
+        assert_eq!(background_state.rows, 32);
+
+        fs::remove_dir_all(support_dir).ok();
+    }
+
+    #[test]
+    fn viewport_state_marks_stale_output_per_viewer() {
+        let support_dir = temp_support_dir("codux-remote-viewport-state-per-viewer-stale");
+        let project_dir = support_dir.join("project-a");
+        fs::create_dir_all(&project_dir).expect("create project dir");
+        let terminals = Arc::new(TerminalManager::new());
+        let runtime = Arc::new(RemoteHostRuntime::new_with_ai_history_and_terminals(
+            support_dir.clone(),
+            Default::default(),
+            Arc::clone(&terminals),
+        ));
+        let transport = Arc::new(CapturingTransport::default());
+        if let Ok(mut current) = runtime.transport.lock() {
+            *current = Some(transport.clone());
+        }
+        let session_id = terminals
+            .create(
+                TerminalPtyConfig {
+                    shell: Some("sh".to_string()),
+                    command: Some("printf ready".to_string()),
+                    cwd: Some(project_dir.to_string_lossy().to_string()),
+                    project_id: Some("project-a".to_string()),
+                    ..Default::default()
+                },
+                |_| {},
+            )
+            .expect("create terminal");
+
+        runtime.register_terminal_viewer(&session_id, Some("phone-a"));
+        runtime.register_terminal_viewer(&session_id, Some("phone-b"));
+        runtime.record_terminal_output_ack(&session_id, Some("phone-a"), Some(20));
+        runtime.record_terminal_output_ack(&session_id, Some("phone-b"), Some(11));
+        if let Ok(mut sequences) = runtime.terminal_output_seq_by_session.lock() {
+            sequences.insert(session_id.clone(), 20);
+        }
+        transport.take_messages();
+        runtime.handle_terminal_event(TerminalEvent::Viewport {
+            session_id: session_id.clone(),
+            owner: "desktop".to_string(),
+            cols: 100,
+            rows: 32,
+            generation: 1,
+        });
+
+        let mut stale_by_device = HashMap::new();
+        for (device_id, data) in transport.take_messages() {
+            let text = String::from_utf8(data).expect("utf8 transport");
+            let envelope = runtime
+                .service()
+                .parse_incoming_envelope(&text)
+                .expect("parse outgoing envelope");
+            if envelope.kind == REMOTE_TERMINAL_VIEWPORT_STATE {
+                stale_by_device.insert(
+                    device_id.expect("device id"),
+                    envelope.payload["staleOutput"].as_bool().unwrap_or(false),
+                );
+            }
+        }
+
+        assert_eq!(stale_by_device.get("phone-a"), Some(&false));
+        assert_eq!(stale_by_device.get("phone-b"), Some(&true));
 
         fs::remove_dir_all(support_dir).ok();
     }
