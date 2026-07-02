@@ -16,6 +16,7 @@ struct TerminalModel {
     // looking at, not the desktop theme.
     remote_viewer: bool,
     viewport_generation: u64,
+    render_visible: bool,
     last_paint_sync: Option<Instant>,
     last_engine_resize_at: Option<Instant>,
     engine_resize_flush_pending: bool,
@@ -162,6 +163,7 @@ impl TerminalModel {
             restored_bootstrap_active,
             remote_viewer: false,
             viewport_generation: 0,
+            render_visible: false,
             last_paint_sync: None,
             last_engine_resize_at: None,
             engine_resize_flush_pending: false,
@@ -237,7 +239,7 @@ impl TerminalModel {
         if self.pending_output_bytes.is_empty() {
             if self.process_pending_events(cx) || self.snapshot_dirty {
                 self.request_snapshot_publish(cx);
-                cx.notify();
+                self.notify_if_render_visible(cx);
             }
             return;
         }
@@ -339,7 +341,7 @@ impl TerminalModel {
         should_notify |= self.apply_model_events();
         if should_notify {
             self.request_snapshot_publish(cx);
-            cx.notify();
+            self.notify_if_render_visible(cx);
         }
     }
 
@@ -494,12 +496,26 @@ impl TerminalModel {
         self.handle.snapshot()
     }
 
+    fn set_render_visible(&mut self, visible: bool, cx: &mut Context<Self>) {
+        if self.render_visible == visible {
+            return;
+        }
+        self.render_visible = visible;
+        if visible && self.snapshot_dirty {
+            self.schedule_snapshot_publish(cx);
+            cx.notify();
+        }
+    }
+
     // Output-driven publish requests go through here: snapshots are only
     // computed for terminals that are actually being painted. For hidden
     // panes (background worktrees, occluded windows) the snapshot stays
-    // dirty and we just notify; when the view paints again its prepaint
-    // sync() schedules the publish.
+    // dirty without waking the window; when the view is shown again its
+    // visibility transition/prepaint schedules the publish.
     fn request_snapshot_publish(&mut self, cx: &mut Context<Self>) {
+        if !self.render_visible {
+            return;
+        }
         let painted_recently = self
             .last_paint_sync
             .is_some_and(|at| at.elapsed() < TERMINAL_PAINT_RECENCY);
@@ -571,7 +587,7 @@ impl TerminalModel {
                 model.engine_resize_flush_pending = false;
                 if model.apply_model_events() {
                     model.schedule_snapshot_publish(cx);
-                    cx.notify();
+                    model.notify_if_render_visible(cx);
                 }
                 // Still throttled (another resize landed meanwhile): re-arm.
                 model.schedule_deferred_resize_flush(cx);
@@ -613,11 +629,17 @@ impl TerminalModel {
                     model.request_snapshot_publish(cx);
                 }
                 if content_changed {
-                    cx.notify();
+                    model.notify_if_render_visible(cx);
                 }
             });
         })
         .detach();
+    }
+
+    fn notify_if_render_visible(&self, cx: &mut Context<Self>) {
+        if self.render_visible {
+            cx.notify();
+        }
     }
 
     fn publish_completed_snapshot(
@@ -890,6 +912,7 @@ impl TerminalModel {
             restored_bootstrap_active: false,
             remote_viewer: false,
             viewport_generation: 0,
+            render_visible: true,
             last_paint_sync: None,
             last_engine_resize_at: None,
             engine_resize_flush_pending: false,

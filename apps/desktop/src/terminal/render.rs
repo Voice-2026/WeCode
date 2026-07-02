@@ -1,5 +1,6 @@
 impl Render for TerminalView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.set_render_visible(true, cx);
         self.process_events(window, cx);
         if let Some(new_display_offset) = self.scroll_handle.take_future_display_offset() {
             self.model.update(cx, |model, _| {

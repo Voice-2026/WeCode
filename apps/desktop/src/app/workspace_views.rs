@@ -186,6 +186,9 @@ impl Render for WorkspaceBodyView {
         let app_entity = self.app_entity.clone();
         self.app_entity.update(cx, |app, app_cx| {
             if app.state.selected_project.is_none() && app.workspace_view != WorkspaceView::Stats {
+                if let Some(view) = &self.terminal_workspace_view {
+                    view.update(app_cx, |view, cx| view.set_render_visible(false, cx));
+                }
                 self.terminal_workspace_view = None;
                 self.file_editor_workspace_view = None;
                 self.review_workspace_view = None;
@@ -197,6 +200,7 @@ impl Render for WorkspaceBodyView {
             if app.workspace_view == WorkspaceView::Terminal {
                 let snapshot = app.terminal_workspace_snapshot();
                 let terminal_view = if let Some(view) = &self.terminal_workspace_view {
+                    view.update(app_cx, |view, cx| view.set_render_visible(true, cx));
                     view.update(app_cx, |view, cx| view.set_snapshot(snapshot, cx));
                     view.clone()
                 } else {
@@ -243,6 +247,9 @@ impl Render for WorkspaceBodyView {
                     )
                     .into_any_element()
             } else if app.workspace_view == WorkspaceView::Files {
+                if let Some(view) = &self.terminal_workspace_view {
+                    view.update(app_cx, |view, cx| view.set_render_visible(false, cx));
+                }
                 let snapshot = app.file_editor_workspace_snapshot();
                 let file_editor_view = if let Some(view) = &self.file_editor_workspace_view {
                     view.clone()
@@ -255,6 +262,9 @@ impl Render for WorkspaceBodyView {
                 };
                 workspace_body_any_view(file_editor_view).into_any_element()
             } else if app.workspace_view == WorkspaceView::Review {
+                if let Some(view) = &self.terminal_workspace_view {
+                    view.update(app_cx, |view, cx| view.set_render_visible(false, cx));
+                }
                 let snapshot = app.review_workspace_snapshot();
                 let review_view = if let Some(view) = &self.review_workspace_view {
                     view.clone()
@@ -266,6 +276,9 @@ impl Render for WorkspaceBodyView {
                 };
                 workspace_body_any_view(review_view).into_any_element()
             } else if app.workspace_view == WorkspaceView::Stats {
+                if let Some(view) = &self.terminal_workspace_view {
+                    view.update(app_cx, |view, cx| view.set_render_visible(false, cx));
+                }
                 let snapshot = app.stats_workspace_snapshot();
                 let stats_view = if let Some(view) = &self.stats_workspace_view {
                     view.update(app_cx, |view, cx| view.set_snapshot(snapshot, cx));
@@ -924,6 +937,25 @@ pub(in crate::app) struct TerminalWorkspaceSnapshot {
     active_bottom: Option<TerminalPaneViewSnapshot>,
 }
 
+impl TerminalWorkspaceSnapshot {
+    fn visible_terminal_views(&self) -> Vec<gpui::Entity<TerminalView>> {
+        self.main_panes
+            .iter()
+            .chain(self.active_bottom.iter())
+            .filter_map(|pane| pane.view.clone())
+            .collect()
+    }
+
+    fn set_terminal_views_visible<C>(&self, visible: bool, cx: &mut C)
+    where
+        C: AppContext,
+    {
+        for view in self.visible_terminal_views() {
+            view.update(cx, |view, cx| view.set_render_visible(visible, cx));
+        }
+    }
+}
+
 #[derive(Clone)]
 struct TerminalPaneViewSnapshot {
     view: Option<gpui::Entity<TerminalView>>,
@@ -976,6 +1008,16 @@ impl TerminalWorkspaceView {
         if self.snapshot == snapshot {
             return;
         }
+        let next_visible = snapshot
+            .visible_terminal_views()
+            .into_iter()
+            .map(|view| view.entity_id())
+            .collect::<std::collections::HashSet<_>>();
+        for view in self.snapshot.visible_terminal_views() {
+            if !next_visible.contains(&view.entity_id()) {
+                view.update(cx, |view, cx| view.set_render_visible(false, cx));
+            }
+        }
         if active_terminal_bottom_tab_id(&self.snapshot.bottom_tabs)
             != active_terminal_bottom_tab_id(&snapshot.bottom_tabs)
             && let Some(index) = snapshot.bottom_tabs.iter().position(|tab| tab.active)
@@ -984,6 +1026,10 @@ impl TerminalWorkspaceView {
         }
         self.snapshot = snapshot;
         cx.notify();
+    }
+
+    pub(in crate::app) fn set_render_visible(&mut self, visible: bool, cx: &mut Context<Self>) {
+        self.snapshot.set_terminal_views_visible(visible, cx);
     }
 }
 

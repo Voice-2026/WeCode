@@ -4,6 +4,7 @@ struct TerminalBlinkManager {
     blinking_paused: bool,
     visible: bool,
     enabled: bool,
+    render_visible: bool,
 }
 
 impl TerminalBlinkManager {
@@ -14,6 +15,7 @@ impl TerminalBlinkManager {
             blinking_paused: false,
             visible: true,
             enabled: false,
+            render_visible: false,
         }
     }
 
@@ -43,7 +45,11 @@ impl TerminalBlinkManager {
     }
 
     fn blink_cursors(&mut self, epoch: usize, cx: &mut Context<Self>) {
-        if epoch != self.blink_epoch || !self.enabled || self.blinking_paused {
+        if epoch != self.blink_epoch
+            || !self.enabled
+            || !self.render_visible
+            || self.blinking_paused
+        {
             return;
         }
         self.visible = !self.visible;
@@ -61,7 +67,9 @@ impl TerminalBlinkManager {
     fn show_cursor(&mut self, cx: &mut Context<Self>) {
         if !self.visible {
             self.visible = true;
-            cx.notify();
+            if self.render_visible {
+                cx.notify();
+            }
         }
     }
 
@@ -77,6 +85,19 @@ impl TerminalBlinkManager {
     fn disable(&mut self, cx: &mut Context<Self>) {
         self.enabled = false;
         self.show_cursor(cx);
+    }
+
+    fn set_render_visible(&mut self, visible: bool, cx: &mut Context<Self>) {
+        if self.render_visible == visible {
+            return;
+        }
+        self.render_visible = visible;
+        self.visible = true;
+        let epoch = self.next_blink_epoch();
+        if visible {
+            cx.notify();
+            self.blink_cursors(epoch, cx);
+        }
     }
 
     fn visible(&self) -> bool {

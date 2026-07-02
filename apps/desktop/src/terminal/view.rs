@@ -238,6 +238,13 @@ impl TerminalView {
         &self.config
     }
 
+    pub fn set_render_visible(&mut self, visible: bool, cx: &mut Context<Self>) {
+        self.model
+            .update(cx, |model, cx| model.set_render_visible(visible, cx));
+        self.blink_manager
+            .update(cx, |manager, cx| manager.set_render_visible(visible, cx));
+    }
+
     pub fn update_config(&mut self, config: TerminalConfig, cx: &mut Context<Self>) {
         self.renderer.font_family = config.font_family.clone();
         self.renderer.font_size = config.font_size;
