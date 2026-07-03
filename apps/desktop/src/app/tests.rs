@@ -11,15 +11,20 @@ mod tests {
             },
             shortcuts::{normalized_shortcut_text, shortcut_matches},
             terminal_state::{
-                normalize_terminal_restore_state, restore_terminal_tabs_skeleton,
-                should_mount_restored_terminal_slot, structural_terminal_layout,
-                terminal_pane_terminal_id, terminal_restore_mount_target, terminal_restore_plan,
+                TerminalSplitDirection, normalize_terminal_restore_state,
+                restore_terminal_tabs_skeleton, should_mount_restored_terminal_slot,
+                structural_terminal_layout, terminal_grid_cell_for_pane, terminal_grid_equal,
+                terminal_grid_insert_pane, terminal_grid_remove_pane,
+                terminal_grid_restore_pane_cell, terminal_grid_with_column_ratios,
+                terminal_grid_with_row_ratios, terminal_pane_terminal_id,
+                terminal_restore_mount_target, terminal_restore_plan,
                 terminal_restore_plan_for_language,
             },
             terminal_worktree_actions::active_terminal_slot_indices,
             terminal_worktree_actions::restored_live_active_terminal_id,
             types::{TerminalPanePlan, TerminalRestorePlan, TerminalTabPlacement, TerminalTabPlan},
             ui_helpers::restored_terminal_preview_lines,
+            workspace_views::{terminal_pane_index_at_position, terminal_pane_rect},
         },
         terminal::TerminalLaunchContext,
     };
@@ -27,9 +32,13 @@ mod tests {
         ai_history::{AISessionForkTarget, AISessionSummary},
         git::GitSummary,
         ssh::SSHProfileSummary,
-        terminal_layout::{TerminalLayoutSummary, TerminalPaneSummary, TerminalTabSummary},
+        terminal_layout::{
+            TerminalGridColumn, TerminalLayoutSummary, TerminalPaneSummary, TerminalTabSummary,
+            TerminalTopGrid,
+        },
         terminal_runtime::{TerminalRuntimeSessionSummary, TerminalRuntimeSummary},
     };
+    use gpui::{Bounds, point, px, size};
     use std::{collections::HashMap, path::PathBuf};
 
     fn terminal_focus_test_tabs() -> Vec<crate::app::types::TerminalTab> {
@@ -97,6 +106,7 @@ mod tests {
                 },
             ],
             top_ratios: vec![0.5, 0.5],
+            top_grid: TerminalTopGrid::default(),
             bottom_ratio: 0.32,
             error: None,
         };
@@ -250,6 +260,7 @@ mod tests {
                 terminal_id: "gpui-term-worktree-1-bottom-1".to_string(),
             }],
             top_ratios: vec![1.0],
+            top_grid: TerminalTopGrid::default(),
             bottom_ratio: 0.32,
             error: None,
         };
@@ -319,6 +330,7 @@ mod tests {
             }],
             tabs: Vec::new(),
             top_ratios: vec![1.0],
+            top_grid: TerminalTopGrid::default(),
             bottom_ratio: 0.32,
             error: None,
         };
@@ -485,6 +497,13 @@ mod tests {
                 terminal_id: String::new(),
             }],
             top_ratios: vec![0.5, 0.5],
+            top_grid: TerminalTopGrid {
+                columns: vec![TerminalGridColumn {
+                    ratio: 1.0,
+                    rows: 2,
+                    row_ratios: vec![0.25, 0.75],
+                }],
+            },
             bottom_ratio: 0.32,
             error: None,
         };
@@ -493,8 +512,241 @@ mod tests {
 
         assert_eq!(layout.top_panes.len(), 1);
         assert_eq!(layout.top_panes[0].title, "kept");
+        assert_eq!(layout.top_grid.columns.len(), 1);
+        assert_eq!(layout.top_grid.columns[0].rows, 1);
         assert!(layout.tabs.is_empty());
         assert_eq!(layout.active_terminal_id, "");
+    }
+
+    #[test]
+    fn terminal_grid_ratio_helpers_preserve_shape() {
+        let grid = TerminalTopGrid {
+            columns: vec![
+                TerminalGridColumn {
+                    ratio: 0.5,
+                    rows: 1,
+                    row_ratios: vec![1.0],
+                },
+                TerminalGridColumn {
+                    ratio: 0.5,
+                    rows: 2,
+                    row_ratios: vec![0.5, 0.5],
+                },
+            ],
+        };
+
+        let columns = terminal_grid_with_column_ratios(&grid, vec![1.0, 2.0]);
+        assert_eq!(columns.columns[0].rows, 1);
+        assert_eq!(columns.columns[1].rows, 2);
+        assert_eq!(columns.columns[0].ratio, 1.0 / 3.0);
+        assert_eq!(columns.columns[1].ratio, 2.0 / 3.0);
+        assert_eq!(columns.columns[1].row_ratios, vec![0.5, 0.5]);
+
+        let rows = terminal_grid_with_row_ratios(&grid, 1, vec![1.0, 3.0]);
+        assert_eq!(rows.columns[0].ratio, 0.5);
+        assert_eq!(rows.columns[1].rows, 2);
+        assert_eq!(rows.columns[1].row_ratios, vec![0.25, 0.75]);
+        assert!(terminal_grid_equal(&grid, &grid));
+        assert!(!terminal_grid_equal(&grid, &rows));
+    }
+
+    #[test]
+    fn terminal_grid_remove_preserves_column_shape() {
+        let grid = TerminalTopGrid {
+            columns: vec![
+                TerminalGridColumn {
+                    ratio: 0.5,
+                    rows: 2,
+                    row_ratios: vec![0.5, 0.5],
+                },
+                TerminalGridColumn {
+                    ratio: 0.5,
+                    rows: 2,
+                    row_ratios: vec![0.5, 0.5],
+                },
+            ],
+        };
+
+        let left_bottom_removed = terminal_grid_remove_pane(&grid, 1);
+        assert_eq!(left_bottom_removed.columns.len(), 2);
+        assert_eq!(left_bottom_removed.columns[0].rows, 1);
+        assert_eq!(left_bottom_removed.columns[1].rows, 2);
+
+        let right_top_removed = terminal_grid_remove_pane(&grid, 2);
+        assert_eq!(right_top_removed.columns.len(), 2);
+        assert_eq!(right_top_removed.columns[0].rows, 2);
+        assert_eq!(right_top_removed.columns[1].rows, 1);
+
+        let single_row_column_removed = terminal_grid_remove_pane(
+            &TerminalTopGrid {
+                columns: vec![
+                    TerminalGridColumn {
+                        ratio: 0.5,
+                        rows: 1,
+                        row_ratios: vec![1.0],
+                    },
+                    TerminalGridColumn {
+                        ratio: 0.5,
+                        rows: 2,
+                        row_ratios: vec![0.5, 0.5],
+                    },
+                ],
+            },
+            0,
+        );
+        assert_eq!(single_row_column_removed.columns.len(), 1);
+        assert_eq!(single_row_column_removed.columns[0].rows, 2);
+    }
+
+    #[test]
+    fn terminal_grid_insert_direction_keeps_clear_semantics() {
+        let grid = TerminalTopGrid {
+            columns: vec![TerminalGridColumn {
+                ratio: 1.0,
+                rows: 1,
+                row_ratios: vec![1.0],
+            }],
+        };
+
+        let (down, down_index) =
+            terminal_grid_insert_pane(&grid, 0, TerminalSplitDirection::Down).unwrap();
+        assert_eq!(down_index, 1);
+        assert_eq!(down.columns.len(), 1);
+        assert_eq!(down.columns[0].rows, 2);
+
+        let (right, right_index) =
+            terminal_grid_insert_pane(&down, 0, TerminalSplitDirection::Right).unwrap();
+        assert_eq!(right_index, 2);
+        assert_eq!(right.columns.len(), 2);
+        assert_eq!(right.columns[0].rows, 2);
+        assert_eq!(right.columns[1].rows, 1);
+
+        let (left, left_index) =
+            terminal_grid_insert_pane(&right, 2, TerminalSplitDirection::Left).unwrap();
+        assert_eq!(left_index, 2);
+        assert_eq!(left.columns.len(), 3);
+        assert_eq!(left.columns[1].rows, 1);
+
+        let max_rows = TerminalTopGrid {
+            columns: vec![TerminalGridColumn {
+                ratio: 1.0,
+                rows: 6,
+                row_ratios: vec![1.0 / 6.0; 6],
+            }],
+        };
+        assert!(terminal_grid_insert_pane(&max_rows, 0, TerminalSplitDirection::Down).is_err());
+
+        let max_columns = TerminalTopGrid {
+            columns: (0..6)
+                .map(|_| TerminalGridColumn {
+                    ratio: 1.0 / 6.0,
+                    rows: 1,
+                    row_ratios: vec![1.0],
+                })
+                .collect(),
+        };
+        assert!(terminal_grid_insert_pane(&max_columns, 0, TerminalSplitDirection::Right).is_err());
+    }
+
+    #[test]
+    fn terminal_grid_restore_reinserts_original_cell() {
+        let grid = TerminalTopGrid {
+            columns: vec![
+                TerminalGridColumn {
+                    ratio: 0.5,
+                    rows: 2,
+                    row_ratios: vec![0.5, 0.5],
+                },
+                TerminalGridColumn {
+                    ratio: 0.5,
+                    rows: 2,
+                    row_ratios: vec![0.5, 0.5],
+                },
+            ],
+        };
+        let cell = terminal_grid_cell_for_pane(&grid, 1).expect("left-bottom cell");
+        let floated = terminal_grid_remove_pane(&grid, 1);
+        assert_eq!(floated.columns[0].rows, 1);
+
+        let (restored, insert_index) =
+            terminal_grid_restore_pane_cell(&floated, cell).expect("restore cell");
+        assert_eq!(insert_index, 1);
+        assert_eq!(restored.columns.len(), 2);
+        assert_eq!(restored.columns[0].rows, 2);
+        assert_eq!(restored.columns[1].rows, 2);
+    }
+
+    #[test]
+    fn terminal_grid_restore_recreates_original_single_row_column() {
+        let grid = TerminalTopGrid {
+            columns: vec![
+                TerminalGridColumn {
+                    ratio: 1.0 / 3.0,
+                    rows: 1,
+                    row_ratios: vec![1.0],
+                },
+                TerminalGridColumn {
+                    ratio: 1.0 / 3.0,
+                    rows: 2,
+                    row_ratios: vec![0.5, 0.5],
+                },
+                TerminalGridColumn {
+                    ratio: 1.0 / 3.0,
+                    rows: 1,
+                    row_ratios: vec![1.0],
+                },
+            ],
+        };
+        let cell = terminal_grid_cell_for_pane(&grid, 0).expect("left single-row column");
+        let floated = terminal_grid_remove_pane(&grid, 0);
+        assert_eq!(floated.columns.len(), 2);
+        assert_eq!(floated.columns[0].rows, 2);
+
+        let (restored, insert_index) =
+            terminal_grid_restore_pane_cell(&floated, cell).expect("restore original column");
+        assert_eq!(insert_index, 0);
+        assert_eq!(restored.columns.len(), 3);
+        assert_eq!(restored.columns[0].rows, 1);
+        assert_eq!(restored.columns[1].rows, 2);
+        assert_eq!(restored.columns[2].rows, 1);
+    }
+
+    #[test]
+    fn terminal_grid_drag_hit_test_maps_columns_and_rows() {
+        let grid = TerminalTopGrid {
+            columns: vec![
+                TerminalGridColumn {
+                    ratio: 1.0,
+                    rows: 1,
+                    row_ratios: vec![1.0],
+                },
+                TerminalGridColumn {
+                    ratio: 1.0,
+                    rows: 2,
+                    row_ratios: vec![0.5, 0.5],
+                },
+            ],
+        };
+        let bounds = Bounds::new(point(px(10.0), px(20.0)), size(px(400.0), px(300.0)));
+
+        assert_eq!(
+            terminal_pane_index_at_position(&grid, 3, bounds, point(px(40.0), px(120.0))),
+            Some(0)
+        );
+        assert_eq!(
+            terminal_pane_index_at_position(&grid, 3, bounds, point(px(260.0), px(80.0))),
+            Some(1)
+        );
+        assert_eq!(
+            terminal_pane_index_at_position(&grid, 3, bounds, point(px(260.0), px(260.0))),
+            Some(2)
+        );
+
+        let bottom_right = terminal_pane_rect(&grid, 3, 2);
+        assert!((bottom_right.left - 0.5).abs() < 0.001);
+        assert!((bottom_right.top - 0.5).abs() < 0.001);
+        assert!((bottom_right.width - 0.5).abs() < 0.001);
+        assert!((bottom_right.height - 0.5).abs() < 0.001);
     }
 
     #[test]
@@ -603,6 +855,7 @@ mod tests {
                 },
             ],
             top_ratios: vec![1.0],
+            top_grid: TerminalTopGrid::default(),
             bottom_ratio: 0.32,
             error: None,
         };

@@ -720,6 +720,7 @@ impl CoduxApp {
             top_panes: layout_snapshot.top_panes.clone(),
             tabs: layout_snapshot.tabs.clone(),
             top_ratios: layout_snapshot.top_ratios.clone(),
+            top_grid: layout_snapshot.top_grid.clone(),
             bottom_ratio: layout_snapshot.bottom_ratio,
             error: None,
         };
@@ -1148,11 +1149,17 @@ impl CoduxApp {
             self.state.terminal_layout.top_ratios.clone(),
             top_panes.len(),
         );
+        let top_grid = terminal_top_grid_for_panes(
+            self.state.terminal_layout.top_grid.clone(),
+            &top_ratios,
+            top_panes.len(),
+        );
         let bottom_ratio = clamp_terminal_bottom_ratio(self.state.terminal_layout.bottom_ratio);
         TerminalLayoutSnapshot {
             tabs,
             top_panes,
             top_ratios,
+            top_grid,
             bottom_ratio,
         }
     }
@@ -1246,10 +1253,11 @@ impl CoduxApp {
         self.invalidate_terminal_workspace(cx);
     }
 
-    pub(in crate::app) fn update_terminal_top_ratios(
+    pub(in crate::app) fn update_terminal_grid_ratios(
         &mut self,
         layout_key: String,
-        top_ratios: Vec<f64>,
+        column_index: Option<usize>,
+        ratios: Vec<f64>,
         cx: &mut Context<Self>,
     ) {
         if super::ai_runtime_status::current_terminal_layout_storage_key(&self.state).as_deref()
@@ -1257,32 +1265,38 @@ impl CoduxApp {
         {
             self.runtime_trace(
                 "terminal-layout",
-                &format!("skip stale top ratios layout={layout_key}"),
+                &format!("skip stale grid ratios layout={layout_key}"),
             );
             return;
         }
-        let pane_count = top_ratios.len();
-        let top_ratios = terminal_top_ratios_for_panes(top_ratios, pane_count);
-        let current = terminal_top_ratios_for_panes(
+        let pane_count = self.main_terminal().map(|tab| tab.panes.len()).unwrap_or(0);
+        let top_ratios = terminal_top_ratios_for_panes(
             self.state.terminal_layout.top_ratios.clone(),
             pane_count,
         );
-        let unchanged = current.len() == top_ratios.len()
-            && current
-                .iter()
-                .zip(top_ratios.iter())
-                .all(|(current, next)| (current - next).abs() < 0.001);
-        if unchanged {
+        let current = terminal_top_grid_for_panes(
+            self.state.terminal_layout.top_grid.clone(),
+            &top_ratios,
+            pane_count,
+        );
+        let next = match column_index {
+            Some(column_index) => terminal_grid_with_row_ratios(&current, column_index, ratios),
+            None => terminal_grid_with_column_ratios(&current, ratios),
+        };
+        let next = terminal_top_grid_for_panes(next, &top_ratios, pane_count);
+        if terminal_grid_equal(&current, &next) {
             return;
         }
         if self.terminal_layout_loading {
             self.runtime_trace(
                 "terminal-layout",
-                &format!("skip resize_top while loading layout={layout_key}"),
+                &format!("skip resize_grid while loading layout={layout_key}"),
             );
             return;
         }
-        self.state.terminal_layout.top_ratios = top_ratios;
+        self.state.terminal_layout.top_grid = next;
+        self.state.terminal_layout.top_ratios =
+            terminal_top_ratios_from_grid(&self.state.terminal_layout.top_grid);
         self.persist_current_terminal_layout();
         self.invalidate_terminal_workspace(cx);
     }
@@ -2145,6 +2159,7 @@ pub(super) struct TerminalLayoutSnapshot {
     pub(super) tabs: Vec<TerminalTabSummary>,
     pub(super) top_panes: Vec<TerminalPaneSummary>,
     pub(super) top_ratios: Vec<f64>,
+    pub(super) top_grid: TerminalTopGrid,
     pub(super) bottom_ratio: f64,
 }
 

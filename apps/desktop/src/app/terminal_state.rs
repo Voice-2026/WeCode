@@ -14,7 +14,10 @@ use codux_runtime::{
     runtime_bridge::RuntimeInventory,
     runtime_state::{RuntimeService, RuntimeState},
     settings::{SettingsSummary, locale_from_language_setting},
-    terminal_layout::{TerminalLayoutSummary, TerminalPaneSummary, TerminalTabSummary},
+    terminal_layout::{
+        TerminalGridColumn, TerminalLayoutSummary, TerminalPaneSummary, TerminalTabSummary,
+        TerminalTopGrid, normalize_top_grid, single_row_top_grid,
+    },
     terminal_pty::{TerminalManager, TerminalOutputSnapshot, TerminalPtyConfig},
     terminal_runtime::{TerminalRuntimeSessionSummary, TerminalRuntimeSummary},
     tool_permissions::ToolPermissionsSummary,
@@ -24,6 +27,22 @@ use gpui::{WindowAppearance, px};
 use std::sync::Arc;
 use std::{collections::HashMap, path::PathBuf};
 use uuid::Uuid;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::app) enum TerminalSplitDirection {
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::app) struct TerminalGridCell {
+    pub(in crate::app) column_index: usize,
+    pub(in crate::app) row_index: usize,
+    pub(in crate::app) flat_index: usize,
+    pub(in crate::app) was_only_row: bool,
+}
 
 #[cfg(test)]
 pub(in crate::app) fn terminal_restore_plan(
@@ -227,6 +246,13 @@ pub(in crate::app) fn structural_terminal_layout(
         .top_panes
         .retain(|pane| !pane.terminal_id.trim().is_empty());
     layout.tabs.retain(|tab| !tab.terminal_id.trim().is_empty());
+    layout.top_ratios =
+        terminal_top_ratios_for_panes(layout.top_ratios.clone(), layout.top_panes.len());
+    layout.top_grid = terminal_top_grid_for_panes(
+        layout.top_grid.clone(),
+        &layout.top_ratios,
+        layout.top_panes.len(),
+    );
     layout.active_terminal_id.clear();
     layout
 }
@@ -245,6 +271,7 @@ pub(in crate::app) fn default_terminal_layout_for_owner(
         active_terminal_id: terminal_id.clone(),
         top_panes: vec![TerminalPaneSummary { title, terminal_id }],
         top_ratios: vec![1.0],
+        top_grid: terminal_single_row_grid_from_ratios(vec![1.0], 1),
         bottom_ratio: DEFAULT_TERMINAL_BOTTOM_RATIO,
         error: None,
         ..TerminalLayoutSummary::default()
@@ -289,6 +316,262 @@ pub(in crate::app) fn terminal_top_ratios_for_panes(
         return vec![1.0 / pane_count as f64; pane_count];
     }
     values.into_iter().map(|value| value / total).collect()
+}
+
+pub(in crate::app) fn terminal_top_grid_for_panes(
+    grid: TerminalTopGrid,
+    top_ratios: &[f64],
+    pane_count: usize,
+) -> TerminalTopGrid {
+    normalize_top_grid(grid, top_ratios, pane_count)
+}
+
+pub(in crate::app) fn terminal_single_row_grid_from_ratios(
+    ratios: Vec<f64>,
+    pane_count: usize,
+) -> TerminalTopGrid {
+    single_row_top_grid(ratios, pane_count)
+}
+
+pub(in crate::app) fn terminal_top_ratios_from_grid(grid: &TerminalTopGrid) -> Vec<f64> {
+    grid.columns.iter().map(|column| column.ratio).collect()
+}
+
+pub(in crate::app) fn terminal_grid_equal(left: &TerminalTopGrid, right: &TerminalTopGrid) -> bool {
+    left.columns.len() == right.columns.len()
+        && left
+            .columns
+            .iter()
+            .zip(&right.columns)
+            .all(|(left, right)| {
+                left.rows == right.rows
+                    && (left.ratio - right.ratio).abs() < 0.001
+                    && left.row_ratios.len() == right.row_ratios.len()
+                    && left
+                        .row_ratios
+                        .iter()
+                        .zip(&right.row_ratios)
+                        .all(|(left, right)| (left - right).abs() < 0.001)
+            })
+}
+
+pub(in crate::app) fn terminal_grid_with_column_ratios(
+    grid: &TerminalTopGrid,
+    ratios: Vec<f64>,
+) -> TerminalTopGrid {
+    let ratios = terminal_top_ratios_for_panes(ratios, grid.columns.len());
+    TerminalTopGrid {
+        columns: grid
+            .columns
+            .iter()
+            .zip(ratios)
+            .map(|(column, ratio)| TerminalGridColumn {
+                ratio,
+                rows: column.rows,
+                row_ratios: column.row_ratios.clone(),
+            })
+            .collect(),
+    }
+}
+
+pub(in crate::app) fn terminal_grid_with_row_ratios(
+    grid: &TerminalTopGrid,
+    column_index: usize,
+    row_ratios: Vec<f64>,
+) -> TerminalTopGrid {
+    let mut next = grid.clone();
+    if let Some(column) = next.columns.get_mut(column_index) {
+        column.row_ratios = terminal_top_ratios_for_panes(row_ratios, column.rows);
+    }
+    next
+}
+
+pub(in crate::app) fn terminal_grid_cell_for_pane(
+    grid: &TerminalTopGrid,
+    pane_index: usize,
+) -> Option<TerminalGridCell> {
+    let mut flat_index = 0usize;
+    for (column_index, column) in grid.columns.iter().enumerate() {
+        if pane_index < flat_index + column.rows {
+            return Some(TerminalGridCell {
+                column_index,
+                row_index: pane_index - flat_index,
+                flat_index: pane_index,
+                was_only_row: column.rows == 1,
+            });
+        }
+        flat_index += column.rows;
+    }
+    None
+}
+
+pub(in crate::app) fn terminal_grid_remove_pane(
+    grid: &TerminalTopGrid,
+    pane_index: usize,
+) -> TerminalTopGrid {
+    let Some(cell) = terminal_grid_cell_for_pane(grid, pane_index) else {
+        return grid.clone();
+    };
+    let mut columns = grid.columns.clone();
+    let Some(column) = columns.get_mut(cell.column_index) else {
+        return grid.clone();
+    };
+    if column.rows > 1 {
+        column.rows -= 1;
+        if cell.row_index < column.row_ratios.len() {
+            column.row_ratios.remove(cell.row_index);
+        }
+        column.row_ratios = terminal_top_ratios_for_panes(column.row_ratios.clone(), column.rows);
+    } else {
+        columns.remove(cell.column_index);
+    }
+    normalize_grid_columns(columns)
+}
+
+pub(in crate::app) fn terminal_grid_insert_pane(
+    grid: &TerminalTopGrid,
+    source_index: usize,
+    direction: TerminalSplitDirection,
+) -> Result<(TerminalTopGrid, usize), &'static str> {
+    let Some(cell) = terminal_grid_cell_for_pane(grid, source_index) else {
+        return Err("无效分屏位置");
+    };
+    let mut columns = grid.columns.clone();
+    match direction {
+        TerminalSplitDirection::Up | TerminalSplitDirection::Down => {
+            let Some(column) = columns.get_mut(cell.column_index) else {
+                return Err("无效分屏位置");
+            };
+            if column.rows >= codux_runtime::terminal_layout::TERMINAL_GRID_MAX_ROWS {
+                return Err("当前列已达到 6 行上限");
+            }
+            let insert_row = if direction == TerminalSplitDirection::Up {
+                cell.row_index
+            } else {
+                cell.row_index + 1
+            };
+            column.rows += 1;
+            let insert_ratio = if column.row_ratios.is_empty() {
+                1.0 / column.rows as f64
+            } else {
+                column
+                    .row_ratios
+                    .get(cell.row_index)
+                    .copied()
+                    .unwrap_or(1.0 / column.rows as f64)
+            };
+            column
+                .row_ratios
+                .insert(insert_row.min(column.row_ratios.len()), insert_ratio);
+            column.row_ratios =
+                terminal_top_ratios_for_panes(column.row_ratios.clone(), column.rows);
+            Ok((
+                normalize_grid_columns(columns),
+                cell.flat_index + insert_row - cell.row_index,
+            ))
+        }
+        TerminalSplitDirection::Left | TerminalSplitDirection::Right => {
+            if columns.len() >= codux_runtime::terminal_layout::TERMINAL_GRID_MAX_COLUMNS {
+                return Err("当前布局已达到 6 列上限");
+            }
+            let insert_column = if direction == TerminalSplitDirection::Left {
+                cell.column_index
+            } else {
+                cell.column_index + 1
+            };
+            let source_ratio = columns
+                .get(cell.column_index)
+                .map(|column| column.ratio)
+                .unwrap_or(1.0);
+            columns.insert(
+                insert_column,
+                TerminalGridColumn {
+                    ratio: source_ratio,
+                    rows: 1,
+                    row_ratios: vec![1.0],
+                },
+            );
+            let insert_index = flat_index_for_grid_column(&columns, insert_column);
+            Ok((normalize_grid_columns(columns), insert_index))
+        }
+    }
+}
+
+pub(in crate::app) fn terminal_grid_restore_pane_cell(
+    grid: &TerminalTopGrid,
+    cell: TerminalGridCell,
+) -> Result<(TerminalTopGrid, usize), &'static str> {
+    let mut columns = grid.columns.clone();
+    if columns.len() > codux_runtime::terminal_layout::TERMINAL_GRID_MAX_COLUMNS {
+        return Err("当前布局已达到 6 列上限");
+    }
+    if cell.was_only_row {
+        if columns.len() >= codux_runtime::terminal_layout::TERMINAL_GRID_MAX_COLUMNS {
+            return Err("当前布局已达到 6 列上限");
+        }
+        let insert_column = cell.column_index.min(columns.len());
+        columns.insert(
+            insert_column,
+            TerminalGridColumn {
+                ratio: 1.0,
+                rows: 1,
+                row_ratios: vec![1.0],
+            },
+        );
+        let insert_index = flat_index_for_grid_column(&columns, insert_column);
+        return Ok((normalize_grid_columns(columns), insert_index));
+    }
+
+    let Some(column) = columns.get_mut(cell.column_index) else {
+        return Err("无效分屏位置");
+    };
+    if column.rows >= codux_runtime::terminal_layout::TERMINAL_GRID_MAX_ROWS {
+        return Err("当前列已达到 6 行上限");
+    }
+    let insert_row = cell.row_index.min(column.rows);
+    column.rows += 1;
+    let insert_ratio = column
+        .row_ratios
+        .get(insert_row.saturating_sub(1))
+        .copied()
+        .or_else(|| column.row_ratios.get(insert_row).copied())
+        .unwrap_or(1.0 / column.rows as f64);
+    column
+        .row_ratios
+        .insert(insert_row.min(column.row_ratios.len()), insert_ratio);
+    column.row_ratios = terminal_top_ratios_for_panes(column.row_ratios.clone(), column.rows);
+    let insert_index = flat_index_for_grid_column(&columns, cell.column_index) + insert_row;
+    Ok((normalize_grid_columns(columns), insert_index))
+}
+
+fn flat_index_for_grid_column(columns: &[TerminalGridColumn], column_index: usize) -> usize {
+    columns
+        .iter()
+        .take(column_index)
+        .map(|column| column.rows)
+        .sum()
+}
+
+fn normalize_grid_columns(columns: Vec<TerminalGridColumn>) -> TerminalTopGrid {
+    let columns = columns
+        .into_iter()
+        .filter(|column| column.rows > 0)
+        .collect::<Vec<_>>();
+    let ratios = terminal_top_ratios_for_panes(
+        columns.iter().map(|column| column.ratio).collect(),
+        columns.len(),
+    );
+    TerminalTopGrid {
+        columns: columns
+            .into_iter()
+            .zip(ratios)
+            .map(|(column, ratio)| TerminalGridColumn {
+                ratio,
+                rows: column.rows,
+                row_ratios: terminal_top_ratios_for_panes(column.row_ratios, column.rows),
+            })
+            .collect(),
+    }
 }
 
 fn restore_plan_has_terminal(tabs: &[TerminalTabPlan], terminal_id: &str) -> bool {

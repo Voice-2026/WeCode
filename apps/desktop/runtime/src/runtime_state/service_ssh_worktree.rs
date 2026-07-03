@@ -90,7 +90,11 @@ impl RuntimeService {
     ) -> WorktreeSummary {
         if let Some(path) = project_path {
             if let Some(device_id) = self.host_device_for_project_path(path) {
-                return self.remote_worktree_summary(&device_id, project_id.unwrap_or_default(), path);
+                return self.remote_worktree_summary(
+                    &device_id,
+                    project_id.unwrap_or_default(),
+                    path,
+                );
             }
         }
         load_worktrees(&self.support_dir, project_id, project_path)
@@ -103,7 +107,11 @@ impl RuntimeService {
     ) -> WorktreeSummary {
         if let Some(path) = project_path {
             if let Some(device_id) = self.host_device_for_project_path(path) {
-                return self.remote_worktree_summary(&device_id, project_id.unwrap_or_default(), path);
+                return self.remote_worktree_summary(
+                    &device_id,
+                    project_id.unwrap_or_default(),
+                    path,
+                );
             }
         }
         WorktreeService::new(self.support_dir.clone()).state_summary(project_id, project_path)
@@ -237,7 +245,7 @@ impl RuntimeService {
         &self,
         project_id: &str,
         tabs: Vec<crate::terminal_layout::TerminalTabSummary>,
-        active_terminal_id: String,
+        _active_terminal_id: String,
         top_panes: Vec<crate::terminal_layout::TerminalPaneSummary>,
         top_ratios: Vec<f64>,
         bottom_ratio: f64,
@@ -245,9 +253,27 @@ impl RuntimeService {
         TerminalLayoutService::new(self.support_dir.clone()).save_from_gpui(
             project_id,
             tabs,
-            active_terminal_id,
             top_panes,
             top_ratios,
+            bottom_ratio,
+        )
+    }
+
+    pub fn save_terminal_layout_with_grid(
+        &self,
+        project_id: &str,
+        tabs: Vec<crate::terminal_layout::TerminalTabSummary>,
+        top_panes: Vec<crate::terminal_layout::TerminalPaneSummary>,
+        top_ratios: Vec<f64>,
+        top_grid: crate::terminal_layout::TerminalTopGrid,
+        bottom_ratio: f64,
+    ) -> Result<TerminalLayoutSummary, String> {
+        TerminalLayoutService::new(self.support_dir.clone()).save_from_gpui_with_grid(
+            project_id,
+            tabs,
+            top_panes,
+            top_ratios,
+            top_grid,
             bottom_ratio,
         )
     }
@@ -258,7 +284,10 @@ impl RuntimeService {
         tabs: Vec<FileEditorTabSummary>,
         active_path: Option<String>,
     ) -> Result<FileEditorLayoutSummary, String> {
-        FileEditorLayoutService::new(self.support_dir.clone())
-            .save_from_gpui(owner_id, tabs, active_path)
+        FileEditorLayoutService::new(self.support_dir.clone()).save_from_gpui(
+            owner_id,
+            tabs,
+            active_path,
+        )
     }
 }

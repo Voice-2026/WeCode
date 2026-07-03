@@ -5652,7 +5652,6 @@ mod tests {
             .save_from_gpui(
                 &terminal_layout_storage_key("project-b", "worktree-b"),
                 Vec::new(),
-                stale_terminal_id.to_string(),
                 vec![TerminalPaneSummary {
                     title: "Stale".to_string(),
                     terminal_id: stale_terminal_id.to_string(),
@@ -5912,7 +5911,6 @@ mod tests {
             .save_from_gpui(
                 &terminal_layout_storage_key("project-a", "project-a"),
                 Vec::new(),
-                session_id.clone(),
                 vec![TerminalPaneSummary {
                     title: "Main".to_string(),
                     terminal_id: session_id.clone(),
@@ -6099,7 +6097,6 @@ mod tests {
             .save_from_gpui(
                 &layout_key,
                 Vec::new(),
-                "terminal-b".to_string(),
                 vec![TerminalPaneSummary {
                     title: "Mobile".to_string(),
                     terminal_id: "terminal-b".to_string(),
@@ -6171,7 +6168,6 @@ mod tests {
             .save_from_gpui(
                 &terminal_layout_storage_key("project-b", "project-b"),
                 Vec::new(),
-                default_session.clone(),
                 vec![TerminalPaneSummary {
                     title: "Default".to_string(),
                     terminal_id: default_session.clone(),
@@ -6184,7 +6180,6 @@ mod tests {
             .save_from_gpui(
                 &terminal_layout_storage_key("project-b", "worktree-b"),
                 Vec::new(),
-                worktree_session.clone(),
                 vec![TerminalPaneSummary {
                     title: "Worktree".to_string(),
                     terminal_id: worktree_session.clone(),
@@ -6248,7 +6243,6 @@ mod tests {
             .save_from_gpui(
                 &terminal_layout_storage_key("project-b", "project-b"),
                 Vec::new(),
-                sessions[0].clone(),
                 vec![TerminalPaneSummary {
                     title: "Stale".to_string(),
                     terminal_id: sessions[0].clone(),
@@ -6261,7 +6255,6 @@ mod tests {
             .save_from_gpui(
                 &terminal_layout_storage_key("project-b", "worktree-b"),
                 Vec::new(),
-                sessions[0].clone(),
                 sessions
                     .iter()
                     .enumerate()
@@ -6322,7 +6315,6 @@ mod tests {
             .save_from_gpui(
                 &layout_key,
                 Vec::new(),
-                "terminal-b".to_string(),
                 vec![TerminalPaneSummary {
                     title: "Mobile".to_string(),
                     terminal_id: "terminal-b".to_string(),
@@ -6471,7 +6463,6 @@ mod tests {
             .save_from_gpui(
                 &layout_key,
                 Vec::new(),
-                session_a.clone(),
                 vec![
                     TerminalPaneSummary {
                         title: "A".to_string(),

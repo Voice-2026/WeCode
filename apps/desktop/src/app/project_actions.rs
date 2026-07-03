@@ -707,12 +707,12 @@ impl CoduxApp {
         }
         let runtime_service = self.runtime_service.clone();
         codux_runtime::async_runtime::spawn_blocking(move || {
-            if let Err(error) = runtime_service.save_terminal_layout(
+            if let Err(error) = runtime_service.save_terminal_layout_with_grid(
                 &owner_id,
                 layout_snapshot.tabs,
-                String::new(),
                 layout_snapshot.top_panes,
                 layout_snapshot.top_ratios,
+                layout_snapshot.top_grid,
                 layout_snapshot.bottom_ratio,
             ) {
                 codux_runtime::runtime_trace::runtime_trace(

@@ -6,6 +6,7 @@ pub(in crate::app) fn terminal_float_window(
     project_id: Option<String>,
     tab_view_id: usize,
     pane_index: usize,
+    grid_cell: Option<TerminalGridCell>,
     slot: TerminalPaneSlot,
     cx: &mut Context<CoduxApp>,
 ) -> gpui::Entity<TerminalFloatWindow> {
@@ -16,6 +17,7 @@ pub(in crate::app) fn terminal_float_window(
             project_id,
             tab_view_id,
             pane_index,
+            grid_cell,
             slot,
         }),
     })
@@ -31,6 +33,7 @@ struct TerminalFloatRestore {
     project_id: Option<String>,
     tab_view_id: usize,
     pane_index: usize,
+    grid_cell: Option<TerminalGridCell>,
     slot: TerminalPaneSlot,
 }
 
@@ -44,6 +47,7 @@ impl TerminalFloatWindow {
                 restore.project_id,
                 restore.tab_view_id,
                 restore.pane_index,
+                restore.grid_cell,
                 restore.slot,
                 cx,
             )

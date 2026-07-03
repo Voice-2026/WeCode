@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
+use crate::terminal_layout::{TerminalTopGrid, normalize_top_grid};
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct TerminalLayoutRecord {
@@ -12,6 +14,8 @@ pub struct TerminalLayoutRecord {
     pub top_panes: Vec<TerminalTopPaneRecord>,
     #[serde(default, skip_serializing)]
     pub top_ratios: Vec<f64>,
+    #[serde(default)]
+    pub top_grid: TerminalTopGrid,
     #[serde(default = "default_bottom_ratio", skip_serializing)]
     pub bottom_ratio: f64,
 }
@@ -42,6 +46,7 @@ pub(super) fn sanitize_terminal_layout(
     let tabs = sanitize_bottom_tabs(layout.tabs);
     let (top_panes, top_ratios) =
         sanitize_top_pane_ratio_entries(layout.top_panes, layout.top_ratios);
+    let top_grid = normalize_top_grid(layout.top_grid, &top_ratios, top_panes.len());
     if tabs.is_empty() && top_panes.is_empty() {
         return None;
     }
@@ -50,6 +55,7 @@ pub(super) fn sanitize_terminal_layout(
         active_terminal_id: String::new(),
         top_panes,
         top_ratios,
+        top_grid,
         bottom_ratio: clamp_ratio(layout.bottom_ratio, 0.18, 0.72, default_bottom_ratio()),
     })
 }
@@ -147,6 +153,7 @@ fn clamp_ratio(value: f64, min: f64, max: f64, fallback: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::terminal_layout::{TerminalGridColumn, single_row_top_grid};
 
     #[test]
     fn sanitize_terminal_layout_drops_empty_records_and_keeps_array_order() {
@@ -171,6 +178,7 @@ mod tests {
                 terminal_id: "term-3".to_string(),
             }],
             top_ratios: vec![0.0],
+            top_grid: TerminalTopGrid::default(),
             bottom_ratio: 0.99,
         })
         .unwrap();
@@ -181,6 +189,10 @@ mod tests {
         assert_eq!(layout.active_terminal_id, "");
         assert_eq!(layout.top_panes[0].title, "Split");
         assert_eq!(layout.top_ratios, vec![1.0]);
+        assert_eq!(
+            layout.top_grid.columns,
+            single_row_top_grid(vec![1.0], 1).columns
+        );
         assert_eq!(layout.bottom_ratio, 0.72);
     }
 
@@ -192,6 +204,7 @@ mod tests {
                 active_terminal_id: String::new(),
                 top_panes: Vec::new(),
                 top_ratios: Vec::new(),
+                top_grid: TerminalTopGrid::default(),
                 bottom_ratio: 0.32,
             })
             .is_none()
@@ -208,12 +221,46 @@ mod tests {
                 terminal_id: "terminal-1".to_string(),
             }],
             top_ratios: vec![1.0],
+            top_grid: TerminalTopGrid::default(),
             bottom_ratio: 0.72,
         };
 
         let value = serde_json::to_value(&layout).expect("serialize layout");
         assert!(value.get("activeTerminalId").is_none());
         assert!(value.get("topRatios").is_none());
+        assert!(value.get("topGrid").is_some());
         assert!(value.get("bottomRatio").is_none());
+    }
+
+    #[test]
+    fn sanitize_terminal_layout_preserves_valid_grid() {
+        let layout = sanitize_terminal_layout(TerminalLayoutRecord {
+            tabs: Vec::new(),
+            active_terminal_id: String::new(),
+            top_panes: vec![
+                TerminalTopPaneRecord {
+                    title: "One".to_string(),
+                    terminal_id: "term-1".to_string(),
+                },
+                TerminalTopPaneRecord {
+                    title: "Two".to_string(),
+                    terminal_id: "term-2".to_string(),
+                },
+            ],
+            top_ratios: vec![0.5, 0.5],
+            top_grid: TerminalTopGrid {
+                columns: vec![TerminalGridColumn {
+                    ratio: 1.0,
+                    rows: 2,
+                    row_ratios: vec![1.0, 3.0],
+                }],
+            },
+            bottom_ratio: 0.32,
+        })
+        .unwrap();
+
+        assert_eq!(layout.top_grid.columns.len(), 1);
+        assert_eq!(layout.top_grid.columns[0].rows, 2);
+        assert_eq!(layout.top_grid.columns[0].row_ratios, vec![0.25, 0.75]);
     }
 }

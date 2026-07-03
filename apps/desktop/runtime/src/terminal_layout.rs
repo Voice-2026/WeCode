@@ -8,8 +8,12 @@ pub fn terminal_layout_storage_key(project_id: &str, worktree_id: &str) -> Strin
     codux_terminal_core::runtime_scope_key(project_id, Some(worktree_id))
 }
 
-/// Max split panes a desktop user can stack in the main area before "新建分屏" is capped.
-pub const TERMINAL_SPLIT_CAP: usize = 6;
+/// Max columns a desktop user can stack in the main terminal grid.
+pub const TERMINAL_GRID_MAX_COLUMNS: usize = 6;
+/// Max rows a desktop user can stack inside one terminal grid column.
+pub const TERMINAL_GRID_MAX_ROWS: usize = 6;
+/// Max split panes in the main terminal grid.
+pub const TERMINAL_SPLIT_CAP: usize = TERMINAL_GRID_MAX_COLUMNS * TERMINAL_GRID_MAX_ROWS;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -18,11 +22,30 @@ pub struct TerminalLayoutSummary {
     pub active_terminal_id: String,
     pub top_panes: Vec<TerminalPaneSummary>,
     pub tabs: Vec<TerminalTabSummary>,
+    /// Legacy column fallback for old layouts; `top_grid` is authoritative for current layouts.
     #[serde(default)]
     pub top_ratios: Vec<f64>,
+    #[serde(default)]
+    pub top_grid: TerminalTopGrid,
     #[serde(default = "default_bottom_ratio")]
     pub bottom_ratio: f64,
     pub error: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalTopGrid {
+    #[serde(default)]
+    pub columns: Vec<TerminalGridColumn>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalGridColumn {
+    pub ratio: f64,
+    pub rows: usize,
+    #[serde(default)]
+    pub row_ratios: Vec<f64>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -102,9 +125,27 @@ impl TerminalLayoutService {
         &self,
         project_id: &str,
         tabs: Vec<TerminalTabSummary>,
-        _active_terminal_id: String,
         top_panes: Vec<TerminalPaneSummary>,
         top_ratios: Vec<f64>,
+        bottom_ratio: f64,
+    ) -> Result<TerminalLayoutSummary, String> {
+        self.save_from_gpui_with_grid(
+            project_id,
+            tabs,
+            top_panes,
+            top_ratios,
+            TerminalTopGrid::default(),
+            bottom_ratio,
+        )
+    }
+
+    pub fn save_from_gpui_with_grid(
+        &self,
+        project_id: &str,
+        tabs: Vec<TerminalTabSummary>,
+        top_panes: Vec<TerminalPaneSummary>,
+        top_ratios: Vec<f64>,
+        top_grid: TerminalTopGrid,
         bottom_ratio: f64,
     ) -> Result<TerminalLayoutSummary, String> {
         if tabs.is_empty() && top_panes.is_empty() {
@@ -115,6 +156,7 @@ impl TerminalLayoutService {
             active_terminal_id: String::new(),
             top_panes,
             top_ratios,
+            top_grid,
             bottom_ratio,
             error: None,
         };
@@ -152,8 +194,69 @@ fn sanitize_terminal_layout(mut layout: TerminalLayoutSummary) -> Option<Termina
         return None;
     }
     layout.top_ratios = normalize_ratios(layout.top_ratios, layout.top_panes.len());
+    layout.top_grid =
+        normalize_top_grid(layout.top_grid, &layout.top_ratios, layout.top_panes.len());
     layout.bottom_ratio = clamp_ratio(layout.bottom_ratio, 0.16, 0.58, default_bottom_ratio());
     Some(layout)
+}
+
+pub fn normalize_top_grid(
+    grid: TerminalTopGrid,
+    top_ratios: &[f64],
+    pane_count: usize,
+) -> TerminalTopGrid {
+    if pane_count == 0 {
+        return TerminalTopGrid::default();
+    }
+    if grid.columns.is_empty() {
+        return single_row_top_grid(top_ratios.to_vec(), pane_count);
+    }
+    if grid.columns.iter().any(|column| column.rows == 0) {
+        return single_row_top_grid(top_ratios.to_vec(), pane_count);
+    }
+    let total_rows = grid.columns.iter().map(|column| column.rows).sum::<usize>();
+    if total_rows != pane_count {
+        return single_row_top_grid(top_ratios.to_vec(), pane_count);
+    }
+    let column_count = grid.columns.len();
+    let column_ratios = normalize_ratios(
+        grid.columns
+            .iter()
+            .map(|column| column.ratio)
+            .collect::<Vec<_>>(),
+        column_count,
+    );
+    let columns = grid
+        .columns
+        .into_iter()
+        .zip(column_ratios)
+        .map(|(column, ratio)| {
+            let rows = column.rows.max(1);
+            TerminalGridColumn {
+                ratio,
+                rows,
+                row_ratios: normalize_ratios(column.row_ratios, rows),
+            }
+        })
+        .collect::<Vec<_>>();
+    TerminalTopGrid { columns }
+}
+
+pub fn single_row_top_grid(ratios: Vec<f64>, pane_count: usize) -> TerminalTopGrid {
+    if pane_count == 0 {
+        return TerminalTopGrid::default();
+    }
+    let ratios = normalize_ratios(ratios, pane_count);
+    TerminalTopGrid {
+        columns: ratios
+            .into_iter()
+            .map(|ratio| TerminalGridColumn {
+                ratio,
+                rows: 1,
+                row_ratios: vec![1.0],
+            })
+            .collect(),
+    }
 }
 
 fn normalize_ratios(ratios: Vec<f64>, count: usize) -> Vec<f64> {
@@ -202,6 +305,7 @@ mod tests {
             }],
             tabs: Vec::new(),
             top_ratios: vec![1.0],
+            top_grid: TerminalTopGrid::default(),
             bottom_ratio: 0.72,
             error: None,
         };
@@ -225,7 +329,6 @@ mod tests {
             .save_from_gpui(
                 "project-1::worktree-1",
                 Vec::new(),
-                "terminal-kept".to_string(),
                 vec![TerminalPaneSummary {
                     title: "Shell".to_string(),
                     terminal_id: "terminal-kept".to_string(),
@@ -239,7 +342,6 @@ mod tests {
             .save_from_gpui(
                 "project-1::worktree-1",
                 Vec::new(),
-                String::new(),
                 Vec::new(),
                 Vec::new(),
                 0.24,
@@ -253,5 +355,142 @@ mod tests {
         assert_eq!(layout.top_panes[0].terminal_id, "terminal-kept");
 
         let _ = std::fs::remove_dir_all(support_dir);
+    }
+
+    #[test]
+    fn legacy_top_ratios_migrate_to_single_row_grid() {
+        let layout = sanitize_terminal_layout(TerminalLayoutSummary {
+            top_panes: vec![
+                TerminalPaneSummary {
+                    title: "One".to_string(),
+                    terminal_id: "terminal-1".to_string(),
+                },
+                TerminalPaneSummary {
+                    title: "Two".to_string(),
+                    terminal_id: "terminal-2".to_string(),
+                },
+            ],
+            top_ratios: vec![1.0, 2.0],
+            tabs: Vec::new(),
+            active_terminal_id: String::new(),
+            top_grid: TerminalTopGrid::default(),
+            bottom_ratio: 0.24,
+            error: None,
+        })
+        .expect("layout should sanitize");
+
+        assert_eq!(layout.top_ratios, vec![1.0 / 3.0, 2.0 / 3.0]);
+        assert_eq!(layout.top_grid.columns.len(), 2);
+        assert_eq!(layout.top_grid.columns[0].rows, 1);
+        assert_eq!(layout.top_grid.columns[1].ratio, 2.0 / 3.0);
+    }
+
+    #[test]
+    fn invalid_grid_rows_rebuild_from_top_ratios() {
+        let layout = sanitize_terminal_layout(TerminalLayoutSummary {
+            top_panes: vec![
+                TerminalPaneSummary {
+                    title: "One".to_string(),
+                    terminal_id: "terminal-1".to_string(),
+                },
+                TerminalPaneSummary {
+                    title: "Two".to_string(),
+                    terminal_id: "terminal-2".to_string(),
+                },
+            ],
+            top_ratios: vec![0.25, 0.75],
+            top_grid: TerminalTopGrid {
+                columns: vec![TerminalGridColumn {
+                    ratio: 1.0,
+                    rows: 3,
+                    row_ratios: vec![1.0, 1.0, 1.0],
+                }],
+            },
+            tabs: Vec::new(),
+            active_terminal_id: String::new(),
+            bottom_ratio: 0.24,
+            error: None,
+        })
+        .expect("layout should sanitize");
+
+        assert_eq!(layout.top_grid.columns.len(), 2);
+        assert_eq!(layout.top_grid.columns[0].ratio, 0.25);
+        assert_eq!(layout.top_grid.columns[1].ratio, 0.75);
+    }
+
+    #[test]
+    fn zero_row_grid_column_rebuilds_from_top_ratios() {
+        let layout = sanitize_terminal_layout(TerminalLayoutSummary {
+            top_panes: vec![
+                TerminalPaneSummary {
+                    title: "One".to_string(),
+                    terminal_id: "terminal-1".to_string(),
+                },
+                TerminalPaneSummary {
+                    title: "Two".to_string(),
+                    terminal_id: "terminal-2".to_string(),
+                },
+            ],
+            top_ratios: vec![0.2, 0.8],
+            top_grid: TerminalTopGrid {
+                columns: vec![
+                    TerminalGridColumn {
+                        ratio: 0.25,
+                        rows: 0,
+                        row_ratios: Vec::new(),
+                    },
+                    TerminalGridColumn {
+                        ratio: 0.75,
+                        rows: 2,
+                        row_ratios: vec![0.5, 0.5],
+                    },
+                ],
+            },
+            tabs: Vec::new(),
+            active_terminal_id: String::new(),
+            bottom_ratio: 0.24,
+            error: None,
+        })
+        .expect("layout should sanitize");
+
+        assert_eq!(layout.top_grid.columns.len(), 2);
+        assert_eq!(layout.top_grid.columns[0].rows, 1);
+        assert_eq!(layout.top_grid.columns[0].ratio, 0.2);
+        assert_eq!(layout.top_grid.columns[1].ratio, 0.8);
+    }
+
+    #[test]
+    fn grid_roundtrip_serializes_columns() {
+        let layout = TerminalLayoutSummary {
+            top_panes: vec![
+                TerminalPaneSummary {
+                    title: "One".to_string(),
+                    terminal_id: "terminal-1".to_string(),
+                },
+                TerminalPaneSummary {
+                    title: "Two".to_string(),
+                    terminal_id: "terminal-2".to_string(),
+                },
+            ],
+            top_ratios: vec![0.5, 0.5],
+            top_grid: TerminalTopGrid {
+                columns: vec![TerminalGridColumn {
+                    ratio: 1.0,
+                    rows: 2,
+                    row_ratios: vec![0.4, 0.6],
+                }],
+            },
+            tabs: Vec::new(),
+            active_terminal_id: String::new(),
+            bottom_ratio: 0.24,
+            error: None,
+        };
+
+        let json = serde_json::to_string(&layout).expect("serialize layout");
+        let restored: TerminalLayoutSummary =
+            serde_json::from_str(&json).expect("deserialize layout");
+        assert_eq!(restored.top_grid.columns.len(), 1);
+        assert_eq!(restored.top_grid.columns[0].rows, 2);
+        assert_eq!(restored.top_grid.columns[0].row_ratios, vec![0.4, 0.6]);
     }
 }
