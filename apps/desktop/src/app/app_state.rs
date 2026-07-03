@@ -353,6 +353,8 @@ pub struct CoduxApp {
     pub(in crate::app) workspace_assistant_view:
         Option<gpui::Entity<workspace_views::WorkspaceAssistantView>>,
     pub(in crate::app) ai_stats_sidebar_view: Option<gpui::Entity<sidebars::AIStatsSidebarView>>,
+    pub(in crate::app) server_info_sidebar_view:
+        Option<gpui::Entity<sidebars::ServerInfoSidebarView>>,
     pub(in crate::app) ssh_sidebar_view: Option<gpui::Entity<sidebars::SshSidebarView>>,
     pub(in crate::app) db_sidebar_view: Option<gpui::Entity<sidebars::DbSidebarView>>,
     pub(in crate::app) git_sidebar_view: Option<gpui::Entity<sidebars::GitSidebarView>>,

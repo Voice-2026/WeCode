@@ -77,6 +77,10 @@ const I18N_SHARDS: &[(&str, &str)] = &[
         include_str!("../../runtime-assets/i18n/locales/settings.json"),
     ),
     (
+        "locales/server.json",
+        include_str!("../../runtime-assets/i18n/locales/server.json"),
+    ),
+    (
         "locales/sidebar.json",
         include_str!("../../runtime-assets/i18n/locales/sidebar.json"),
     ),

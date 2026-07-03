@@ -57,6 +57,7 @@ assert(
   result.stdout.includes("Prepared 5 public assets and update metadata"),
   `unexpected dry-run output: ${result.stdout}`,
 );
+assert(releaseScriptUsesStableBetaReleaseFlag(), "beta releases must not be marked as GitHub prereleases");
 
 const manifest = JSON.parse(fs.readFileSync(path.join(artifactsDir, "latest.json"), "utf8"));
 assertEqual(manifest.version, "1.5.0");
@@ -84,6 +85,14 @@ for (const key of ["windows-x86_64", "windows-x86_64-nsis"]) {
 
 fs.rmSync(tempDir, { recursive: true, force: true });
 console.log("release manifest test passed");
+
+function releaseScriptUsesStableBetaReleaseFlag() {
+  const script = fs.readFileSync(path.join(root, "apps/desktop/scripts/release/publish-github-release.mjs"), "utf8");
+  return (
+    script.includes('channel === "beta" ? "--latest=false" : "--latest"') &&
+    !script.includes('channel === "beta" ? "--prerelease"')
+  );
+}
 
 function writeAsset(relativePath, content) {
   const assetPath = path.join(artifactsDir, relativePath);

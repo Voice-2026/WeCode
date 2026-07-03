@@ -383,6 +383,7 @@ impl CoduxApp {
             workspace_body_view: None,
             workspace_assistant_view: None,
             ai_stats_sidebar_view: None,
+            server_info_sidebar_view: None,
             ssh_sidebar_view: None,
             db_sidebar_view: None,
             git_sidebar_view: None,
@@ -1160,6 +1161,10 @@ impl CoduxApp {
             self.toggle_assistant_panel(AssistantPanel::AIStats, window, cx);
             return true;
         }
+        if shortcut_matches(shortcuts, "assistant.server.open", &actual) {
+            self.toggle_assistant_panel(AssistantPanel::ServerInfo, window, cx);
+            return true;
+        }
         if shortcut_matches(shortcuts, "assistant.ssh.open", &actual) {
             self.toggle_assistant_panel(AssistantPanel::SSH, window, cx);
             return true;
@@ -1710,6 +1715,7 @@ impl CoduxApp {
                 UiRegion::WorkspaceChrome,
                 UiRegion::WorkspaceAssistant,
                 UiRegion::AIStatsSidebar,
+                UiRegion::ServerInfoSidebar,
                 UiRegion::SshSidebar,
                 UiRegion::DbSidebar,
                 UiRegion::FileSidebar,
@@ -1727,6 +1733,9 @@ impl CoduxApp {
         match panel {
             AssistantPanel::AIStats => {
                 self.refresh_ai_stats_panel_async(cx);
+            }
+            AssistantPanel::ServerInfo => {
+                self.refresh_server_info_panel(cx);
             }
             AssistantPanel::SSH => {
                 self.state.ssh = self.runtime_service.reload_ssh(self.runtime.root.clone());

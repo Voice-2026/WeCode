@@ -24,7 +24,7 @@ One line (macOS / Linux) — downloads the right prebuilt binary, installs it as
 curl -fsSL https://raw.githubusercontent.com/duxweb/codux/main/apps/agent/scripts/install.sh | sh
 ```
 
-Flags: `--beta` (newest pre-release), `--version <x.y.z>` (pin a version),
+Flags: `--beta` (newest beta-tagged release), `--version <x.y.z>` (pin a version),
 `--dir <path>` (install location), `--setup` (run `config` + `install` after),
 `--mirror <prefix>` (prepend a download mirror if GitHub is slow where you are).
 Pass them after `sh -s --`, e.g. install the beta and set it up as a service:

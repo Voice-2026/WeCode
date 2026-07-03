@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [2.0.0-beta.10] - 2026-07-03
+
+### Added
+
+- Added a remote host metrics panel with host capability detection, system details, CPU, memory, network, disk, and top process snapshots for remote projects.
+
+### Fixed
+
+- Fixed terminal split layout behavior for grid-based panes, drag placement, pane closing, floating pane restore, and split header controls.
+- Fixed IME candidate placement after fast project switches so empty or newly attached terminals fall back to an in-window cursor rectangle instead of the screen corner.
+- Fixed Codex and Claude resume probes so stale interrupted transcripts from previous launches no longer leave projects stuck in a running state.
+- Fixed terminal font family persistence so typed settings no longer remove newer raw settings keys.
+- Fixed remote host metrics edge cases for zero network totals and platforms without load averages.
+- Fixed agent beta update and install lookup so beta-tagged normal GitHub releases are still selected correctly.
+
+### Changed
+
+- Improved the server metrics sidebar visuals with compact cards, OS icons, CPU dot grids, ring indicators, and smaller metric typography.
+- Published beta GitHub releases as normal releases while keeping the beta updater channel manifest separate.
+
 ## [2.0.0-beta.9] - 2026-07-02
 
 ### Fixed

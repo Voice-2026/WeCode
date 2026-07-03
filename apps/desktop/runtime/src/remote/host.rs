@@ -7,7 +7,7 @@ use super::protocol::{
     REMOTE_FILE_DELETED, REMOTE_FILE_DIRECTORY_CREATED, REMOTE_FILE_LIST, REMOTE_FILE_MOVE,
     REMOTE_FILE_MOVED, REMOTE_FILE_READ, REMOTE_FILE_RENAME, REMOTE_FILE_RENAMED,
     REMOTE_FILE_WRITE, REMOTE_FILE_WRITE_BYTES, REMOTE_FILE_WRITTEN, REMOTE_GIT_INVOKE,
-    REMOTE_GIT_READ, REMOTE_GIT_STATUS, REMOTE_HOST_INFO, REMOTE_HOST_OFFLINE,
+    REMOTE_GIT_READ, REMOTE_GIT_STATUS, REMOTE_HOST_INFO, REMOTE_HOST_METRICS, REMOTE_HOST_OFFLINE,
     REMOTE_PAIRING_CONFIRMED, REMOTE_PAIRING_REJECTED, REMOTE_PROJECT_ADD, REMOTE_PROJECT_EDIT,
     REMOTE_PROJECT_LIST, REMOTE_PROJECT_REMOVE, REMOTE_PROJECT_SELECT, REMOTE_PROJECT_SELECTED,
     REMOTE_PROJECT_UPDATED, REMOTE_RESOURCE_AI_STATS, REMOTE_RESOURCE_GIT_STATUS,
@@ -49,9 +49,12 @@ use codux_runtime_core::{
     project as runtime_project, subscription::RuntimeSubscriptionRouter,
     terminal as runtime_terminal, upload as runtime_upload, worktree as runtime_worktree,
 };
-use codux_runtime_live::remote_terminal_dispatch::{
-    RemoteTerminalDispatch, TerminalMessage, finish_terminal_create_viewer_lifecycle,
-    is_terminal_kind, prepare_terminal_create_lifecycle,
+use codux_runtime_live::{
+    host_metrics::sample_host_metrics,
+    remote_terminal_dispatch::{
+        RemoteTerminalDispatch, TerminalMessage, finish_terminal_create_viewer_lifecycle,
+        is_terminal_kind, prepare_terminal_create_lifecycle,
+    },
 };
 use codux_terminal_core::{
     RemoteSequenceGuard, TerminalDriver, TerminalSequence, TerminalSessionHandle,
@@ -901,6 +904,7 @@ impl RemoteHostRuntime {
     fn handle_remote_envelope(self: &Arc<Self>, envelope: RemoteEnvelope) {
         match envelope.kind.as_str() {
             REMOTE_HOST_INFO => self.send_host_info(envelope.device_id.as_deref()),
+            REMOTE_HOST_METRICS => self.handle_host_metrics(envelope.device_id.as_deref()),
             REMOTE_DEVICE_CONNECTED => {
                 self.update_device_online(envelope.device_id.as_deref(), true);
                 self.send_project_and_terminal_lists(envelope.device_id.as_deref());
@@ -998,6 +1002,27 @@ impl RemoteHostRuntime {
                 transports,
             }),
         );
+    }
+
+    fn handle_host_metrics(self: &Arc<Self>, device_id: Option<&str>) {
+        let runtime = Arc::clone(self);
+        let device_id = device_id.map(str::to_string);
+        crate::async_runtime::spawn(async move {
+            match crate::async_runtime::spawn_blocking(sample_host_metrics).await {
+                Ok(metrics) => {
+                    let payload = serde_json::to_value(metrics).unwrap_or(Value::Null);
+                    runtime.send(REMOTE_HOST_METRICS, device_id.as_deref(), None, payload);
+                }
+                Err(error) => {
+                    runtime.send(
+                        REMOTE_ERROR,
+                        device_id.as_deref(),
+                        None,
+                        json!({ "message": format!("Unable to sample host metrics: {error}") }),
+                    );
+                }
+            }
+        });
     }
 
     fn handle_transport_pairing_request(
@@ -5018,7 +5043,7 @@ mod tests {
         where
             F: FnMut(&(Option<String>, Vec<u8>)) -> bool,
         {
-            for _ in 0..40 {
+            for _ in 0..160 {
                 for message in self.take_messages() {
                     if predicate(&message) {
                         return Some(message);
@@ -5182,6 +5207,43 @@ mod tests {
         assert_eq!(envelope.kind, REMOTE_ERROR);
         assert_eq!(envelope.device_id.as_deref(), Some("unknown-device"));
         assert_eq!(envelope.payload["code"], "device_unauthorized");
+
+        fs::remove_dir_all(support_dir).ok();
+    }
+
+    #[test]
+    fn host_metrics_request_replies_with_metrics_payload() {
+        let support_dir = temp_support_dir("codux-remote-host-metrics");
+        write_paired_remote_settings(&support_dir);
+        let runtime = Arc::new(RemoteHostRuntime::new(support_dir.clone()));
+        let transport = Arc::new(CapturingTransport::default());
+        if let Ok(mut current) = runtime.transport.lock() {
+            *current = Some(transport.clone());
+        }
+
+        let raw = RemoteOutgoingEnvelope {
+            kind: REMOTE_HOST_METRICS.to_string(),
+            device_id: Some("device-1".to_string()),
+            session_id: None,
+            seq: None,
+            payload: json!({}),
+        };
+        runtime.handle_transport_message("device-1".to_string(), serde_json::to_vec(&raw).unwrap());
+
+        let (_, bytes) = transport
+            .wait_for_message(|message| {
+                serde_json::from_slice::<RemoteEnvelope>(&message.1)
+                    .map(|envelope| envelope.kind == REMOTE_HOST_METRICS)
+                    .unwrap_or(false)
+            })
+            .expect("host metrics reply");
+        let envelope: RemoteEnvelope = serde_json::from_slice(&bytes).expect("metrics envelope");
+        assert_eq!(envelope.kind, REMOTE_HOST_METRICS);
+        assert_eq!(envelope.device_id.as_deref(), Some("device-1"));
+        let metrics: codux_protocol::RemoteHostMetrics =
+            serde_json::from_value(envelope.payload).expect("metrics payload");
+        assert!(metrics.sampled_at_millis > 0);
+        assert!(metrics.processes.len() <= 30);
 
         fs::remove_dir_all(support_dir).ok();
     }

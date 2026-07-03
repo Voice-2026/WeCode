@@ -214,6 +214,24 @@ impl RuntimeService {
             .host_info()
     }
 
+    pub fn remote_host_info_blocking(
+        &self,
+        device_id: &str,
+    ) -> Result<serde_json::Value, String> {
+        self.remote_controllers
+            .controller_for_blocking(device_id, REMOTE_CONNECT_TIMEOUT)?
+            .host_info()
+    }
+
+    pub fn remote_host_metrics(
+        &self,
+        device_id: &str,
+    ) -> Result<codux_protocol::RemoteHostMetrics, String> {
+        self.remote_controllers
+            .controller_for_blocking(device_id, REMOTE_CONNECT_TIMEOUT)?
+            .host_metrics()
+    }
+
     /// The live controller for a device (used by the terminal UI to drive a
     /// remote-hosted project's terminals).
     pub fn remote_controller_for_device(

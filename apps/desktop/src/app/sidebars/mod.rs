@@ -4,6 +4,7 @@ mod ai;
 mod db;
 mod files;
 mod git;
+mod server_info;
 mod ssh;
 
 use ai::ai_stats_sidebar;
@@ -24,10 +25,12 @@ pub(in crate::app) use git::{
     build_git_review_derived_rows, git_clone_window_workspace, git_credentials_window_workspace,
     git_diff_window_workspace, git_review_file_list, git_review_workspace,
 };
+pub(in crate::app) use server_info::ServerInfoSidebarView;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum AssistantPanel {
     AIStats,
+    ServerInfo,
     SSH,
     DB,
     FileManager,
@@ -95,6 +98,45 @@ impl CoduxApp {
             language: self.state.settings.language.clone(),
             stats_fingerprint: ai_history_stats_fingerprint(&self.state.ai_history_stats),
             refreshing: self.ai_history_refreshing,
+        }
+    }
+
+    pub(in crate::app) fn server_info_sidebar_view(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> gpui::Entity<ServerInfoSidebarView> {
+        let snapshot = self.server_info_sidebar_snapshot();
+        if let Some(view) = &self.server_info_sidebar_view {
+            view.update(cx, |view, cx| {
+                view.set_snapshot(snapshot, cx);
+                view.ensure_polling(cx);
+            });
+            return view.clone();
+        }
+        let app_entity = cx.entity();
+        let view = cx.new(|cx| {
+            let mut view = ServerInfoSidebarView::new(app_entity, snapshot);
+            view.ensure_polling(cx);
+            view
+        });
+        self.server_info_sidebar_view = Some(view.clone());
+        view
+    }
+
+    pub(in crate::app) fn refresh_server_info_panel(&mut self, cx: &mut Context<Self>) {
+        if let Some(view) = &self.server_info_sidebar_view {
+            view.update(cx, |view, cx| view.restart_polling(cx));
+        }
+    }
+
+    fn server_info_sidebar_snapshot(&self) -> server_info::ServerInfoSidebarSnapshot {
+        server_info::ServerInfoSidebarSnapshot {
+            language: self.state.settings.language.clone(),
+            host_device_id: self
+                .state
+                .selected_project
+                .as_ref()
+                .and_then(|project| project.host_device_id.clone()),
         }
     }
 }

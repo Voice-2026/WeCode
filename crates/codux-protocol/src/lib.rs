@@ -26,6 +26,7 @@ pub const REMOTE_HELLO: &str = "hello";
 pub const REMOTE_ERROR: &str = "error";
 pub const REMOTE_RELAY_ERROR: &str = "relay.error";
 pub const REMOTE_HOST_INFO: &str = "host.info";
+pub const REMOTE_HOST_METRICS: &str = "host.metrics";
 pub const REMOTE_HOST_OFFLINE: &str = "host.offline";
 pub const REMOTE_DEVICE_INFO: &str = "device.info";
 pub const REMOTE_DEVICE_CONNECTED: &str = "device.connected";
@@ -222,6 +223,84 @@ pub struct RemoteAICurrentSession {
     pub usage_amounts: Vec<RemoteAIUsageAmount>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub current_usage_amounts: Vec<RemoteAIUsageAmount>,
+}
+
+/// Point-in-time host resource metrics returned by `host.metrics`.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteHostMetrics {
+    pub sampled_at_millis: u64,
+    pub system: RemoteHostSystemMetrics,
+    pub cpu: RemoteHostCpuMetrics,
+    pub memory: RemoteHostMemoryMetrics,
+    pub network: RemoteHostNetworkMetrics,
+    #[serde(default)]
+    pub disks: Vec<RemoteHostDiskMetrics>,
+    #[serde(default)]
+    pub processes: Vec<RemoteHostProcessMetrics>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteHostSystemMetrics {
+    pub hostname: String,
+    pub os_name: String,
+    pub os_version: String,
+    pub kernel_version: String,
+    pub arch: String,
+    pub uptime_seconds: u64,
+    pub utc_offset_seconds: i32,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteHostCpuMetrics {
+    pub total_usage_percent: f32,
+    #[serde(default)]
+    pub cores: Vec<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub load_avg: Option<[f64; 3]>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteHostMemoryMetrics {
+    pub total_bytes: u64,
+    pub used_bytes: u64,
+    pub available_bytes: u64,
+    pub free_bytes: u64,
+    pub swap_total_bytes: u64,
+    pub swap_used_bytes: u64,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteHostNetworkMetrics {
+    pub rx_bytes_per_sec: u64,
+    pub tx_bytes_per_sec: u64,
+    pub rx_total_bytes: u64,
+    pub tx_total_bytes: u64,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteHostDiskMetrics {
+    pub name: String,
+    pub mount_point: String,
+    pub fs_type: String,
+    pub total_bytes: u64,
+    pub available_bytes: u64,
+    pub read_bytes_per_sec: u64,
+    pub write_bytes_per_sec: u64,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteHostProcessMetrics {
+    pub pid: u32,
+    pub name: String,
+    pub cpu_percent: f32,
+    pub memory_bytes: u64,
 }
 
 /// One saved SSH profile sent over `ssh.list`. The host owns the profiles
@@ -996,6 +1075,7 @@ pub fn host_capabilities() -> Value {
             "file": true,
             "git": true,
             "aiStats": true,
+            "hostMetrics": true,
         },
         "terminalBuffer": {
             "chunking": true,
@@ -1191,6 +1271,7 @@ mod tests {
         assert_eq!(capabilities["domains"]["file"], true);
         assert_eq!(capabilities["domains"]["git"], true);
         assert_eq!(capabilities["domains"]["aiStats"], true);
+        assert_eq!(capabilities["domains"]["hostMetrics"], true);
         assert_eq!(capabilities["terminalBuffer"]["chunking"], true);
         assert_eq!(capabilities["terminalBuffer"]["requestId"], true);
         assert_eq!(capabilities["terminalBuffer"]["screenData"], true);
@@ -1207,6 +1288,68 @@ mod tests {
         assert_eq!(capabilities["webTunnel"]["hostBrowser"], true);
         assert_eq!(capabilities["webTunnel"]["tcpConnect"], true);
         assert_eq!(capabilities["webTunnel"]["webSocket"], true);
+    }
+
+    #[test]
+    fn remote_host_metrics_round_trips_json() {
+        let metrics = RemoteHostMetrics {
+            sampled_at_millis: 123,
+            system: RemoteHostSystemMetrics {
+                hostname: "host".to_string(),
+                os_name: "macOS".to_string(),
+                os_version: "15.0".to_string(),
+                kernel_version: "24.0".to_string(),
+                arch: "aarch64".to_string(),
+                uptime_seconds: 456,
+                utc_offset_seconds: 28_800,
+            },
+            cpu: RemoteHostCpuMetrics {
+                total_usage_percent: 12.5,
+                cores: vec![10.0, 15.0],
+                load_avg: Some([1.0, 2.0, 3.0]),
+            },
+            memory: RemoteHostMemoryMetrics {
+                total_bytes: 100,
+                used_bytes: 70,
+                available_bytes: 30,
+                free_bytes: 20,
+                swap_total_bytes: 10,
+                swap_used_bytes: 5,
+            },
+            network: RemoteHostNetworkMetrics {
+                rx_bytes_per_sec: 1,
+                tx_bytes_per_sec: 2,
+                rx_total_bytes: 1000,
+                tx_total_bytes: 2000,
+            },
+            disks: vec![RemoteHostDiskMetrics {
+                name: "disk".to_string(),
+                mount_point: "/".to_string(),
+                fs_type: "apfs".to_string(),
+                total_bytes: 500,
+                available_bytes: 300,
+                read_bytes_per_sec: 4,
+                write_bytes_per_sec: 5,
+            }],
+            processes: vec![RemoteHostProcessMetrics {
+                pid: 42,
+                name: "agent".to_string(),
+                cpu_percent: 6.5,
+                memory_bytes: 1024,
+            }],
+        };
+
+        let value = serde_json::to_value(&metrics).expect("serialize metrics");
+        assert_eq!(value["sampledAtMillis"], 123);
+        assert_eq!(value["system"]["utcOffsetSeconds"], 28_800);
+        assert_eq!(value["cpu"]["totalUsagePercent"], 12.5);
+        assert_eq!(value["network"]["rxBytesPerSec"], 1);
+        assert_eq!(value["disks"][0]["writeBytesPerSec"], 5);
+        assert_eq!(value["processes"][0]["cpuPercent"], 6.5);
+
+        let decoded: RemoteHostMetrics =
+            serde_json::from_value(value).expect("deserialize metrics");
+        assert_eq!(decoded, metrics);
     }
 
     #[test]

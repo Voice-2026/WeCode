@@ -45,6 +45,10 @@ pub mod project_activity;
 pub mod project_open;
 pub mod project_store;
 pub mod remote;
+pub use codux_protocol::{
+    RemoteHostCpuMetrics, RemoteHostDiskMetrics, RemoteHostMemoryMetrics, RemoteHostMetrics,
+    RemoteHostNetworkMetrics, RemoteHostProcessMetrics, RemoteHostSystemMetrics,
+};
 pub mod runtime_activity;
 pub mod runtime_bridge;
 pub mod runtime_cache;

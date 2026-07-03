@@ -12,14 +12,14 @@ use codux_protocol::{
     REMOTE_FILE_DIRECTORY_CREATED, REMOTE_FILE_LIST, REMOTE_FILE_MOVE, REMOTE_FILE_MOVED,
     REMOTE_FILE_READ, REMOTE_FILE_READ_BLOB, REMOTE_FILE_RENAME, REMOTE_FILE_RENAMED,
     REMOTE_FILE_WRITE, REMOTE_FILE_WRITE_BLOB, REMOTE_FILE_WRITE_BYTES, REMOTE_FILE_WRITTEN,
-    REMOTE_GIT_INVOKE, REMOTE_GIT_READ, REMOTE_GIT_STATUS, REMOTE_HOST_INFO, REMOTE_MEMORY_EXTRACT,
-    REMOTE_MEMORY_READ, REMOTE_MEMORY_RESULT, REMOTE_PAIRING_CONFIRMED, REMOTE_PAIRING_REQUEST,
-    REMOTE_PROJECT_ADD, REMOTE_PROJECT_LIST, REMOTE_PROJECT_REMOVE, REMOTE_SSH_LIST,
-    REMOTE_SSH_LIST_RESULT, REMOTE_SSH_REMOVE, REMOTE_SSH_UPSERT, REMOTE_TERMINAL_CLOSE,
-    REMOTE_TERMINAL_CLOSED, REMOTE_TERMINAL_CREATE, REMOTE_TERMINAL_CREATED, REMOTE_TERMINAL_INPUT,
-    REMOTE_TERMINAL_OUTPUT, REMOTE_TRANSPORT_IROH, REMOTE_TRANSPORT_PING, REMOTE_TRANSPORT_PONG,
-    REMOTE_WORKTREE_CREATE, REMOTE_WORKTREE_LIST, REMOTE_WORKTREE_MERGE, REMOTE_WORKTREE_REMOVE,
-    REMOTE_WORKTREE_UPDATED,
+    REMOTE_GIT_INVOKE, REMOTE_GIT_READ, REMOTE_GIT_STATUS, REMOTE_HOST_INFO, REMOTE_HOST_METRICS,
+    REMOTE_MEMORY_EXTRACT, REMOTE_MEMORY_READ, REMOTE_MEMORY_RESULT, REMOTE_PAIRING_CONFIRMED,
+    REMOTE_PAIRING_REQUEST, REMOTE_PROJECT_ADD, REMOTE_PROJECT_LIST, REMOTE_PROJECT_REMOVE,
+    REMOTE_SSH_LIST, REMOTE_SSH_LIST_RESULT, REMOTE_SSH_REMOVE, REMOTE_SSH_UPSERT,
+    REMOTE_TERMINAL_CLOSE, REMOTE_TERMINAL_CLOSED, REMOTE_TERMINAL_CREATE, REMOTE_TERMINAL_CREATED,
+    REMOTE_TERMINAL_INPUT, REMOTE_TERMINAL_OUTPUT, REMOTE_TRANSPORT_IROH, REMOTE_TRANSPORT_PING,
+    REMOTE_TRANSPORT_PONG, REMOTE_WORKTREE_CREATE, REMOTE_WORKTREE_LIST, REMOTE_WORKTREE_MERGE,
+    REMOTE_WORKTREE_REMOVE, REMOTE_WORKTREE_UPDATED,
 };
 use codux_remote_transport::{
     RemoteHostTransportConfig, RemoteTransport, RemoteTransportCandidate, RemoteTransportFactory,
@@ -36,7 +36,7 @@ use codux_runtime_core::{
 };
 use codux_runtime_live::{
     ai_runtime::AIRuntimeBridge, ai_runtime_state::AIRuntimeStateService,
-    terminal_pty::TerminalManager,
+    host_metrics::sample_host_metrics, terminal_pty::TerminalManager,
 };
 
 use crate::projects::AgentProjectStore;
@@ -118,6 +118,32 @@ fn make_handler(
                 };
                 let result = runtime.block_on(crate::memory::memory_extract_payload(&payload));
                 let mut envelope = json!({ "type": REMOTE_MEMORY_RESULT, "payload": result });
+                if let Some(device) = device.as_deref() {
+                    envelope["deviceId"] = json!(device);
+                }
+                if let Some(request) = request.as_deref() {
+                    envelope["requestId"] = json!(request);
+                }
+                if let Ok(bytes) = serde_json::to_vec(&envelope) {
+                    if let Ok(guard) = slot.lock() {
+                        if let Some(transport) = guard.as_ref() {
+                            transport.send(bytes, device.as_deref());
+                        }
+                    }
+                }
+            });
+            return;
+        }
+
+        if kind == REMOTE_HOST_METRICS {
+            let slot = Arc::clone(&slot);
+            let device = device_id.map(str::to_string);
+            let request = request_id.map(str::to_string);
+            std::thread::spawn(move || {
+                let mut envelope = json!({
+                    "type": REMOTE_HOST_METRICS,
+                    "payload": sample_host_metrics(),
+                });
                 if let Some(device) = device.as_deref() {
                     envelope["deviceId"] = json!(device);
                 }
@@ -1154,6 +1180,18 @@ pub async fn run_serve_smoke_async() -> Result<String, String> {
         }
         if confirmed.get("deviceId").and_then(Value::as_str) != Some(device_id.as_str()) {
             return Err("pairing.confirmed did not echo the device id".to_string());
+        }
+
+        request(REMOTE_HOST_METRICS, json!({}))?;
+        let metrics = expect(&mut reply_rx, REMOTE_HOST_METRICS).await?;
+        if metrics
+            .get("sampledAtMillis")
+            .and_then(Value::as_u64)
+            .is_none()
+        {
+            return Err(format!(
+                "host.metrics reply missing sampledAtMillis: {metrics}"
+            ));
         }
 
         // 1. list

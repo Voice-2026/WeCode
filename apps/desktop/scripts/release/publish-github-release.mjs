@@ -238,7 +238,7 @@ function run(command, args) {
 }
 
 function upsertRelease() {
-  const releaseFlag = channel === "beta" ? "--prerelease" : "--latest";
+  const releaseFlag = channel === "beta" ? "--latest=false" : "--latest";
   const releaseExists =
     spawnSync("gh", ["release", "view", tagName, "--repo", repo], {
       stdio: "ignore",

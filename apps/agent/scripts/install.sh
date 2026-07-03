@@ -9,7 +9,7 @@
 #   curl -fsSL .../install.sh | sh -s -- --uninstall
 #
 # Options (pass after `sh -s --`, or as env vars):
-#   --beta              newest build incl. pre-releases             (CODUX_CHANNEL=beta)
+#   --beta              newest beta-tagged build             (CODUX_CHANNEL=beta)
 #   --stable            newest stable build  [default]              (CODUX_CHANNEL=stable)
 #   --version <x.y.z>   install an exact version                    (CODUX_VERSION=x.y.z)
 #   --dir <path>        install / locate dir                        (CODUX_INSTALL_DIR=path)
@@ -47,7 +47,7 @@ Uninstall stop the host, remove its OS service, delete the binary.
   curl -fsSL .../install.sh | sh -s -- --uninstall
 
 Options (pass after `sh -s --`, or as env vars):
-  --beta              newest build incl. pre-releases             (CODUX_CHANNEL=beta)
+  --beta              newest beta-tagged build             (CODUX_CHANNEL=beta)
   --stable            newest stable build  [default]              (CODUX_CHANNEL=stable)
   --version <x.y.z>   install an exact version                    (CODUX_VERSION=x.y.z)
   --dir <path>        install / locate dir                        (CODUX_INSTALL_DIR=path)

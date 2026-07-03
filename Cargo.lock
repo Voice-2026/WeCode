@@ -1317,6 +1317,7 @@ dependencies = [
  "rust-embed",
  "rustls",
  "serde",
+ "serde_json",
  "url",
  "uuid",
  "windows-sys 0.61.2",
@@ -1546,6 +1547,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "sqlx",
+ "sysinfo 0.36.1",
  "tokio",
  "uuid",
 ]
@@ -6449,6 +6451,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "objc2-io-kit"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "33fafba39597d6dc1fb709123dfa8289d39406734be322956a69f0931c73bb15"
+dependencies = [
+ "libc",
+ "objc2-core-foundation",
+]
+
+[[package]]
 name = "objc2-metal"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9487,6 +9499,20 @@ dependencies = [
  "ntapi",
  "rayon",
  "windows 0.57.0",
+]
+
+[[package]]
+name = "sysinfo"
+version = "0.36.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "252800745060e7b9ffb7b2badbd8b31cfa4aa2e61af879d0a3bf2a317c20217d"
+dependencies = [
+ "libc",
+ "memchr",
+ "ntapi",
+ "objc2-core-foundation",
+ "objc2-io-kit",
+ "windows 0.61.3",
 ]
 
 [[package]]
@@ -12572,7 +12598,7 @@ dependencies = [
  "rand 0.8.6",
  "screencapturekit",
  "screencapturekit-sys",
- "sysinfo",
+ "sysinfo 0.31.4",
  "tao-core-video-sys",
  "windows 0.61.3",
  "windows-capture",

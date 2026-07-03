@@ -37,6 +37,7 @@ impl CoduxApp {
             .selected_project
             .as_ref()
             .and_then(|project| project.host_device_id.clone());
+        let is_remote_project = remote_project_device_id.is_some();
         let pet_sprite_frame = self.visible_pet_sprite_frame(PET_IDLE_FRAME_COUNT);
         let pet_button = if self.state.settings.pet_enabled {
             if has_project_context {
@@ -122,6 +123,15 @@ impl CoduxApp {
                             has_project_context,
                             cx,
                         ))
+                        .when(is_remote_project, |this| {
+                            this.child(workspace_assistant_button(
+                                "Server",
+                                AssistantPanel::ServerInfo,
+                                self.assistant_panel,
+                                true,
+                                cx,
+                            ))
+                        })
                         .child(workspace_assistant_button(
                             "SSH",
                             AssistantPanel::SSH,
@@ -344,6 +354,7 @@ fn workspace_assistant_button(
     let button = workspace_header_button(
         match panel {
             AssistantPanel::AIStats => "workspace-assistant-ai",
+            AssistantPanel::ServerInfo => "workspace-assistant-server",
             AssistantPanel::SSH => "workspace-assistant-ssh",
             AssistantPanel::DB => "workspace-assistant-db",
             AssistantPanel::FileManager => "workspace-assistant-files",
@@ -375,6 +386,7 @@ fn workspace_assistant_button(
                 .child(
                     Icon::new(match panel {
                         AssistantPanel::AIStats => HeroIconName::Sparkles,
+                        AssistantPanel::ServerInfo => HeroIconName::ServerStack,
                         AssistantPanel::SSH => HeroIconName::CommandLine,
                         AssistantPanel::DB => HeroIconName::CircleStack,
                         AssistantPanel::FileManager => HeroIconName::Folder,
@@ -393,6 +405,7 @@ fn workspace_assistant_button(
         cx.entity(),
         match panel {
             AssistantPanel::AIStats => "workspace-assistant-ai-tooltip",
+            AssistantPanel::ServerInfo => "workspace-assistant-server-tooltip",
             AssistantPanel::SSH => "workspace-assistant-ssh-tooltip",
             AssistantPanel::DB => "workspace-assistant-db-tooltip",
             AssistantPanel::FileManager => "workspace-assistant-files-tooltip",

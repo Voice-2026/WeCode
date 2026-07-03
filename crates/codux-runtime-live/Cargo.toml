@@ -26,5 +26,6 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
 sha2 = "0.10"
 sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio-rustls", "any", "postgres", "mysql", "sqlite", "json"] }
+sysinfo = { version = "0.36.1", default-features = false, features = ["system", "disk", "network"] }
 tokio = { version = "1", features = ["rt", "time"] }
 uuid = { version = "1", features = ["v4", "v5"] }

@@ -9,6 +9,7 @@ pub(in crate::app) enum UiRegion {
     WorkspaceBody,
     WorkspaceAssistant,
     AIStatsSidebar,
+    ServerInfoSidebar,
     SshSidebar,
     DbSidebar,
     FileSidebar,
@@ -111,6 +112,12 @@ impl CoduxApp {
                     let _ = self.ai_stats_sidebar_view(cx);
                 }
             }
+            UiRegion::ServerInfoSidebar => {
+                self.record_ui_performance_event("invalidate", region.label());
+                if self.server_info_sidebar_view.is_some() {
+                    let _ = self.server_info_sidebar_view(cx);
+                }
+            }
             UiRegion::SshSidebar => {
                 self.record_ui_performance_event("invalidate", region.label());
                 if self.ssh_sidebar_view.is_some() {
@@ -169,6 +176,7 @@ impl CoduxApp {
                 UiRegion::WorkspaceBody,
                 UiRegion::WorkspaceAssistant,
                 UiRegion::AIStatsSidebar,
+                UiRegion::ServerInfoSidebar,
                 UiRegion::DbSidebar,
                 UiRegion::FileSidebar,
                 UiRegion::GitSidebar,
@@ -218,6 +226,7 @@ impl CoduxApp {
                 UiRegion::WorkspaceBody,
                 UiRegion::WorkspaceAssistant,
                 UiRegion::AIStatsSidebar,
+                UiRegion::ServerInfoSidebar,
                 UiRegion::SshSidebar,
                 UiRegion::DbSidebar,
                 UiRegion::FileSidebar,
@@ -293,6 +302,7 @@ impl CoduxApp {
             cx,
             [
                 UiRegion::WorkspaceAssistant,
+                UiRegion::ServerInfoSidebar,
                 UiRegion::SshSidebar,
                 UiRegion::DbSidebar,
                 UiRegion::TaskColumn,
@@ -314,6 +324,7 @@ impl CoduxApp {
                 UiRegion::WorkspaceChrome,
                 UiRegion::WorkspaceAssistant,
                 UiRegion::AIStatsSidebar,
+                UiRegion::ServerInfoSidebar,
                 UiRegion::SshSidebar,
                 UiRegion::DbSidebar,
                 UiRegion::GitSidebar,
@@ -368,6 +379,7 @@ impl UiRegion {
             UiRegion::WorkspaceBody => "workspace_body",
             UiRegion::WorkspaceAssistant => "workspace_assistant",
             UiRegion::AIStatsSidebar => "ai_stats_sidebar",
+            UiRegion::ServerInfoSidebar => "server_info_sidebar",
             UiRegion::SshSidebar => "ssh_sidebar",
             UiRegion::DbSidebar => "db_sidebar",
             UiRegion::FileSidebar => "file_sidebar",

@@ -36,6 +36,36 @@ fields and missing fields. For terminal recovery, v3.2 hosts advertise:
   `baselineFailed`.
 - `terminalOutput.sequence` and `staleOutput`.
 - `terminalViewport.ownership`, `state`, `scroll`, `keyframe`.
+- `domains.hostMetrics` for pull-based remote host resource metrics.
+
+## Host Metrics
+
+`host.metrics` is a controller-initiated request/reply over the same transport
+as `host.info`. It is deliberately pull-only: a desktop panel polls while it is
+open and stops when hidden, so the host has no permanent watcher or broadcast
+state.
+
+Controllers correlate `host.metrics` replies by message kind, matching the
+existing generic request path. Implementations may echo `requestId`, but it is
+not required for this domain.
+
+Controllers must first check `host.info.capabilities.domains.hostMetrics`.
+Missing or false means the host is an older version; clients should show an
+unsupported state and must not keep retrying `host.metrics`.
+
+The reply payload is a `RemoteHostMetrics` snapshot:
+
+- `sampledAtMillis`: host sample time in Unix milliseconds.
+- `system`: `hostname`, `osName`, `osVersion`, `kernelVersion`, `arch`,
+  `uptimeSeconds`, `utcOffsetSeconds`.
+- `cpu`: `totalUsagePercent`, per-core `cores`, and optional `loadAvg`.
+- `memory`: total/used/available/free RAM plus total/used swap bytes.
+- `network`: aggregate receive/transmit totals and bytes-per-second rates.
+- `disks`: mount/name/fs type, total/available bytes, read/write rates.
+- `processes`: CPU-sorted process rows; hosts cap the list before sending.
+
+Rates are host-side deltas between adjacent samples. The first sample reports
+zero rates.
 
 ## Resource Subscription
 

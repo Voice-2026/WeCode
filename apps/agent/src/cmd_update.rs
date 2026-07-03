@@ -107,8 +107,12 @@ fn fetch_release(client: &reqwest::blocking::Client, beta: bool) -> Result<Relea
 fn select_beta_release(releases: Vec<Release>) -> Result<Release, String> {
     releases
         .into_iter()
-        .find(|release| release.prerelease)
+        .find(|release| release.prerelease || release_tag_is_beta(&release.tag_name))
         .ok_or_else(|| "no beta release found".to_string())
+}
+
+fn release_tag_is_beta(tag_name: &str) -> bool {
+    tag_name.trim_start_matches('v').contains("-beta")
 }
 
 /// Choose the release asset for this OS + architecture.
@@ -192,7 +196,7 @@ fn is_newer(a: &str, b: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{Asset, Release, is_newer, pick_asset, select_beta_release};
+    use super::{Asset, Release, is_newer, pick_asset, release_tag_is_beta, select_beta_release};
 
     #[test]
     fn newer_version_compares_numeric_parts() {
@@ -222,18 +226,24 @@ mod tests {
     }
 
     #[test]
-    fn select_beta_release_uses_first_prerelease() {
+    fn select_beta_release_uses_first_beta_release() {
         let stable = release("v2.0.0", false);
-        let beta = release("v2.1.0-beta.1", true);
-        let older_beta = release("v2.0.0-beta.5", true);
+        let beta = release("v2.1.0-beta.1", false);
+        let older_prerelease_beta = release("v2.0.0-beta.5", true);
 
-        let selected = select_beta_release(vec![stable, beta, older_beta]).unwrap();
+        let selected = select_beta_release(vec![stable, beta, older_prerelease_beta]).unwrap();
 
         assert_eq!(selected.tag_name, "v2.1.0-beta.1");
     }
 
     #[test]
-    fn select_beta_release_requires_prerelease() {
+    fn release_tag_beta_detection_ignores_stable_versions() {
+        assert!(release_tag_is_beta("v2.0.0-beta.10"));
+        assert!(!release_tag_is_beta("v2.0.0"));
+    }
+
+    #[test]
+    fn select_beta_release_requires_beta_tag_or_prerelease() {
         let error = match select_beta_release(vec![release("v2.0.0", false)]) {
             Ok(_) => panic!("expected missing beta release to fail"),
             Err(error) => error,

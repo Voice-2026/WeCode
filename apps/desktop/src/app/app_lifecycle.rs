@@ -427,6 +427,7 @@ impl CoduxApp {
             workspace_body_view: None,
             workspace_assistant_view: None,
             ai_stats_sidebar_view: None,
+            server_info_sidebar_view: None,
             ssh_sidebar_view: None,
             db_sidebar_view: None,
             git_sidebar_view: None,

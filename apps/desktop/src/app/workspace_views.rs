@@ -67,9 +67,10 @@ impl WorkspaceColumnView {
 impl Render for WorkspaceColumnView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let assistant_snapshot = self.assistant_view.read(cx);
-        let show_assistant = assistant_snapshot.snapshot.panel.is_some_and(|panel| {
-            assistant_snapshot.snapshot.has_project || panel == AssistantPanel::SSH
-        });
+        let show_assistant = assistant_snapshot
+            .snapshot
+            .panel
+            .is_some_and(|panel| assistant_panel_available(panel, &assistant_snapshot.snapshot));
 
         div()
             .flex()
@@ -702,49 +703,48 @@ impl Render for WorkspaceAssistantView {
         let snapshot = self.snapshot.clone();
         let app_entity = self.app_entity.clone();
         div().when_some(snapshot.panel, |this, panel| {
-            this.when(
-                snapshot.has_project || panel == AssistantPanel::SSH,
-                |this| {
-                    this.flex()
-                        .flex_col()
-                        .flex_none()
-                        .flex_shrink_0()
-                        .w(px(ASSISTANT_PANEL_WIDTH))
-                        .min_w(px(ASSISTANT_PANEL_WIDTH))
-                        .max_w(px(ASSISTANT_PANEL_WIDTH))
-                        .h_full()
-                        .bg(theme::vibrancy_panel(color(theme::BG_COLUMN)))
-                        .border_l_1()
-                        .border_color(cx.theme().sidebar_border)
-                        .child(match panel {
-                            AssistantPanel::AIStats => self.app_entity.update(cx, |app, cx| {
-                                gpui::AnyView::from(app.ai_stats_sidebar_view(cx))
-                                    .into_any_element()
-                            }),
-                            AssistantPanel::SSH => self.app_entity.update(cx, |app, cx| {
-                                gpui::AnyView::from(app.ssh_sidebar_view(cx)).into_any_element()
-                            }),
-                            AssistantPanel::DB => self.app_entity.update(cx, |app, cx| {
-                                gpui::AnyView::from(app.db_sidebar_view(cx)).into_any_element()
-                            }),
-                            AssistantPanel::FileManager => self.app_entity.update(cx, |app, cx| {
-                                gpui::AnyView::from(app.file_sidebar_view(cx))
-                                    .cached(
-                                        gpui::StyleRefinement::default()
-                                            .flex()
-                                            .flex_col()
-                                            .w_full()
-                                            .h_full()
-                                            .min_h_0(),
-                                    )
-                                    .into_any_element()
-                            }),
-                            AssistantPanel::Git => app_entity.update(cx, |app, cx| {
-                                gpui::AnyView::from(app.git_sidebar_view(cx)).into_any_element()
-                            }),
-                        })
-                },
-            )
+            this.when(assistant_panel_available(panel, &snapshot), |this| {
+                this.flex()
+                    .flex_col()
+                    .flex_none()
+                    .flex_shrink_0()
+                    .w(px(ASSISTANT_PANEL_WIDTH))
+                    .min_w(px(ASSISTANT_PANEL_WIDTH))
+                    .max_w(px(ASSISTANT_PANEL_WIDTH))
+                    .h_full()
+                    .bg(theme::vibrancy_panel(color(theme::BG_COLUMN)))
+                    .border_l_1()
+                    .border_color(cx.theme().sidebar_border)
+                    .child(match panel {
+                        AssistantPanel::AIStats => self.app_entity.update(cx, |app, cx| {
+                            gpui::AnyView::from(app.ai_stats_sidebar_view(cx)).into_any_element()
+                        }),
+                        AssistantPanel::ServerInfo => self.app_entity.update(cx, |app, cx| {
+                            gpui::AnyView::from(app.server_info_sidebar_view(cx)).into_any_element()
+                        }),
+                        AssistantPanel::SSH => self.app_entity.update(cx, |app, cx| {
+                            gpui::AnyView::from(app.ssh_sidebar_view(cx)).into_any_element()
+                        }),
+                        AssistantPanel::DB => self.app_entity.update(cx, |app, cx| {
+                            gpui::AnyView::from(app.db_sidebar_view(cx)).into_any_element()
+                        }),
+                        AssistantPanel::FileManager => self.app_entity.update(cx, |app, cx| {
+                            gpui::AnyView::from(app.file_sidebar_view(cx))
+                                .cached(
+                                    gpui::StyleRefinement::default()
+                                        .flex()
+                                        .flex_col()
+                                        .w_full()
+                                        .h_full()
+                                        .min_h_0(),
+                                )
+                                .into_any_element()
+                        }),
+                        AssistantPanel::Git => app_entity.update(cx, |app, cx| {
+                            gpui::AnyView::from(app.git_sidebar_view(cx)).into_any_element()
+                        }),
+                    })
+            })
         })
     }
 }
@@ -760,6 +760,12 @@ impl CoduxApp {
         WorkspaceAssistantSnapshot {
             panel: self.assistant_panel,
             has_project: self.state.selected_project.is_some(),
+            is_remote_project: self
+                .state
+                .selected_project
+                .as_ref()
+                .and_then(|project| project.host_device_id.as_ref())
+                .is_some(),
         }
     }
 
@@ -833,6 +839,15 @@ pub(in crate::app) struct WorkspaceToolbarSnapshot {
 pub(in crate::app) struct WorkspaceAssistantSnapshot {
     panel: Option<AssistantPanel>,
     has_project: bool,
+    is_remote_project: bool,
+}
+
+fn assistant_panel_available(panel: AssistantPanel, snapshot: &WorkspaceAssistantSnapshot) -> bool {
+    match panel {
+        AssistantPanel::SSH => true,
+        AssistantPanel::ServerInfo => snapshot.is_remote_project,
+        _ => snapshot.has_project,
+    }
 }
 
 fn workspace_toolbar_fingerprint(app: &CoduxApp) -> u64 {
@@ -844,6 +859,7 @@ fn workspace_toolbar_fingerprint(app: &CoduxApp) -> u64 {
                 project.id.clone(),
                 project.name.clone(),
                 project.path.clone(),
+                project.host_device_id.clone(),
             )
         }),
         app.state.settings.language.clone(),
@@ -887,6 +903,7 @@ fn workspace_view_key(view: WorkspaceView) -> &'static str {
 fn assistant_panel_key(panel: Option<AssistantPanel>) -> &'static str {
     match panel {
         Some(AssistantPanel::AIStats) => "ai_stats",
+        Some(AssistantPanel::ServerInfo) => "server_info",
         Some(AssistantPanel::SSH) => "ssh",
         Some(AssistantPanel::DB) => "db",
         Some(AssistantPanel::FileManager) => "file_manager",
@@ -2126,15 +2143,17 @@ fn terminal_pane_drag_handle(
         .id(SharedString::from(format!(
             "terminal-pane-drag-source-{pane_index}"
         )))
-        .size_full()
+        .size(px(22.0))
         .flex()
         .items_center()
         .justify_center()
+        .rounded_sm()
         .child(
             Icon::new(HeroIconName::ArrowsPointingOut)
                 .size_3p5()
                 .text_color(cx.theme().secondary_foreground),
         )
+        .hover(|style| style.bg(cx.theme().secondary_hover))
         .on_drag(TerminalPaneDrag { pane_index }, move |drag, _, _, cx| {
             cx.stop_propagation();
             cx.new(|_| TerminalPaneDrag {
@@ -2151,10 +2170,8 @@ fn terminal_pane_drag_handle(
         .flex_none()
         .items_center()
         .justify_center()
-        .rounded_sm()
         .text_color(cx.theme().secondary_foreground)
         .cursor_pointer()
-        .hover(|style| style.bg(cx.theme().secondary_hover))
         .on_mouse_down(MouseButton::Left, |_event, window, cx| {
             cx.stop_propagation();
             window.prevent_default();
@@ -2188,10 +2205,19 @@ fn terminal_pane_split_button(
     let view = cx.entity();
     let content_id = SharedString::from(format!("{id}-menu-content"));
     let button = Button::new(SharedString::from(format!("{id}-default")))
-        .ghost()
-        .compact()
-        .text_color(cx.theme().secondary_foreground)
-        .icon(Icon::new(HeroIconName::Plus).text_color(cx.theme().secondary_foreground))
+        .with_size(Size::Size(px(22.0)))
+        .rounded(px(3.0))
+        .custom(
+            ButtonCustomVariant::new(cx)
+                .foreground(cx.theme().secondary_foreground)
+                .hover(cx.theme().secondary_hover)
+                .active(cx.theme().secondary_hover),
+        )
+        .icon(
+            Icon::new(HeroIconName::Plus)
+                .size_3p5()
+                .text_color(cx.theme().secondary_foreground),
+        )
         .on_hover(split_menu_hover_listener(view.clone(), pane_index))
         .on_click({
             let app_entity = app_entity.clone();
@@ -2355,21 +2381,31 @@ fn terminal_pane_control_button(
     } else {
         color(theme::TEXT_DIM)
     };
+    let inner = div()
+        .size(px(22.0))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded_sm()
+        .child(Icon::new(icon).size_3p5().text_color(text_color));
+    let inner = if enabled {
+        inner.hover(|style| style.bg(cx.theme().secondary_hover))
+    } else {
+        inner
+    };
     let button = codux_tooltip_container(app_entity.clone(), id, tooltip)
         .size(px(28.0))
         .flex()
         .flex_none()
         .items_center()
         .justify_center()
-        .rounded_sm()
         .text_color(text_color)
-        .child(Icon::new(icon).size_3p5().text_color(text_color));
+        .child(inner);
 
     if enabled {
         let on_click = std::rc::Rc::new(on_click);
         button
             .cursor_pointer()
-            .hover(|style| style.bg(cx.theme().secondary_hover))
             .on_click(cx.listener(move |_view, _event, window, cx| {
                 cx.stop_propagation();
                 window.prevent_default();
