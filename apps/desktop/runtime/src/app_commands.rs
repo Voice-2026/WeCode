@@ -1910,6 +1910,7 @@ mod tests {
                 transcript_path: None,
                 started_at: None,
                 updated_at: 0.0,
+                occupied_external_session_ids: Default::default(),
             },
         );
         assert!(probed.is_none());

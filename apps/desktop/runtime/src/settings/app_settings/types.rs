@@ -41,6 +41,8 @@ pub struct AppSettings {
     pub theme: String,
     #[serde(default = "default_theme_color")]
     pub theme_color: String,
+    #[serde(default)]
+    pub terminal_font_family: String,
     #[serde(default = "default_terminal_font_size")]
     pub terminal_font_size: String,
     #[serde(default = "default_terminal_scrollback_lines")]

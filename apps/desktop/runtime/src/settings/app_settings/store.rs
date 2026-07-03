@@ -1,6 +1,7 @@
 use crate::{
     config::ConfigStore, notification::NotificationChannelConfig, runtime_paths::app_support_dir,
 };
+use serde_json::Value;
 use std::{
     path::{Path, PathBuf},
     sync::Mutex,
@@ -23,12 +24,16 @@ impl AppSettingsStore {
     }
 
     pub fn from_settings_file(state_file: PathBuf) -> Self {
-        let settings = load_settings(&state_file).unwrap_or_default();
+        let raw = ConfigStore::for_file(state_file.clone()).snapshot();
+        let is_empty = raw.is_empty();
+        let settings = settings_from_raw(raw).unwrap_or_default();
         let store = Self {
             settings: Mutex::new(sanitize_settings(settings)),
             state_file,
         };
-        let _ = store.save();
+        if is_empty {
+            let _ = store.save();
+        }
         store
     }
 
@@ -97,16 +102,24 @@ impl AppSettingsStore {
     fn save(&self) -> Result<(), String> {
         let settings = self.snapshot();
         let value = serde_json::to_value(settings).map_err(|error| error.to_string())?;
-        let raw = value
+        let typed = value
             .as_object()
-            .cloned()
             .ok_or_else(|| "App settings must be a JSON object.".to_string())?;
-        ConfigStore::for_file(self.state_file.clone()).save_snapshot(&raw)
+        ConfigStore::for_file(self.state_file.clone()).update(|raw| {
+            for (key, value) in typed {
+                raw.insert(key.clone(), value.clone());
+            }
+            Ok(())
+        })
     }
 }
 
 fn load_settings(path: &Path) -> Option<AppSettings> {
     let raw = ConfigStore::for_file(path.to_path_buf()).snapshot();
+    settings_from_raw(raw)
+}
+
+fn settings_from_raw(raw: serde_json::Map<String, Value>) -> Option<AppSettings> {
     if raw.is_empty() {
         return None;
     }

@@ -141,6 +141,7 @@ impl Default for AppSettings {
             file_open_default: default_file_open_default(),
             theme: default_theme(),
             theme_color: default_theme_color(),
+            terminal_font_family: String::new(),
             terminal_font_size: default_terminal_font_size(),
             terminal_scrollback_lines: default_terminal_scrollback_lines(),
             terminal_paste_images_as_paths: default_terminal_paste_images_as_paths(),

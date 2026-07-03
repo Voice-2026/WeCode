@@ -34,6 +34,13 @@ pub(super) fn sanitize_settings(mut settings: AppSettings) -> AppSettings {
     if settings.theme_color.trim().is_empty() {
         settings.theme_color = default_theme_color();
     }
+    settings.terminal_font_family = settings
+        .terminal_font_family
+        .trim()
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(80)
+        .collect();
     if settings.terminal_font_size.trim().is_empty() {
         settings.terminal_font_size = default_terminal_font_size();
     }

@@ -14,6 +14,95 @@ mod tests {
     }
 
     #[test]
+    fn terminal_font_family_survives_app_settings_reload() {
+        let support_dir = temp_dir("settings-terminal-font-family");
+        let service = crate::runtime_state::RuntimeService::new(support_dir.clone());
+
+        let summary = service
+            .set_terminal_font_family("Menlo")
+            .expect("set terminal font family");
+        assert_eq!(summary.terminal_font_family, "Menlo");
+
+        let summary = service
+            .set_terminal_font_size("16")
+            .expect("set terminal font size");
+        assert_eq!(summary.terminal_font_family, "Menlo");
+        assert_eq!(summary.terminal_font_size, "16");
+
+        crate::config::flush_all_config_writes();
+        let saved = fs::read_to_string(support_dir.join("settings.json")).expect("saved settings");
+        let saved: serde_json::Value = serde_json::from_str(&saved).expect("saved json");
+        assert_eq!(
+            saved
+                .get("terminalFontFamily")
+                .and_then(|value| value.as_str()),
+            Some("Menlo")
+        );
+        assert_eq!(
+            SettingsService::new(support_dir.clone())
+                .summary()
+                .terminal_font_family,
+            "Menlo"
+        );
+
+        fs::remove_dir_all(support_dir).ok();
+    }
+
+    #[test]
+    fn app_settings_save_preserves_unknown_top_level_keys() {
+        let support_dir = temp_dir("settings-preserve-unknown");
+        let settings_path = support_dir.join("settings.json");
+        fs::write(
+            &settings_path,
+            serde_json::to_string_pretty(&serde_json::json!({
+                "futureSetting": "keep-me",
+                "theme": "Auto"
+            }))
+            .expect("settings json"),
+        )
+        .expect("settings");
+
+        let store = AppSettingsStore::from_settings_file(settings_path.clone());
+        store
+            .update(|settings| settings.theme = "Dark".to_string())
+            .expect("update settings");
+        crate::config::flush_all_config_writes();
+
+        let saved = fs::read_to_string(settings_path).expect("saved settings");
+        let saved: serde_json::Value = serde_json::from_str(&saved).expect("saved json");
+        assert_eq!(
+            saved.get("futureSetting").and_then(|value| value.as_str()),
+            Some("keep-me")
+        );
+        assert_eq!(
+            saved.get("theme").and_then(|value| value.as_str()),
+            Some("Dark")
+        );
+
+        fs::remove_dir_all(support_dir).ok();
+    }
+
+    #[test]
+    fn app_settings_store_construction_does_not_rewrite_non_empty_files() {
+        let support_dir = temp_dir("settings-read-no-rewrite");
+        let settings_path = support_dir.join("settings.json");
+        let original = "{\n  \"futureSetting\": \"keep-me\"\n}\n";
+        fs::write(&settings_path, original).expect("settings");
+
+        let store = AppSettingsStore::from_settings_file(settings_path.clone());
+        assert_eq!(
+            store.snapshot().terminal_font_size,
+            AppSettings::default().terminal_font_size
+        );
+        crate::config::flush_all_config_writes();
+
+        let saved = fs::read_to_string(settings_path).expect("saved settings");
+        assert_eq!(saved, original);
+
+        fs::remove_dir_all(support_dir).ok();
+    }
+
+    #[test]
     fn summarizes_ai_providers_without_secret_fields() {
         let support_dir = temp_dir("settings");
         fs::write(
