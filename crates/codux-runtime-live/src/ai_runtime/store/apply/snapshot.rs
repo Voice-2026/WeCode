@@ -1,7 +1,7 @@
 use crate::ai_runtime::{
     constants::{
-        COMPLETION_TIMESTAMP_SKEW_SECONDS, RESPONDING_RENEWAL_MAX_SECONDS,
-        RUNNING_STATE_RENEWAL_SECONDS,
+        CODEX_STALE_PRELAUNCH_OPEN_TURN_SOURCE, COMPLETION_TIMESTAMP_SKEW_SECONDS,
+        RESPONDING_RENEWAL_MAX_SECONDS, RUNNING_STATE_RENEWAL_SECONDS,
     },
     screen_signal::ScreenSignal,
     snapshot::{AIRuntimeContextSnapshot, AISessionSnapshot, AIUsageAmountSnapshot},
@@ -163,7 +163,11 @@ pub(in crate::ai_runtime::store) fn apply_runtime_snapshot_unlocked(
         let turn_completed_at = snapshot.completed_at.or_else(|| {
             (snapshot.was_interrupted || snapshot.has_completed_turn).then_some(snapshot.updated_at)
         });
-        let can_resolve_idle = if snapshot_tool == "kiro" && snapshot.has_completed_turn {
+        let silent_stale_prelaunch_open_turn =
+            snapshot.source == CODEX_STALE_PRELAUNCH_OPEN_TURN_SOURCE;
+        let can_resolve_idle = if silent_stale_prelaunch_open_turn {
+            true
+        } else if snapshot_tool == "kiro" && snapshot.has_completed_turn {
             true
         } else if snapshot.was_interrupted || snapshot.has_completed_turn {
             turn_completed_at
@@ -183,8 +187,9 @@ pub(in crate::ai_runtime::store) fn apply_runtime_snapshot_unlocked(
             state = "idle".to_string();
             active_turn_started_at = None;
             runtime_turn_started_at = None;
-            was_interrupted = snapshot.was_interrupted;
-            has_completed_turn = snapshot.has_completed_turn || !was_interrupted;
+            was_interrupted = !silent_stale_prelaunch_open_turn && snapshot.was_interrupted;
+            has_completed_turn = !silent_stale_prelaunch_open_turn
+                && (snapshot.has_completed_turn || !was_interrupted);
             completed_turn_started_at = session
                 .completed_turn_started_at
                 .or(session.active_turn_started_at)
@@ -199,6 +204,12 @@ pub(in crate::ai_runtime::store) fn apply_runtime_snapshot_unlocked(
                 .or(session.started_at)
                 .or(turn_completed_at);
         }
+    } else if snapshot.response_state.as_deref() == Some("idle")
+        && snapshot.source == CODEX_STALE_PRELAUNCH_OPEN_TURN_SOURCE
+        && session.state == "idle"
+    {
+        was_interrupted = false;
+        has_completed_turn = false;
     }
 
     if let Some(started_at) = active_turn_started_at {

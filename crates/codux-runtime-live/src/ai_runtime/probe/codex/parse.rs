@@ -27,6 +27,7 @@ pub(super) struct CodexParsedState {
     pub(super) cached_input_tokens: Option<i64>,
     pub(super) total_tokens: Option<i64>,
     pub(super) updated_at: Option<f64>,
+    pub(super) last_event_at: Option<f64>,
     pub(super) started_at: Option<f64>,
     pub(super) completed_at: Option<f64>,
     pub(super) response_state: Option<String>,
@@ -218,15 +219,20 @@ fn parse_codex_runtime_line(
     let Ok(row) = serde_json::from_str::<CodexTranscriptRow>(line) else {
         return;
     };
-    let timestamp = row.timestamp.as_deref().and_then(parse_iso8601_seconds);
-    if let Some(timestamp) = timestamp {
-        state.updated_at = Some(state.updated_at.unwrap_or(timestamp).max(timestamp));
-    }
     let row_type = row.row_type.as_deref();
     let payload = row
         .payload
         .and_then(|payload| serde_json::from_str::<CodexPayloadFields>(payload.get()).ok())
         .unwrap_or_default();
+    let timestamp = row
+        .timestamp
+        .as_deref()
+        .and_then(parse_iso8601_seconds)
+        .or_else(|| payload.timestamp.as_deref().and_then(parse_iso8601_seconds));
+    if let Some(timestamp) = timestamp {
+        state.updated_at = Some(state.updated_at.unwrap_or(timestamp).max(timestamp));
+        state.last_event_at = Some(state.last_event_at.unwrap_or(timestamp).max(timestamp));
+    }
 
     if let Some(preview) = codex_assistant_preview(row_type, &payload) {
         state.assistant_preview = Some(preview);

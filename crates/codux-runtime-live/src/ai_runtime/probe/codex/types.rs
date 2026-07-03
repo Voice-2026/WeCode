@@ -18,6 +18,8 @@ pub(super) struct CodexPayloadFields<'a> {
     #[serde(rename = "type", borrow)]
     pub(super) payload_type: Option<Cow<'a, str>>,
     #[serde(borrow)]
+    pub(super) timestamp: Option<Cow<'a, str>>,
+    #[serde(borrow)]
     pub(super) phase: Option<Cow<'a, str>>,
     #[serde(borrow)]
     pub(super) role: Option<Cow<'a, str>>,
