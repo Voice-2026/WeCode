@@ -1,7 +1,8 @@
 use crate::ai_runtime::{
     constants::{
-        CODEX_STALE_PRELAUNCH_OPEN_TURN_SOURCE, COMPLETION_TIMESTAMP_SKEW_SECONDS,
-        RESPONDING_RENEWAL_MAX_SECONDS, RUNNING_STATE_RENEWAL_SECONDS,
+        CLAUDE_STALE_PRELAUNCH_OPEN_TURN_SOURCE, CODEX_STALE_PRELAUNCH_OPEN_TURN_SOURCE,
+        COMPLETION_TIMESTAMP_SKEW_SECONDS, RESPONDING_RENEWAL_MAX_SECONDS,
+        RUNNING_STATE_RENEWAL_SECONDS,
     },
     screen_signal::ScreenSignal,
     snapshot::{AIRuntimeContextSnapshot, AISessionSnapshot, AIUsageAmountSnapshot},
@@ -163,8 +164,7 @@ pub(in crate::ai_runtime::store) fn apply_runtime_snapshot_unlocked(
         let turn_completed_at = snapshot.completed_at.or_else(|| {
             (snapshot.was_interrupted || snapshot.has_completed_turn).then_some(snapshot.updated_at)
         });
-        let silent_stale_prelaunch_open_turn =
-            snapshot.source == CODEX_STALE_PRELAUNCH_OPEN_TURN_SOURCE;
+        let silent_stale_prelaunch_open_turn = is_silent_stale_prelaunch_open_turn(&snapshot);
         let can_resolve_idle = if silent_stale_prelaunch_open_turn {
             true
         } else if snapshot_tool == "kiro" && snapshot.has_completed_turn {
@@ -205,7 +205,7 @@ pub(in crate::ai_runtime::store) fn apply_runtime_snapshot_unlocked(
                 .or(turn_completed_at);
         }
     } else if snapshot.response_state.as_deref() == Some("idle")
-        && snapshot.source == CODEX_STALE_PRELAUNCH_OPEN_TURN_SOURCE
+        && is_silent_stale_prelaunch_open_turn(&snapshot)
         && session.state == "idle"
     {
         was_interrupted = false;
@@ -311,6 +311,13 @@ pub(in crate::ai_runtime::store) fn apply_runtime_snapshot_unlocked(
     }
     core.sessions.insert(terminal_id.to_string(), next);
     true
+}
+
+fn is_silent_stale_prelaunch_open_turn(snapshot: &AIRuntimeContextSnapshot) -> bool {
+    matches!(
+        snapshot.source.as_str(),
+        CODEX_STALE_PRELAUNCH_OPEN_TURN_SOURCE | CLAUDE_STALE_PRELAUNCH_OPEN_TURN_SOURCE
+    )
 }
 
 fn max_usage_amounts(

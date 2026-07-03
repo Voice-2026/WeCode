@@ -70,11 +70,34 @@ json_escape() {
 
 now() {
   if [[ -n "${EPOCHREALTIME:-}" ]]; then
-    printf "%.3f" "${EPOCHREALTIME}"
+    LC_ALL=C printf "%.3f" "${EPOCHREALTIME/,/.}"
   elif [[ -n "${EPOCHSECONDS:-}" ]]; then
-    printf "%.3f" "${EPOCHSECONDS}"
+    LC_ALL=C printf "%.3f" "${EPOCHSECONDS/,/.}"
   else
-    /bin/date +%s | awk '{ printf "%.3f", $1 }'
+    /bin/date +%s | LC_ALL=C awk '{ printf "%.3f", $1 }'
+  fi
+}
+
+event_file_timestamp_millis() {
+  if [[ -n "${EPOCHREALTIME:-}" ]]; then
+    local realtime="${EPOCHREALTIME/,/.}"
+    local seconds="${realtime%%.*}"
+    local fraction="${realtime#*.}000"
+    if [[ "${seconds}" == <-> ]]; then
+      printf '%s%s' "${seconds}" "${fraction[1,3]}"
+      return 0
+    fi
+  fi
+  local seconds
+  local nanos
+  seconds="$(/bin/date +%s 2>/dev/null || true)"
+  nanos="$(/bin/date +%N 2>/dev/null || true)"
+  if [[ -n "${seconds}" && "${nanos}" == <-> ]]; then
+    printf '%s%03d' "${seconds}" "$((10#${nanos[1,3]}))"
+  elif [[ -n "${seconds}" ]]; then
+    printf '%s000' "${seconds}"
+  else
+    LC_ALL=C printf "%.0f" "$(now | awk '{ printf $1 * 1000 }')"
   fi
 }
 
@@ -224,7 +247,7 @@ send_runtime_event() {
   }
   /bin/mkdir -p -- "${DMUX_RUNTIME_EVENT_DIR}"
   local name
-  name="$(printf '%s-%s.json' "$(/bin/date +%s%3N 2>/dev/null || /bin/date +%s)" "$(/usr/bin/uuidgen 2>/dev/null | /usr/bin/tr '[:upper:]' '[:lower:]')")"
+  name="$(printf '%s-%s.json' "$(event_file_timestamp_millis)" "$(/usr/bin/uuidgen 2>/dev/null | /usr/bin/tr '[:upper:]' '[:lower:]')")"
   local path="${DMUX_RUNTIME_EVENT_DIR}/${name}"
   local tmp="${path}.tmp"
   if print -rn -- "${payload}" >| "${tmp}" && /bin/mv -f -- "${tmp}" "${path}"; then

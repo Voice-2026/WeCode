@@ -531,11 +531,11 @@ fn set_executable(path: &Path) {
     let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o755));
 }
 
-#[cfg(all(not(test), not(windows)))]
+#[cfg(not(windows))]
 fn current_exe_can_act_as_wrapper_helper(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
-        .is_some_and(|name| matches!(name, "codux" | "Codux" | "Codux Dev"))
+        .is_some_and(|name| matches!(name, "codux" | "Codux" | "Codux Dev" | "codux-agent"))
 }
 
 #[cfg(all(test, not(windows)))]
@@ -1527,6 +1527,22 @@ printf 'TOOL=%s
 
     #[cfg(not(windows))]
     #[test]
+    fn wrapper_helper_allowlist_includes_agent_binary() {
+        assert!(current_exe_can_act_as_wrapper_helper(Path::new("codux")));
+        assert!(current_exe_can_act_as_wrapper_helper(Path::new("Codux")));
+        assert!(current_exe_can_act_as_wrapper_helper(Path::new(
+            "Codux Dev"
+        )));
+        assert!(current_exe_can_act_as_wrapper_helper(Path::new(
+            "codux-agent"
+        )));
+        assert!(!current_exe_can_act_as_wrapper_helper(Path::new(
+            "codux-helper"
+        )));
+    }
+
+    #[cfg(not(windows))]
+    #[test]
     fn codex_wrapper_writes_resume_session_id_to_runtime_binding() {
         use std::os::unix::fs::PermissionsExt;
         use std::process::Command;
@@ -1574,6 +1590,105 @@ printf 'TOOL=%s
         assert_eq!(
             binding["externalSessionId"].as_str(),
             Some("019f0c1b-f835-7c33-a4f4-3e737d2fbf90")
+        );
+        assert!(binding["launchStartedAt"].as_f64().is_some());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn wrapper_timestamp_handles_comma_decimal_locale() {
+        use std::os::unix::fs::PermissionsExt;
+        use std::process::Command;
+
+        let dir =
+            std::env::temp_dir().join(format!("codux-wrapper-comma-locale-{}", Uuid::new_v4()));
+        let bridge =
+            AIRuntimeBridge::with_paths(dir.join("root"), dir.join("temp"), dir.join("home"));
+        bridge.stage_assets().unwrap();
+
+        let real_bin = dir.join("real-bin");
+        fs::create_dir_all(&real_bin).unwrap();
+        let fake_codex = real_bin.join("codex");
+        fs::write(&fake_codex, "#!/bin/sh\nexit 0\n").unwrap();
+        let mut permissions = fs::metadata(&fake_codex).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&fake_codex, permissions).unwrap();
+
+        let binding_dir = dir.join("bindings");
+        let search_path = format!("{}:/usr/bin:/bin:/usr/sbin:/sbin", real_bin.display());
+        let output = Command::new(bridge.wrapper_bin_dir().join("codex"))
+            .env("PATH", &search_path)
+            .env("DMUX_ORIGINAL_PATH", &search_path)
+            .env("DMUX_SESSION_ID", "terminal-1")
+            .env("DMUX_PROJECT_ID", "project-1")
+            .env("DMUX_PROJECT_NAME", "Project")
+            .env("DMUX_PROJECT_PATH", dir.join("project"))
+            .env("DMUX_RUNTIME_EVENT_DIR", dir.join("events"))
+            .env("DMUX_AI_RUNTIME_BINDING_DIR", &binding_dir)
+            .env("EPOCHREALTIME", "1783071984,407")
+            .env_remove("DMUX_ACTIVE_AI_RESOLVED_PATH")
+            .output()
+            .unwrap();
+
+        assert!(
+            output.status.success(),
+            "wrapper should execute fake codex, stderr={}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let binding: serde_json::Value =
+            serde_json::from_slice(&fs::read(binding_dir.join("terminal-1-codex.json")).unwrap())
+                .unwrap();
+        assert_eq!(binding["launchStartedAt"].as_f64(), Some(1783071984.407));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn hook_event_names_use_millisecond_numeric_prefix() {
+        use std::process::{Command, Stdio};
+
+        let dir =
+            std::env::temp_dir().join(format!("codux-hook-event-timestamp-{}", Uuid::new_v4()));
+        let bridge =
+            AIRuntimeBridge::with_paths(dir.join("root"), dir.join("temp"), dir.join("home"));
+        bridge.stage_assets().unwrap();
+        let events = dir.join("events");
+        fs::create_dir_all(&events).unwrap();
+
+        let output = Command::new(bridge.managed_hook_script())
+            .args(["session-start", "codux", "claude"])
+            .env("DMUX_RUNTIME_OWNER", "codux")
+            .env("DMUX_SESSION_ID", "terminal-1")
+            .env("DMUX_SESSION_INSTANCE_ID", "instance-1")
+            .env("DMUX_PROJECT_ID", "project-1")
+            .env("DMUX_PROJECT_NAME", "Project")
+            .env("DMUX_PROJECT_PATH", "/tmp/project")
+            .env("DMUX_SESSION_TITLE", "Claude")
+            .env("DMUX_RUNTIME_EVENT_DIR", &events)
+            .env("DMUX_EXTERNAL_SESSION_ID", "claude-session-1")
+            .env("EPOCHREALTIME", "1783071984,407")
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+
+        assert!(
+            output.status.success(),
+            "hook failed stderr={}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let entries = fs::read_dir(&events)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect::<Vec<_>>();
+        assert_eq!(entries.len(), 1);
+        let name = entries[0].file_name().unwrap().to_str().unwrap();
+        assert!(
+            name.starts_with("1783071984407-"),
+            "event filename should use millisecond timestamp, got {name}"
+        );
+        assert!(
+            serde_json::from_slice::<serde_json::Value>(&fs::read(&entries[0]).unwrap()).is_ok()
         );
         fs::remove_dir_all(dir).unwrap();
     }

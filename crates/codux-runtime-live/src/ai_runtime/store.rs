@@ -32,7 +32,9 @@ use helpers::{
 pub use helpers::{probe_request_for_session, should_poll_runtime_session};
 #[cfg(test)]
 use resolve::merge_snapshot_into_hook;
-use summary::{completed_phase_unlocked, next_completion_event_unlocked, state_snapshot_unlocked};
+use summary::{
+    completed_phase_unlocked, drain_completion_events_unlocked, state_snapshot_unlocked,
+};
 
 #[derive(Default)]
 struct AIRuntimeStateCore {
@@ -53,19 +55,44 @@ pub struct AIRuntimeStateStore {
 pub struct AIRuntimeStateMutation {
     pub did_change: bool,
     pub completion: Option<AIRuntimeCompletionEvent>,
+    pub completions: Vec<AIRuntimeCompletionEvent>,
 }
 
 impl AIRuntimeStateMutation {
     pub fn merge(&mut self, next: AIRuntimeStateMutation) {
         self.did_change = self.did_change || next.did_change;
-        match (&self.completion, next.completion) {
-            (None, Some(candidate)) => self.completion = Some(candidate),
-            (Some(current), Some(candidate)) if candidate.id > current.id => {
-                self.completion = Some(candidate);
+        if next.completions.is_empty() {
+            if let Some(completion) = next.completion {
+                self.push_completion(completion);
             }
-            _ => {}
+        } else {
+            for completion in next.completions {
+                self.push_completion(completion);
+            }
         }
     }
+
+    fn push_completion(&mut self, completion: AIRuntimeCompletionEvent) {
+        if self.completion.is_none() {
+            self.completion = Some(completion.clone());
+        }
+        self.completions.push(completion);
+    }
+}
+
+fn mutation_from_change(did_change: bool, core: &mut AIRuntimeStateCore) -> AIRuntimeStateMutation {
+    let mut mutation = AIRuntimeStateMutation {
+        did_change,
+        completion: None,
+        completions: Vec::new(),
+    };
+    if !did_change {
+        return mutation;
+    }
+    for completion in drain_completion_events_unlocked(core) {
+        mutation.push_completion(completion);
+    }
+    mutation
 }
 
 impl AIRuntimeStateStore {
@@ -250,12 +277,7 @@ impl AIRuntimeStateStore {
                 ),
             );
         }
-        AIRuntimeStateMutation {
-            did_change: did_change || should_notify_running,
-            completion: did_change
-                .then(|| next_completion_event_unlocked(&mut core))
-                .flatten(),
-        }
+        mutation_from_change(did_change || should_notify_running, &mut core)
     }
 
     pub fn apply_runtime_snapshot(
@@ -294,12 +316,7 @@ impl AIRuntimeStateStore {
                 );
             }
         }
-        AIRuntimeStateMutation {
-            did_change,
-            completion: did_change
-                .then(|| next_completion_event_unlocked(&mut core))
-                .flatten(),
-        }
+        mutation_from_change(did_change, &mut core)
     }
 
     /// Apply the universal screen-scrape signal (see `apply_screen_signal_unlocked`).
@@ -322,12 +339,7 @@ impl AIRuntimeStateStore {
             .unwrap_or(false);
         let did_change =
             apply_screen_signal_unlocked(&mut core, terminal_id, signal, allow_idle_start);
-        AIRuntimeStateMutation {
-            did_change,
-            completion: did_change
-                .then(|| next_completion_event_unlocked(&mut core))
-                .flatten(),
-        }
+        mutation_from_change(did_change, &mut core)
     }
 
     pub fn apply_binding(&self, binding: AIRuntimeBinding) -> AIRuntimeStateMutation {
@@ -394,7 +406,7 @@ impl AIRuntimeStateStore {
         core.sessions.insert(binding.terminal_id, next);
         AIRuntimeStateMutation {
             did_change: true,
-            completion: None,
+            ..Default::default()
         }
     }
 
@@ -455,7 +467,7 @@ impl AIRuntimeStateStore {
         }
         AIRuntimeStateMutation {
             did_change,
-            completion: None,
+            ..Default::default()
         }
     }
 
@@ -511,7 +523,7 @@ impl AIRuntimeStateStore {
         }
         AIRuntimeStateMutation {
             did_change,
-            completion: None,
+            ..Default::default()
         }
     }
 
@@ -586,11 +598,6 @@ impl AIRuntimeStateStore {
             did_change = true;
         }
 
-        AIRuntimeStateMutation {
-            did_change,
-            completion: did_change
-                .then(|| next_completion_event_unlocked(&mut core))
-                .flatten(),
-        }
+        mutation_from_change(did_change, &mut core)
     }
 }

@@ -1,4 +1,5 @@
 use crate::ai_runtime::{
+    constants::CLAUDE_STALE_PRELAUNCH_OPEN_TURN_SOURCE,
     probe::{
         common::{
             first_object_deep, first_string_deep, is_awaiting_user_decision, json_i64, now_seconds,
@@ -114,13 +115,22 @@ fn probe_claude_runtime_from_paths(
     let aggregate = aggregate?;
     let plan = aggregate.plan(&external_id);
     let started_at = aggregate.started_at();
-    let completed_at = aggregate.completed_at();
+    let stale_prelaunch_open_turn =
+        stale_prelaunch_open_turn(&aggregate, transcript_path.as_deref(), request.started_at);
+    let stale_completed_at = stale_prelaunch_open_turn.then(|| {
+        request
+            .updated_at
+            .max(request.started_at.unwrap_or(request.updated_at))
+    });
+    let completed_at = stale_completed_at.or_else(|| aggregate.completed_at());
     let mut response_state = aggregate.response_state();
-    if aggregate.needs_user_input(now_seconds()) {
+    if stale_prelaunch_open_turn {
+        response_state = Some("idle".to_string());
+    } else if aggregate.needs_user_input(now_seconds()) {
         response_state = Some("needsInput".to_string());
     }
-    let was_interrupted = aggregate.was_interrupted();
-    let has_completed_turn = aggregate.has_completed_turn();
+    let was_interrupted = !stale_prelaunch_open_turn && aggregate.was_interrupted();
+    let has_completed_turn = !stale_prelaunch_open_turn && aggregate.has_completed_turn();
     Some(AIRuntimeContextSnapshot {
         tool: "claude".to_string(),
         external_session_id: Some(external_id),
@@ -133,16 +143,54 @@ fn probe_claude_runtime_from_paths(
         total_tokens: aggregate.total_tokens,
         usage_amounts: Vec::new(),
         baseline_usage_amounts: Vec::new(),
-        updated_at: aggregate.updated_at.max(request.updated_at),
+        updated_at: aggregate
+            .updated_at
+            .max(stale_completed_at.unwrap_or(request.updated_at))
+            .max(request.updated_at),
         started_at,
         completed_at,
         response_state,
         was_interrupted,
         has_completed_turn,
         session_origin: "unknown".to_string(),
-        source: "probe".to_string(),
+        source: if stale_prelaunch_open_turn {
+            CLAUDE_STALE_PRELAUNCH_OPEN_TURN_SOURCE
+        } else {
+            "probe"
+        }
+        .to_string(),
         plan,
     })
+}
+
+fn stale_prelaunch_open_turn(
+    aggregate: &ClaudeAggregate,
+    transcript_path: Option<&str>,
+    launch_started_at: Option<f64>,
+) -> bool {
+    let Some(launch_started_at) = launch_started_at else {
+        return false;
+    };
+    if aggregate.response_state().as_deref() != Some("responding") {
+        return false;
+    }
+    let Some(last_event_at) = aggregate
+        .last_event_at
+        .or_else(|| transcript_path.and_then(|path| transcript_modified_seconds(Path::new(path))))
+    else {
+        return false;
+    };
+    last_event_at + 1.0 < launch_started_at
+}
+
+fn transcript_modified_seconds(file_path: &Path) -> Option<f64> {
+    fs::metadata(file_path)
+        .ok()?
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .map(|duration| duration.as_secs_f64())
 }
 
 #[derive(Clone)]
@@ -301,6 +349,7 @@ struct ClaudeAggregate {
     cached_input_tokens: i64,
     total_tokens: i64,
     updated_at: f64,
+    last_event_at: Option<f64>,
     last_user_at: f64,
     last_completion_at: f64,
     last_interrupted_at: f64,
@@ -331,6 +380,12 @@ impl ClaudeAggregate {
             cached_input_tokens: self.cached_input_tokens + other.cached_input_tokens,
             total_tokens: self.total_tokens + other.total_tokens,
             updated_at: self.updated_at.max(other.updated_at),
+            last_event_at: self.last_event_at.or(other.last_event_at).map(|left| {
+                other
+                    .last_event_at
+                    .map(|right| left.max(right))
+                    .unwrap_or(left)
+            }),
             last_user_at: self.last_user_at.max(other.last_user_at),
             last_completion_at: self.last_completion_at.max(other.last_completion_at),
             last_interrupted_at: self.last_interrupted_at.max(other.last_interrupted_at),
@@ -493,7 +548,11 @@ fn parse_claude_log_runtime_state_cached(
     let can_append = cache
         .files
         .get(&key)
-        .map(|entry| size > entry.size && modified_nanos >= entry.modified_nanos)
+        .map(|entry| {
+            size >= entry.parsed_offset
+                && (size > entry.size || (size == entry.size && entry.has_pending_partial))
+                && modified_nanos >= entry.modified_nanos
+        })
         .unwrap_or(false);
     let mut entry = if can_append {
         cache.files.remove(&key).unwrap()
@@ -527,7 +586,7 @@ fn parse_claude_log_runtime_state_cached(
     entry.terminal_id = terminal_id.to_string();
     entry.size = size;
     entry.modified_nanos = modified_nanos;
-    entry.parsed_offset = current_offset.min(size);
+    entry.parsed_offset = current_offset;
     entry.has_pending_partial = progress.has_pending_partial;
     entry.matched = entry.matched || progress.matched;
     let result = entry.matched.then(|| entry.aggregate.clone());
@@ -636,6 +695,18 @@ fn parse_claude_log_line(
         .and_then(|value| value.as_str())
         .and_then(parse_iso8601_seconds)
         .unwrap_or_else(now_seconds);
+    if let Some(event_timestamp) = row
+        .get("timestamp")
+        .and_then(|value| value.as_str())
+        .and_then(parse_iso8601_seconds)
+    {
+        aggregate.last_event_at = Some(
+            aggregate
+                .last_event_at
+                .unwrap_or(event_timestamp)
+                .max(event_timestamp),
+        );
+    }
     aggregate.updated_at = aggregate.updated_at.max(timestamp);
     // The current permission mode rides its own row (no message/role, and --
     // unlike message rows -- no timestamp). Capture it for the prompt-wait
@@ -1137,6 +1208,71 @@ mod tests {
     }
 
     #[test]
+    fn prelaunch_unfinished_resume_is_silent_idle() {
+        let dir = std::env::temp_dir().join(format!(
+            "codux-claude-resume-stale-open-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("stale-session.jsonl");
+        std::fs::write(
+            &path,
+            [
+                r#"{"sessionId":"stale-session","cwd":"/tmp/claude-project","timestamp":"2025-12-31T23:59:00Z","type":"user","message":{"role":"user","content":"run"}}"#,
+                r#"{"sessionId":"stale-session","cwd":"/tmp/claude-project","timestamp":"2025-12-31T23:59:01Z","type":"assistant","message":{"role":"assistant","stop_reason":"tool_use","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"make"}}]}}"#,
+            ]
+            .join("\n") + "\n",
+        )
+        .unwrap();
+
+        let snapshot = probe_claude_runtime_from_paths(
+            &request_for_claude_resume(Some("stale-session")),
+            TEST_PROJECT,
+            &[path],
+            None,
+        )
+        .expect("snapshot");
+
+        assert_eq!(snapshot.response_state.as_deref(), Some("idle"));
+        assert_eq!(
+            snapshot.source,
+            crate::ai_runtime::constants::CLAUDE_STALE_PRELAUNCH_OPEN_TURN_SOURCE
+        );
+        assert_eq!(snapshot.completed_at, Some(TEST_LAUNCH_AT));
+        assert!(!snapshot.was_interrupted);
+        assert!(!snapshot.has_completed_turn);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn postlaunch_append_restores_claude_responding() {
+        let dir = std::env::temp_dir().join(format!(
+            "codux-claude-resume-postlaunch-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("fresh-session.jsonl");
+        std::fs::write(
+            &path,
+            r#"{"sessionId":"fresh-session","cwd":"/tmp/claude-project","timestamp":"2026-01-01T00:00:02Z","type":"user","message":{"role":"user","content":"run"}}"#,
+        )
+        .unwrap();
+
+        let snapshot = probe_claude_runtime_from_paths(
+            &request_for_claude_resume(Some("fresh-session")),
+            TEST_PROJECT,
+            &[path],
+            None,
+        )
+        .expect("snapshot");
+
+        assert_eq!(snapshot.response_state.as_deref(), Some("responding"));
+        assert_eq!(snapshot.source, "probe");
+        assert!(!snapshot.was_interrupted);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn updates_created_task_status() {
         let mut aggregate = ClaudeAggregate::default();
         let create = serde_json::json!({
@@ -1414,6 +1550,64 @@ mod tests {
                 .expect("complete aggregate");
         assert_eq!(complete.total_tokens, 3);
         assert_eq!(complete.response_state().as_deref(), Some("idle"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn incremental_cache_tracks_consumed_offset_without_replay() {
+        let first = r#"{"sessionId":"s1","cwd":"/tmp/p","timestamp":"2026-01-01T00:00:00Z","type":"assistant","message":{"role":"assistant","content":"ok"},"usage":{"input_tokens":1,"output_tokens":1}}"#;
+        let second = r#"{"sessionId":"s1","cwd":"/tmp/p","timestamp":"2026-01-01T00:00:01Z","type":"assistant","message":{"role":"assistant","content":"ok"},"usage":{"input_tokens":2,"output_tokens":2}}"#;
+        let mut aggregate = ClaudeAggregate::default();
+        let mut current_offset = 0;
+        let mut reader = std::io::Cursor::new(format!("{first}\n{second}\n"));
+
+        let progress = parse_claude_log_reader_with_offset(
+            &mut reader,
+            "/tmp/p",
+            "s1",
+            &mut aggregate,
+            &mut current_offset,
+            false,
+        );
+
+        assert!(progress.matched);
+        assert_eq!(aggregate.total_tokens, 6);
+        assert_eq!(current_offset, (first.len() + 1 + second.len() + 1) as u64);
+    }
+
+    #[test]
+    fn incremental_cache_pending_partial_without_growth_does_not_rebuild() {
+        use std::io::Write;
+        let dir = std::env::temp_dir().join(format!(
+            "codux-claude-pending-no-growth-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("s1.jsonl");
+        let first = r#"{"sessionId":"s1","cwd":"/tmp/p","timestamp":"2026-01-01T00:00:00Z","type":"user","message":{"role":"user","content":"run"}}"#;
+        let partial = r#"{"sessionId":"s1","cwd":"/tmp/p","timestamp":"2026-01-01T00:00:02Z","type":"assistant","message":{"role":"assistant","content":"#;
+        {
+            let mut file = std::fs::File::create(&path).unwrap();
+            writeln!(file, "{first}").unwrap();
+            write!(file, "{partial}").unwrap();
+        }
+
+        let mut cache = ClaudeProbeCache::default();
+        let first_parse =
+            parse_claude_log_runtime_state_cached(&path, "/tmp/p", "s1", "term-1", &mut cache)
+                .expect("first aggregate");
+        assert_eq!(first_parse.last_user_at, 1767225600.0);
+        let entry = cache.files.values().next().expect("cache entry");
+        let parsed_offset = entry.parsed_offset;
+        assert!(entry.has_pending_partial);
+
+        let second_parse =
+            parse_claude_log_runtime_state_cached(&path, "/tmp/p", "s1", "term-1", &mut cache)
+                .expect("second aggregate");
+        assert_eq!(second_parse.last_user_at, 1767225600.0);
+        let entry = cache.files.values().next().expect("cache entry");
+        assert_eq!(entry.parsed_offset, parsed_offset);
+        assert_eq!(entry.aggregate.total_tokens, 0);
         let _ = std::fs::remove_dir_all(dir);
     }
 

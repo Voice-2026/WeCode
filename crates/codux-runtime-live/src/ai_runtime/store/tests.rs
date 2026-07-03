@@ -67,6 +67,64 @@ fn workspace_placeholder_project_name_falls_back_to_project_path_for_completion(
 }
 
 #[test]
+fn merged_mutation_preserves_multiple_completion_events() {
+    let store = AIRuntimeStateStore::default();
+    assert!(
+        store
+            .apply_hook(AIHookEventPayload {
+                project_id: "project-a".to_string(),
+                ..test_hook_for("codex", "terminal-a", "session-a", 1000.0)
+            })
+            .did_change
+    );
+    assert!(
+        store
+            .apply_hook(AIHookEventPayload {
+                project_id: "project-b".to_string(),
+                ..test_hook_for("codex", "terminal-b", "session-b", 1001.0)
+            })
+            .did_change
+    );
+
+    let first = store.apply_hook(AIHookEventPayload {
+        kind: "turnCompleted".to_string(),
+        project_id: "project-a".to_string(),
+        metadata: Some(AIHookEventMetadata {
+            has_completed_turn: Some(true),
+            ..empty_metadata()
+        }),
+        ..test_hook_for("codex", "terminal-a", "session-a", 1010.0)
+    });
+    let second = store.apply_hook(AIHookEventPayload {
+        kind: "turnCompleted".to_string(),
+        project_id: "project-b".to_string(),
+        metadata: Some(AIHookEventMetadata {
+            has_completed_turn: Some(true),
+            ..empty_metadata()
+        }),
+        ..test_hook_for("codex", "terminal-b", "session-b", 1011.0)
+    });
+
+    let mut merged = AIRuntimeStateMutation::default();
+    merged.merge(first);
+    merged.merge(second);
+
+    assert_eq!(merged.completions.len(), 2);
+    let projects = merged
+        .completions
+        .iter()
+        .filter_map(|event| {
+            event
+                .session
+                .as_ref()
+                .map(|session| session.project_id.as_str())
+        })
+        .collect::<std::collections::HashSet<_>>();
+    assert!(projects.contains("project-a"));
+    assert!(projects.contains("project-b"));
+}
+
+#[test]
 fn runtime_snapshot_sets_restored_session_baseline() {
     let mut core = AIRuntimeStateCore::default();
     assert!(apply_hook_unlocked(

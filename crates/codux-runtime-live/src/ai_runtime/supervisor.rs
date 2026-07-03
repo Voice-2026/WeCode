@@ -357,7 +357,12 @@ fn after_mutation(
             },
         );
     }
-    if let Some(completion) = mutation.completion {
+    let completions = if mutation.completions.is_empty() {
+        mutation.completion.into_iter().collect::<Vec<_>>()
+    } else {
+        mutation.completions
+    };
+    for completion in completions {
         push_event(events, AIRuntimeSupervisorEvent::Completion { completion });
     }
 }

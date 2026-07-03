@@ -1,6 +1,8 @@
 #!/bin/zsh
 set -uo pipefail
 
+zmodload zsh/datetime 2>/dev/null || true
+
 tool_name="$1"
 shift
 wrapper_dir="$(cd "$(dirname "$0")" && pwd)"
@@ -146,11 +148,11 @@ json_escape() {
 
 runtime_now() {
   if [[ -n "${EPOCHREALTIME:-}" ]]; then
-    printf "%.3f" "${EPOCHREALTIME}"
+    LC_ALL=C printf "%.3f" "${EPOCHREALTIME/,/.}"
   elif [[ -n "${EPOCHSECONDS:-}" ]]; then
-    printf "%.3f" "${EPOCHSECONDS}"
+    LC_ALL=C printf "%.3f" "${EPOCHSECONDS/,/.}"
   else
-    /bin/date +%s | /usr/bin/awk '{ printf "%.3f", $1 }'
+    /bin/date +%s | LC_ALL=C /usr/bin/awk '{ printf "%.3f", $1 }'
   fi
 }
 
