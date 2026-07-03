@@ -62,7 +62,7 @@ fn terminal_theme_options() -> &'static [&'static str] {
     ]
 }
 
-fn sanitize_terminal_font_family(value: &str) -> String {
+pub(super) fn sanitize_terminal_font_family(value: &str) -> String {
     value
         .trim()
         .chars()

@@ -1,4 +1,5 @@
 use super::{defaults::*, types::*};
+use crate::settings::sanitize_terminal_font_family;
 
 pub(super) fn sanitize_settings(mut settings: AppSettings) -> AppSettings {
     if settings.language.trim().is_empty() {
@@ -34,13 +35,7 @@ pub(super) fn sanitize_settings(mut settings: AppSettings) -> AppSettings {
     if settings.theme_color.trim().is_empty() {
         settings.theme_color = default_theme_color();
     }
-    settings.terminal_font_family = settings
-        .terminal_font_family
-        .trim()
-        .chars()
-        .filter(|c| !c.is_control())
-        .take(80)
-        .collect();
+    settings.terminal_font_family = sanitize_terminal_font_family(&settings.terminal_font_family);
     if settings.terminal_font_size.trim().is_empty() {
         settings.terminal_font_size = default_terminal_font_size();
     }
