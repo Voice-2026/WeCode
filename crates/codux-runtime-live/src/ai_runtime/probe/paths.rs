@@ -63,53 +63,6 @@ pub(crate) fn find_codex_rollout_by_cwd_since(
         .max_by_key(|path| file_modified_millis(path).unwrap_or(0))
 }
 
-pub(crate) fn newest_claude_session_id_since(
-    project_path: &str,
-    started_at: Option<f64>,
-) -> Option<String> {
-    let freshest = claude_project_log_paths(project_path)
-        .into_iter()
-        .filter(|path| file_modified_after_start(path, started_at))
-        .max_by_key(|path| file_modified_millis(path).unwrap_or(0))?;
-    let file = fs::File::open(&freshest).ok()?;
-    let mut reader = BufReader::new(file);
-    let mut found = None;
-    let mut line = String::new();
-    loop {
-        line.clear();
-        let Ok(bytes) = reader.read_line(&mut line) else {
-            break;
-        };
-        if bytes == 0 {
-            break;
-        }
-        let Ok(row) = serde_json::from_str::<Value>(&line) else {
-            continue;
-        };
-        if let Some(started_at) = started_at {
-            let Some(timestamp) = row
-                .get("timestamp")
-                .and_then(|value| value.as_str())
-                .and_then(super::common::parse_iso8601_seconds)
-            else {
-                continue;
-            };
-            if timestamp + 1.0 < started_at {
-                continue;
-            }
-        }
-        if let Some(cwd) = row.get("cwd").and_then(|value| value.as_str()) {
-            if !paths_equivalent(Some(cwd), project_path) {
-                continue;
-            }
-        }
-        if let Some(id) = row.get("sessionId").and_then(|value| value.as_str()) {
-            found = Some(id.to_string());
-        }
-    }
-    found
-}
-
 pub(crate) fn claude_project_log_paths(project_path: &str) -> Vec<PathBuf> {
     let directory_name = project_path.replace('/', "-").replace('.', "-");
     let direct_dir = home_dir()
@@ -583,7 +536,7 @@ pub(super) fn file_modified_millis(path: &Path) -> Option<u128> {
         .map(|duration| duration.as_millis())
 }
 
-fn file_modified_after_start(path: &Path, started_at: Option<f64>) -> bool {
+pub(super) fn file_modified_after_start(path: &Path, started_at: Option<f64>) -> bool {
     let Some(started_at) = started_at else {
         return true;
     };

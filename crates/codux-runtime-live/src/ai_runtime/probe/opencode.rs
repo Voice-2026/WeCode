@@ -1004,6 +1004,7 @@ mod tests {
             transcript_path: None,
             started_at: Some(900.0),
             updated_at: 900.0,
+            occupied_external_session_ids: Default::default(),
         }
     }
 

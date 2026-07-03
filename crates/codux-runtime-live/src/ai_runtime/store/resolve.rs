@@ -66,6 +66,7 @@ fn resolve_codex_hook_event(
             .and_then(|session| session.started_at)
             .or(Some(resolved.updated_at)),
         updated_at: resolved.updated_at,
+        occupied_external_session_ids: Default::default(),
     };
     probe_runtime(&request)
         .map(|snapshot| merge_snapshot_into_hook(resolved.clone(), snapshot, fallback))
@@ -101,6 +102,7 @@ fn resolve_claude_hook_event(
             .and_then(|session| session.started_at)
             .or(Some(resolved.updated_at)),
         updated_at: resolved.updated_at,
+        occupied_external_session_ids: Default::default(),
     };
     probe_claude_hook_runtime(&request, claude_cache)
         .map(|snapshot| {
@@ -153,6 +155,7 @@ fn resolve_project_probe_hook_event(
             .and_then(|session| session.started_at)
             .or(Some(resolved.updated_at)),
         updated_at: resolved.updated_at,
+        occupied_external_session_ids: Default::default(),
     };
     probe_runtime(&request)
         .map(|snapshot| merge_snapshot_into_hook(resolved.clone(), snapshot, fallback))

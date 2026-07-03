@@ -326,6 +326,7 @@ mod tests {
             transcript_path: None,
             started_at: Some(1_782_631_690.0),
             updated_at: 1.0,
+            occupied_external_session_ids: Default::default(),
         })
         .unwrap();
 

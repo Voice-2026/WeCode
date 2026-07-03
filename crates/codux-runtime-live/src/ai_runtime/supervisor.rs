@@ -20,7 +20,7 @@ use crate::ai_runtime::{
 };
 use serde::Serialize;
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     path::PathBuf,
     sync::{
         Arc, Mutex,
@@ -397,12 +397,48 @@ fn poll_runtime_sessions(
             .collect::<HashSet<_>>();
         claude_cache.retain_terminals(&tracked);
     }
-    for session in sessions {
-        if !should_poll_runtime_session(&session, reason, now_seconds()) {
+    let mut assigned_external_session_ids = sessions
+        .iter()
+        .filter_map(|session| {
+            session.ai_session_id.as_ref().map(|external_session_id| {
+                (
+                    (session.tool.clone(), session.project_id.clone()),
+                    HashSet::from([external_session_id.clone()]),
+                )
+            })
+        })
+        .fold(
+            HashMap::<(String, String), HashSet<String>>::new(),
+            |mut assigned, (key, external_session_ids)| {
+                assigned
+                    .entry(key)
+                    .or_default()
+                    .extend(external_session_ids);
+                assigned
+            },
+        );
+    for session in &sessions {
+        if !should_poll_runtime_session(session, reason, now_seconds()) {
             continue;
         }
-        let request = probe_request_for_session(&session);
+        let mut request = probe_request_for_session(session);
+        let assigned_key = (session.tool.clone(), session.project_id.clone());
+        request.occupied_external_session_ids = assigned_external_session_ids
+            .get(&assigned_key)
+            .cloned()
+            .unwrap_or_default();
+        if let Some(external_session_id) = session.ai_session_id.as_ref() {
+            request
+                .occupied_external_session_ids
+                .remove(external_session_id);
+        }
         if let Some(snapshot) = probe_runtime_with_claude_cache(&request, claude_cache) {
+            if let Some(external_session_id) = snapshot.external_session_id.clone() {
+                assigned_external_session_ids
+                    .entry(assigned_key)
+                    .or_default()
+                    .insert(external_session_id);
+            }
             mutation.merge(state.apply_runtime_snapshot(&session.terminal_id, snapshot));
         }
         // Universal hook-free screen detection. Most tools only need this while
@@ -412,7 +448,7 @@ fn poll_runtime_sessions(
         if matches!(session.state.as_str(), "responding" | "needsInput")
             || screen_starts_idle_tool(&session.tool)
         {
-            mutation.merge(apply_screen_signal_for_session(state, registry, &session));
+            mutation.merge(apply_screen_signal_for_session(state, registry, session));
         }
     }
     mutation

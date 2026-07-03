@@ -148,6 +148,7 @@ mod tests {
             transcript_path: Some(path.display().to_string()),
             started_at: Some(LAUNCH_AT),
             updated_at,
+            occupied_external_session_ids: Default::default(),
         }
     }
 

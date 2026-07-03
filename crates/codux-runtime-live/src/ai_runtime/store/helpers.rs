@@ -21,6 +21,7 @@ pub fn probe_request_for_session(session: &AISessionSnapshot) -> AIRuntimeProbeR
         transcript_path: session.transcript_path.clone(),
         started_at: session.started_at,
         updated_at: session.updated_at,
+        occupied_external_session_ids: Default::default(),
     }
 }
 

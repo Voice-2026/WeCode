@@ -4,7 +4,10 @@ use crate::ai_runtime::{
             first_object_deep, first_string_deep, is_awaiting_user_decision, json_i64, now_seconds,
             parse_iso8601_seconds,
         },
-        paths::{claude_project_log_paths, newest_claude_session_id_since, paths_equivalent},
+        paths::{
+            claude_project_log_paths, file_modified_after_start, file_modified_millis,
+            paths_equivalent,
+        },
         preview::sanitized_preview_from_values,
     },
     snapshot::{AIPlanItem, AIPlanSnapshot, AIRuntimeContextSnapshot, AIRuntimeProbeRequest},
@@ -62,13 +65,21 @@ pub(crate) fn probe_claude_runtime_with_cache(
 
 fn probe_claude_runtime_inner(
     request: &AIRuntimeProbeRequest,
-    mut cache: Option<&mut ClaudeProbeCache>,
+    cache: Option<&mut ClaudeProbeCache>,
 ) -> Option<AIRuntimeContextSnapshot> {
     let project_path = normalized_string(request.project_path.as_deref())?;
-    // Unknown session id → derive it from the freshest transcript for this cwd.
-    let external_id = normalized_string(request.external_session_id.as_deref())
-        .or_else(|| newest_claude_session_id_since(&project_path, request.started_at))?;
     let file_urls = claude_project_log_paths(&project_path);
+    probe_claude_runtime_from_paths(request, &project_path, &file_urls, cache)
+}
+
+fn probe_claude_runtime_from_paths(
+    request: &AIRuntimeProbeRequest,
+    project_path: &str,
+    file_urls: &[PathBuf],
+    mut cache: Option<&mut ClaudeProbeCache>,
+) -> Option<AIRuntimeContextSnapshot> {
+    let candidate = select_claude_session_candidate(file_urls, project_path, request)?;
+    let external_id = candidate.external_session_id;
     let selected_paths = claude_log_paths_for_session(&file_urls, &external_id);
     let mut aggregate: Option<ClaudeAggregate> = None;
     // Track the matched file with the most recent activity so the supervisor can
@@ -132,6 +143,138 @@ fn probe_claude_runtime_inner(
         source: "probe".to_string(),
         plan,
     })
+}
+
+#[derive(Clone)]
+struct ClaudeSessionCandidate {
+    external_session_id: String,
+    modified_millis: u128,
+}
+
+fn select_claude_session_candidate(
+    paths: &[PathBuf],
+    project_path: &str,
+    request: &AIRuntimeProbeRequest,
+) -> Option<ClaudeSessionCandidate> {
+    let bound = normalized_string(request.external_session_id.as_deref()).and_then(|id| {
+        claude_exact_session_path(paths, &id).map(|path| ClaudeSessionCandidate {
+            external_session_id: id,
+            modified_millis: file_modified_millis(&path).unwrap_or(0),
+        })
+    });
+    let min_modified_millis = bound.as_ref().map(|candidate| candidate.modified_millis);
+    let fallback = freshest_claude_session_candidate_since(
+        paths,
+        project_path,
+        request.started_at,
+        &request.occupied_external_session_ids,
+        min_modified_millis,
+    );
+    match (bound, fallback) {
+        (Some(bound), Some(fallback)) if fallback.modified_millis > bound.modified_millis => {
+            Some(fallback)
+        }
+        (Some(bound), _) => Some(bound),
+        (None, fallback) => fallback,
+    }
+}
+
+fn claude_exact_session_path(paths: &[PathBuf], external_session_id: &str) -> Option<PathBuf> {
+    paths
+        .iter()
+        .filter(|path| {
+            path.file_stem().and_then(|value| value.to_str()) == Some(external_session_id)
+        })
+        .max_by_key(|path| file_modified_millis(path).unwrap_or(0))
+        .cloned()
+}
+
+fn freshest_claude_session_candidate_since(
+    paths: &[PathBuf],
+    project_path: &str,
+    started_at: Option<f64>,
+    occupied_external_session_ids: &std::collections::HashSet<String>,
+    min_modified_millis: Option<u128>,
+) -> Option<ClaudeSessionCandidate> {
+    let mut paths = paths
+        .iter()
+        .map(|path| (file_modified_millis(path).unwrap_or(0), path.clone()))
+        .filter(|(modified_millis, path)| {
+            min_modified_millis
+                .map(|min_modified_millis| *modified_millis > min_modified_millis)
+                .unwrap_or(true)
+                && file_modified_after_start(path, started_at)
+        })
+        .collect::<Vec<_>>();
+    paths.sort_by(|left, right| right.0.cmp(&left.0));
+    for (modified_millis, path) in paths {
+        let Some(external_session_id) = claude_session_id_for_project_since(
+            &path,
+            project_path,
+            started_at,
+            occupied_external_session_ids,
+        ) else {
+            continue;
+        };
+        return Some(ClaudeSessionCandidate {
+            external_session_id,
+            modified_millis,
+        });
+    }
+    None
+}
+
+fn claude_session_id_for_project_since(
+    path: &Path,
+    project_path: &str,
+    started_at: Option<f64>,
+    occupied_external_session_ids: &std::collections::HashSet<String>,
+) -> Option<String> {
+    let file = fs::File::open(path).ok()?;
+    let mut reader = BufReader::new(file);
+    let mut found = None;
+    let mut line = String::new();
+    loop {
+        line.clear();
+        let Ok(bytes) = reader.read_line(&mut line) else {
+            break;
+        };
+        if bytes == 0 {
+            break;
+        }
+        let Ok(row) = serde_json::from_str::<Value>(&line) else {
+            continue;
+        };
+        if let Some(started_at) = started_at {
+            let Some(timestamp) = row
+                .get("timestamp")
+                .and_then(|value| value.as_str())
+                .and_then(parse_iso8601_seconds)
+            else {
+                continue;
+            };
+            if timestamp + 1.0 < started_at {
+                continue;
+            }
+        }
+        if let Some(cwd) = row.get("cwd").and_then(|value| value.as_str()) {
+            if !paths_equivalent(Some(cwd), project_path) {
+                continue;
+            }
+        }
+        let Some(id) = row
+            .get("sessionId")
+            .and_then(|value| value.as_str())
+            .and_then(|value| normalized_string(Some(value)))
+        else {
+            continue;
+        };
+        if occupied_external_session_ids.contains(&id) {
+            continue;
+        }
+        found = Some(id);
+    }
+    found
 }
 
 fn claude_log_paths_for_session(paths: &[PathBuf], external_session_id: &str) -> Vec<PathBuf> {
@@ -773,6 +916,10 @@ fn claude_user_message_text(row: &Value) -> Option<String> {
 mod tests {
     use super::*;
     use crate::ai_runtime::constants::NEEDS_INPUT_IDLE_SECONDS;
+    use std::{collections::HashSet, io::Write};
+
+    const TEST_PROJECT: &str = "/tmp/claude-project";
+    const TEST_LAUNCH_AT: f64 = 1_767_225_600.0;
 
     #[test]
     fn parses_task_list_result_into_plan() {
@@ -796,6 +943,197 @@ mod tests {
         assert_eq!(plan.items[0].text, "Inspect logs");
         assert_eq!(plan.items[0].status, "completed");
         assert_eq!(plan.items[1].status, "in_progress");
+    }
+
+    fn request_for_claude_resume(external_session_id: Option<&str>) -> AIRuntimeProbeRequest {
+        AIRuntimeProbeRequest {
+            terminal_id: "terminal-1".to_string(),
+            terminal_instance_id: Some("instance-1".to_string()),
+            project_id: "project-1".to_string(),
+            project_path: Some(TEST_PROJECT.to_string()),
+            tool: "claude".to_string(),
+            external_session_id: external_session_id.map(str::to_string),
+            transcript_path: None,
+            started_at: Some(TEST_LAUNCH_AT),
+            updated_at: TEST_LAUNCH_AT,
+            occupied_external_session_ids: Default::default(),
+        }
+    }
+
+    fn write_claude_transcript(dir: &Path, session_id: &str, timestamp: &str) -> PathBuf {
+        let path = dir.join(format!("{session_id}.jsonl"));
+        let mut file = std::fs::File::create(&path).unwrap();
+        writeln!(
+            file,
+            r#"{{"sessionId":"{session_id}","cwd":"{TEST_PROJECT}","timestamp":"{timestamp}","type":"user","message":{{"role":"user","content":"run"}}}}"#
+        )
+        .unwrap();
+        path
+    }
+
+    fn wait_for_distinct_mtime() {
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+
+    #[test]
+    fn missing_bound_id_uses_launch_fresh_cwd_session() {
+        let dir = std::env::temp_dir().join(format!(
+            "codux-claude-resume-missing-bound-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let resumed = write_claude_transcript(&dir, "resumed-session", "2026-01-01T00:00:02Z");
+
+        let snapshot = probe_claude_runtime_from_paths(
+            &request_for_claude_resume(Some("new-wrapper-session")),
+            TEST_PROJECT,
+            &[resumed],
+            None,
+        )
+        .expect("snapshot");
+
+        assert_eq!(
+            snapshot.external_session_id.as_deref(),
+            Some("resumed-session")
+        );
+        assert_eq!(snapshot.response_state.as_deref(), Some("responding"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn existing_bound_id_wins_when_it_is_freshest() {
+        let dir = std::env::temp_dir().join(format!(
+            "codux-claude-resume-bound-freshest-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let older = write_claude_transcript(&dir, "older-session", "2026-01-01T00:00:02Z");
+        wait_for_distinct_mtime();
+        let bound = write_claude_transcript(&dir, "bound-session", "2026-01-01T00:00:03Z");
+
+        let snapshot = probe_claude_runtime_from_paths(
+            &request_for_claude_resume(Some("bound-session")),
+            TEST_PROJECT,
+            &[older, bound],
+            None,
+        )
+        .expect("snapshot");
+
+        assert_eq!(
+            snapshot.external_session_id.as_deref(),
+            Some("bound-session")
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn bound_latest_does_not_scan_older_fallback_candidate() {
+        let dir = std::env::temp_dir().join(format!(
+            "codux-claude-resume-bound-no-scan-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let stale = dir.join("stale-session.jsonl");
+        std::fs::write(
+            &stale,
+            r#"{"sessionId":"stale-session","cwd":"/wrong/project","timestamp":"2026-01-01T00:00:04Z","type":"user","message":{"role":"user","content":"wrong"}}"#,
+        )
+        .unwrap();
+        wait_for_distinct_mtime();
+        let bound = write_claude_transcript(&dir, "bound-session", "2026-01-01T00:00:05Z");
+
+        let snapshot = probe_claude_runtime_from_paths(
+            &request_for_claude_resume(Some("bound-session")),
+            TEST_PROJECT,
+            &[stale, bound],
+            None,
+        )
+        .expect("snapshot");
+
+        assert_eq!(
+            snapshot.external_session_id.as_deref(),
+            Some("bound-session")
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn newer_resume_session_can_replace_existing_bound_id() {
+        let dir = std::env::temp_dir().join(format!(
+            "codux-claude-resume-newer-fallback-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let bound = write_claude_transcript(&dir, "bound-session", "2026-01-01T00:00:02Z");
+        wait_for_distinct_mtime();
+        let resumed = write_claude_transcript(&dir, "resumed-session", "2026-01-01T00:00:05Z");
+
+        let snapshot = probe_claude_runtime_from_paths(
+            &request_for_claude_resume(Some("bound-session")),
+            TEST_PROJECT,
+            &[bound, resumed],
+            None,
+        )
+        .expect("snapshot");
+
+        assert_eq!(
+            snapshot.external_session_id.as_deref(),
+            Some("resumed-session")
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn cold_start_without_bound_or_launch_fresh_file_stays_unresolved() {
+        let request = request_for_claude_resume(Some("new-wrapper-session"));
+
+        let snapshot = probe_claude_runtime_from_paths(&request, TEST_PROJECT, &[], None);
+
+        assert!(snapshot.is_none());
+    }
+
+    #[test]
+    fn launch_bound_rejects_prelaunch_transcript() {
+        let dir = std::env::temp_dir().join(format!(
+            "codux-claude-resume-prelaunch-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let stale = write_claude_transcript(&dir, "old-session", "2025-12-31T23:59:00Z");
+
+        let snapshot = probe_claude_runtime_from_paths(
+            &request_for_claude_resume(Some("new-wrapper-session")),
+            TEST_PROJECT,
+            &[stale],
+            None,
+        );
+
+        assert!(snapshot.is_none());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn fallback_skips_session_owned_by_other_terminal() {
+        let dir = std::env::temp_dir().join(format!(
+            "codux-claude-resume-owned-fallback-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let available = write_claude_transcript(&dir, "available-session", "2026-01-01T00:00:04Z");
+        wait_for_distinct_mtime();
+        let owned = write_claude_transcript(&dir, "owned-session", "2026-01-01T00:00:06Z");
+        let mut request = request_for_claude_resume(Some("new-wrapper-session"));
+        request.occupied_external_session_ids = HashSet::from(["owned-session".to_string()]);
+
+        let snapshot =
+            probe_claude_runtime_from_paths(&request, TEST_PROJECT, &[owned, available], None)
+                .expect("snapshot");
+
+        assert_eq!(
+            snapshot.external_session_id.as_deref(),
+            Some("available-session")
+        );
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

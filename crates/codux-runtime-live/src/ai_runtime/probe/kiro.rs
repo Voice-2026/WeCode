@@ -468,6 +468,7 @@ mod tests {
                 transcript_path: None,
                 started_at: Some(1782629880.0),
                 updated_at: 1782629880.0,
+                occupied_external_session_ids: Default::default(),
             },
             Some("session"),
             &jsonl_path,

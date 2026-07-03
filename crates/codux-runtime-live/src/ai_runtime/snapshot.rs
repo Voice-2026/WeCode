@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -165,6 +166,8 @@ pub struct AIRuntimeProbeRequest {
     pub transcript_path: Option<String>,
     pub started_at: Option<f64>,
     pub updated_at: f64,
+    #[serde(default)]
+    pub occupied_external_session_ids: HashSet<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
