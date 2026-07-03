@@ -977,10 +977,15 @@ impl TerminalWorkspaceSnapshot {
 #[derive(Clone)]
 struct TerminalPaneViewSnapshot {
     view: Option<gpui::Entity<TerminalView>>,
+    title: String,
+    subtitle: Option<String>,
 }
 
 impl PartialEq for TerminalPaneViewSnapshot {
     fn eq(&self, other: &Self) -> bool {
+        if self.title != other.title || self.subtitle != other.subtitle {
+            return false;
+        }
         match (&self.view, &other.view) {
             (Some(left), Some(right)) => left.entity_id() == right.entity_id(),
             (None, None) => true,
@@ -1281,13 +1286,19 @@ impl CoduxApp {
     }
 
     pub(in crate::app) fn terminal_workspace_snapshot(&self) -> TerminalWorkspaceSnapshot {
+        let ai_titles = terminal_ai_titles_by_terminal_id(&self.state.ai_runtime_state.sessions);
         let main_panes = self
             .main_terminal()
             .map(|tab| {
                 tab.panes
                     .iter()
-                    .map(|slot| TerminalPaneViewSnapshot {
-                        view: slot.pane.as_ref().map(|pane| pane.view.clone()),
+                    .map(|slot| {
+                        let (title, subtitle) = terminal_pane_display_title(slot, &ai_titles);
+                        TerminalPaneViewSnapshot {
+                            view: slot.pane.as_ref().map(|pane| pane.view.clone()),
+                            title,
+                            subtitle,
+                        }
                     })
                     .collect::<Vec<_>>()
             })
@@ -1305,8 +1316,13 @@ impl CoduxApp {
         let active_bottom = self
             .active_bottom_terminal()
             .and_then(|tab| tab.panes.first())
-            .map(|slot| TerminalPaneViewSnapshot {
-                view: slot.pane.as_ref().map(|pane| pane.view.clone()),
+            .map(|slot| {
+                let (title, subtitle) = terminal_pane_display_title(slot, &ai_titles);
+                TerminalPaneViewSnapshot {
+                    view: slot.pane.as_ref().map(|pane| pane.view.clone()),
+                    title,
+                    subtitle,
+                }
             });
 
         TerminalWorkspaceSnapshot {
@@ -1337,9 +1353,69 @@ fn active_terminal_bottom_tab_id(tabs: &[TerminalBottomTabViewSnapshot]) -> Opti
     tabs.iter().find(|tab| tab.active).map(|tab| tab.id)
 }
 
+fn terminal_ai_titles_by_terminal_id(
+    sessions: &[codux_runtime::ai_runtime_state::AIRuntimeSessionSummary],
+) -> HashMap<String, (String, Option<String>)> {
+    let mut titles = HashMap::new();
+    let mut updated_at_by_terminal_id = HashMap::new();
+    for session in sessions {
+        let terminal_id = session.terminal_id.trim();
+        if terminal_id.is_empty() {
+            continue;
+        }
+        if updated_at_by_terminal_id
+            .get(terminal_id)
+            .is_some_and(|updated_at| session.updated_at < *updated_at)
+        {
+            continue;
+        }
+        updated_at_by_terminal_id.insert(terminal_id.to_string(), session.updated_at);
+        titles.insert(
+            terminal_id.to_string(),
+            (
+                terminal_ai_tool_title(&session.tool),
+                session
+                    .model
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|model| !model.is_empty())
+                    .map(str::to_string),
+            ),
+        );
+    }
+    titles
+}
+
+fn terminal_ai_tool_title(tool: &str) -> String {
+    let tool = tool.trim();
+    if tool.is_empty() {
+        return "AI CLI".to_string();
+    }
+    tool.to_string()
+}
+
+fn terminal_pane_display_title(
+    slot: &TerminalPaneSlot,
+    ai_titles: &HashMap<String, (String, Option<String>)>,
+) -> (String, Option<String>) {
+    if let Some((title, subtitle)) = slot
+        .terminal_id
+        .as_deref()
+        .and_then(|terminal_id| ai_titles.get(terminal_id))
+    {
+        return (title.clone(), subtitle.clone());
+    }
+    let title = slot.title.trim();
+    if title.is_empty() || title.starts_with("Split ") || title.starts_with("Terminal ") {
+        return ("Terminal".to_string(), None);
+    }
+    (title.to_string(), None)
+}
+
 const TERMINAL_SPLIT_BASE_SIZE: Pixels = px(640.0);
 const TERMINAL_SPLIT_BASE_WIDTH: Pixels = px(1200.0);
 const TERMINAL_BOTTOM_TAB_BAR_HEIGHT: Pixels = px(40.0);
+const TERMINAL_PANE_HEADER_HEIGHT: Pixels = px(32.0);
 const TERMINAL_BOTTOM_PANEL_MIN_SIZE: Pixels = px(128.0);
 const TERMINAL_TOP_PANE_MIN_WIDTH: Pixels = px(160.0);
 const TERMINAL_TOP_PANE_MIN_HEIGHT: Pixels = px(120.0);
@@ -1822,6 +1898,7 @@ fn terminal_pane(
         .min_w_0()
         .min_h_0()
         .overflow_hidden()
+        .bg(theme::terminal_fill(color(theme::BG_TERMINAL)))
         .border_l_1()
         .border_color(color(if index == 0 {
             theme::BG_TERMINAL
@@ -1830,10 +1907,57 @@ fn terminal_pane(
         }))
         .child(
             div()
+                .h(TERMINAL_PANE_HEADER_HEIGHT)
+                .flex_none()
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap_2()
+                .px_2()
+                .border_b_1()
+                .border_color(cx.theme().border.opacity(0.36))
+                .child(terminal_pane_header_title(&slot, cx))
+                .child(
+                    div()
+                        .flex()
+                        .flex_none()
+                        .items_center()
+                        .gap_1()
+                        .child(terminal_pane_drag_handle(app_entity.clone(), index, cx))
+                        .child(terminal_pane_control_button(
+                            app_entity.clone(),
+                            float_id,
+                            HeroIconName::ArrowTopRightOnSquare,
+                            "浮窗",
+                            pane_count > 1,
+                            cx,
+                            move |app, window, cx| app.float_terminal_pane(index, window, cx),
+                        ))
+                        .child(terminal_pane_split_button(
+                            app_entity.clone(),
+                            add_id,
+                            index,
+                            open_split_menu_pane,
+                            cx,
+                        ))
+                        .child(terminal_pane_control_button(
+                            app_entity,
+                            close_id,
+                            HeroIconName::XMark,
+                            "关闭分屏",
+                            pane_count > 1,
+                            cx,
+                            move |app, window, cx| app.close_terminal_pane(index, window, cx),
+                        )),
+                ),
+        )
+        .child(
+            div()
                 .flex_1()
                 .flex_basis(px(0.0))
                 .min_w_0()
                 .min_h_0()
+                .overflow_hidden()
                 .child(match slot.view {
                     Some(view) => gpui::AnyView::from(view).into_any_element(),
                     None => div()
@@ -1847,40 +1971,33 @@ fn terminal_pane(
                         .into_any_element(),
                 }),
         )
+        .into_any_element()
+}
+
+fn terminal_pane_header_title(
+    slot: &TerminalPaneViewSnapshot,
+    cx: &mut Context<TerminalWorkspaceView>,
+) -> AnyElement {
+    let title = match slot.subtitle.as_deref() {
+        Some(subtitle) if !subtitle.trim().is_empty() => format!("{} · {}", slot.title, subtitle),
+        _ => slot.title.clone(),
+    };
+    div()
+        .flex()
+        .flex_1()
+        .min_w_0()
+        .items_center()
+        .overflow_hidden()
         .child(
             div()
-                .absolute()
-                .top_2()
-                .right_2()
-                .flex()
-                .items_center()
-                .gap_1()
-                .child(terminal_pane_drag_handle(app_entity.clone(), index, cx))
-                .child(terminal_pane_control_button(
-                    app_entity.clone(),
-                    float_id,
-                    HeroIconName::ArrowTopRightOnSquare,
-                    "浮窗",
-                    pane_count > 1,
-                    cx,
-                    move |app, window, cx| app.float_terminal_pane(index, window, cx),
-                ))
-                .child(terminal_pane_split_button(
-                    app_entity.clone(),
-                    add_id,
-                    index,
-                    open_split_menu_pane,
-                    cx,
-                ))
-                .child(terminal_pane_control_button(
-                    app_entity,
-                    close_id,
-                    HeroIconName::XMark,
-                    "关闭分屏",
-                    pane_count > 1,
-                    cx,
-                    move |app, window, cx| app.close_terminal_pane(index, window, cx),
-                )),
+                .flex_1()
+                .min_w_0()
+                .truncate()
+                .text_size(rems(0.76))
+                .line_height(rems(1.0))
+                .text_color(cx.theme().foreground)
+                .font_weight(FontWeight::MEDIUM)
+                .child(title),
         )
         .into_any_element()
 }
