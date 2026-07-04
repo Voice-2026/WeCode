@@ -21,7 +21,7 @@
   <a href="https://codux.dux.cn">官网</a> &middot;
   <a href="https://codux.dux.cn/zh-cn/getting-started/">文档</a> &middot;
   <a href="https://github.com/duxweb/codux/releases/latest">下载</a> &middot;
-  <a href="https://github.com/duxweb/codux-flutter/releases">移动端</a> &middot;
+  <a href="https://github.com/duxweb/codux-flutter/releases/latest">移动端</a> &middot;
   <a href="#作者微信">作者微信</a> &middot;
   <a href="https://github.com/duxweb/codux/issues">反馈</a>
 </p>
@@ -164,6 +164,10 @@ brew install --cask duxweb/tap/codux
 
 macOS 打开 `.dmg` 拖进「应用程序」；Windows 双击安装。装好后打开一个项目、在终端启动 AI CLI 就行。
 
+**移动端**
+
+从 [Codux Mobile 最新版本](https://github.com/duxweb/codux-flutter/releases/latest) 下载。
+
 **主机端（无界面 · `codux-agent`）** —— Beta，随 2.0 发布
 
 macOS / Linux —— 一行装好（自动识别系统/架构，装成 `codux` 放进 `PATH`）：
@@ -259,6 +263,10 @@ curl -fsSL https://raw.githubusercontent.com/duxweb/codux/main/apps/agent/script
 - `%APPDATA%\Codux\logs\runtime-rust.log`
 
 ---
+
+## 社区支持
+
+Codux 认可并支持 [LINUX DO](https://linux.do) 社区。
 
 ## 贡献者
 

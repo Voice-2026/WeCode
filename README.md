@@ -21,7 +21,7 @@
   <a href="https://codux.dux.cn">Website</a> &middot;
   <a href="https://codux.dux.cn/zh-cn/getting-started/">Docs</a> &middot;
   <a href="https://github.com/duxweb/codux/releases/latest">Download</a> &middot;
-  <a href="https://github.com/duxweb/codux-flutter/releases">Mobile</a> &middot;
+  <a href="https://github.com/duxweb/codux-flutter/releases/latest">Mobile</a> &middot;
   <a href="#contact--support">Contact</a> &middot;
   <a href="https://github.com/duxweb/codux/issues">Feedback</a>
 </p>
@@ -164,6 +164,10 @@ Or download directly:
 
 Open the macOS `.dmg` and drag Codux to Applications; double-click the Windows installer. Then open a project, start your AI CLI, and go.
 
+**Mobile app**
+
+Download from the [latest Codux Mobile release](https://github.com/duxweb/codux-flutter/releases/latest).
+
 **Headless host (`codux-agent`)** — Beta, ships with 2.0
 
 macOS / Linux — one line (auto-detects OS/arch, installs as `codux` on your `PATH`):
@@ -251,6 +255,10 @@ Manual log paths:
 - `%APPDATA%\Codux\logs\runtime-rust.log`
 
 ---
+
+## Community Support
+
+Codux recognizes and supports the [LINUX DO](https://linux.do) community.
 
 ## Contributors
 
