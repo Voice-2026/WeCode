@@ -33,6 +33,14 @@ impl CoduxApp {
             .selected_project
             .as_ref()
             .and_then(|project| project.host_device_id.clone());
+        let connected_remote_project_device_id =
+            remote_project_device_id.as_ref().and_then(|device_id| {
+                (self.remote_link_states.get(device_id)
+                    == Some(&codux_runtime::remote::ControllerLinkState::Connected))
+                .then(|| device_id.clone())
+            });
+        let show_server_info_button = has_project_context
+            && (remote_project_device_id.is_none() || connected_remote_project_device_id.is_some());
         let pet_sprite_frame = self.visible_pet_sprite_frame(PET_IDLE_FRAME_COUNT);
         let pet_button = if self.state.settings.pet_enabled {
             if has_project_context {
@@ -105,20 +113,25 @@ impl CoduxApp {
                             &self.state.settings.language,
                             cx,
                         ))
-                        .when_some(remote_project_device_id, |this, device_id| {
-                            this.child(workspace_toolbar_separator(cx))
-                                .child(workspace_remote_browser_button(
+                        .when_some(connected_remote_project_device_id, |this, device_id| {
+                            this.child(workspace_toolbar_separator(cx)).child(
+                                workspace_remote_browser_button(
                                     device_id,
                                     &self.state.settings.language,
                                     cx,
-                                ))
-                                .child(workspace_assistant_button(
+                                ),
+                            )
+                        })
+                        .when(show_server_info_button, |this| {
+                            this.child(workspace_toolbar_separator(cx)).child(
+                                workspace_assistant_button(
                                     "Server",
                                     AssistantPanel::ServerInfo,
                                     self.assistant_panel,
                                     true,
                                     cx,
-                                ))
+                                ),
+                            )
                         })
                         .child(workspace_toolbar_separator(cx))
                         .child(workspace_assistant_button(

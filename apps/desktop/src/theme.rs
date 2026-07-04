@@ -538,7 +538,12 @@ pub fn app_theme_palette_for_appearance(
             appearance,
             WindowAppearance::Light | WindowAppearance::VibrantLight
         );
-        if is_light { "codux light" } else { "codux dark" }.to_string()
+        if is_light {
+            "codux light"
+        } else {
+            "codux dark"
+        }
+        .to_string()
     } else {
         name
     };
@@ -556,8 +561,8 @@ pub fn app_theme_palette(normalized_name: &str) -> Option<AppThemePalette> {
             column: 0x151922,
             panel: 0x191E28,
             header: 0x1B2029,
-            card: 0x222835,
-            elevated: 0x262D3B,
+            card: 0x2A3140,
+            elevated: 0x303848,
             border: 0x323A4A,
             border_soft: 0x2A3140,
             muted: 0x1F2530,
@@ -572,8 +577,8 @@ pub fn app_theme_palette(normalized_name: &str) -> Option<AppThemePalette> {
             column: 0x0C1526,
             panel: 0x0F1A2E,
             header: 0x101C32,
-            card: 0x16253F,
-            elevated: 0x1A2B48,
+            card: 0x1D3050,
+            elevated: 0x24395E,
             border: 0x264066,
             border_soft: 0x1E3352,
             muted: 0x142138,
@@ -588,8 +593,8 @@ pub fn app_theme_palette(normalized_name: &str) -> Option<AppThemePalette> {
             column: 0x262B37,
             panel: 0x2B313E,
             header: 0x2D3341,
-            card: 0x353C4C,
-            elevated: 0x3A4254,
+            card: 0x3D4557,
+            elevated: 0x434C60,
             border: 0x465064,
             border_soft: 0x3C4556,
             muted: 0x313847,
@@ -604,8 +609,8 @@ pub fn app_theme_palette(normalized_name: &str) -> Option<AppThemePalette> {
             column: 0x111915,
             panel: 0x152019,
             header: 0x17231C,
-            card: 0x1D2C23,
-            elevated: 0x213228,
+            card: 0x24382C,
+            elevated: 0x2A4033,
             border: 0x2F4638,
             border_soft: 0x27392E,
             muted: 0x1A2820,
@@ -620,8 +625,8 @@ pub fn app_theme_palette(normalized_name: &str) -> Option<AppThemePalette> {
             column: 0x1B1613,
             panel: 0x211B16,
             header: 0x241D18,
-            card: 0x2C241D,
-            elevated: 0x322921,
+            card: 0x352C23,
+            elevated: 0x3C3228,
             border: 0x453930,
             border_soft: 0x392F27,
             muted: 0x282019,
@@ -636,8 +641,8 @@ pub fn app_theme_palette(normalized_name: &str) -> Option<AppThemePalette> {
             column: 0x171527,
             panel: 0x1C1930,
             header: 0x1F1B35,
-            card: 0x272242,
-            elevated: 0x2C264B,
+            card: 0x2F2950,
+            elevated: 0x363058,
             border: 0x3D3563,
             border_soft: 0x332C52,
             muted: 0x231F3B,
@@ -652,8 +657,8 @@ pub fn app_theme_palette(normalized_name: &str) -> Option<AppThemePalette> {
             column: 0x1E151D,
             panel: 0x241A23,
             header: 0x271C26,
-            card: 0x30232E,
-            elevated: 0x372834,
+            card: 0x392B37,
+            elevated: 0x413240,
             border: 0x4A3746,
             border_soft: 0x3D2E3A,
             muted: 0x2B1F29,
@@ -668,8 +673,8 @@ pub fn app_theme_palette(normalized_name: &str) -> Option<AppThemePalette> {
             column: 0x141414,
             panel: 0x191919,
             header: 0x1C1C1C,
-            card: 0x232323,
-            elevated: 0x282828,
+            card: 0x2B2B2B,
+            elevated: 0x323232,
             border: 0x393939,
             border_soft: 0x2E2E2E,
             muted: 0x202020,
@@ -1122,7 +1127,10 @@ mod tests {
     #[test]
     fn auto_theme_resolves_codux_flagships() {
         let dark = terminal_theme_palette_for_appearance("Auto", WindowAppearance::Dark);
-        assert_eq!(dark.background, terminal_theme_palette("Codux Dark").background);
+        assert_eq!(
+            dark.background,
+            terminal_theme_palette("Codux Dark").background
+        );
         let light = terminal_theme_palette_for_appearance("Auto", WindowAppearance::Light);
         assert!(light.is_light);
         // Legacy persisted names fall back to the flagship dark palette.

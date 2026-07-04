@@ -9,7 +9,13 @@ const SERVER_INFO_VALUE_LARGE_TEXT: f32 = 1.65;
 #[derive(Clone, PartialEq)]
 pub(in crate::app) struct ServerInfoSidebarSnapshot {
     pub(in crate::app) language: String,
-    pub(in crate::app) host_device_id: Option<String>,
+    pub(in crate::app) target: ServerInfoTarget,
+}
+
+#[derive(Clone, PartialEq)]
+pub(in crate::app) enum ServerInfoTarget {
+    Local,
+    Remote(String),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -61,7 +67,7 @@ impl ServerInfoSidebarView {
         if self.snapshot == snapshot {
             return;
         }
-        let host_changed = self.snapshot.host_device_id != snapshot.host_device_id;
+        let host_changed = self.snapshot.target != snapshot.target;
         self.snapshot = snapshot;
         if host_changed {
             self.metrics = None;
@@ -87,10 +93,7 @@ impl ServerInfoSidebarView {
     }
 
     pub(in crate::app) fn ensure_polling(&mut self, cx: &mut Context<Self>) {
-        if self.polling
-            || self.snapshot.host_device_id.is_none()
-            || self.capability == ServerInfoCapabilityState::Unsupported
-        {
+        if self.polling || self.capability == ServerInfoCapabilityState::Unsupported {
             return;
         }
         self.polling = true;
@@ -110,11 +113,7 @@ impl ServerInfoSidebarView {
                     Ok(None) | Err(_) => break,
                 };
                 let result = codux_runtime::async_runtime::spawn_blocking(move || {
-                    fetch_server_info_metrics(
-                        request.service,
-                        &request.device_id,
-                        request.capability,
-                    )
+                    fetch_server_info_metrics(request.service, request.target, request.capability)
                 })
                 .await
                 .map_err(|error| error.to_string())
@@ -140,19 +139,14 @@ impl ServerInfoSidebarView {
             return None;
         }
         let active = self.app_entity.read(cx).assistant_panel == Some(AssistantPanel::ServerInfo);
-        if !server_info_poll_should_continue(
-            active,
-            self.snapshot.host_device_id.is_some(),
-            self.capability,
-        ) {
+        if !server_info_poll_should_continue(active, self.capability) {
             self.polling = false;
             return None;
         };
-        let device_id = self.snapshot.host_device_id.clone()?;
         self.loading = self.metrics.is_none() && self.error.is_none();
         Some(ServerInfoPollRequest {
             service: self.app_entity.read(cx).runtime_service.clone(),
-            device_id,
+            target: self.snapshot.target.clone(),
             capability: self.capability,
         })
     }
@@ -187,7 +181,6 @@ impl ServerInfoSidebarView {
         cx.notify();
         let should_continue = server_info_poll_should_continue(
             self.app_entity.read(cx).assistant_panel == Some(AssistantPanel::ServerInfo),
-            self.snapshot.host_device_id.is_some(),
             self.capability,
         );
         if !should_continue {
@@ -199,24 +192,27 @@ impl ServerInfoSidebarView {
 
 struct ServerInfoPollRequest {
     service: codux_runtime::runtime_state::RuntimeService,
-    device_id: String,
+    target: ServerInfoTarget,
     capability: ServerInfoCapabilityState,
 }
 
 fn fetch_server_info_metrics(
     service: codux_runtime::runtime_state::RuntimeService,
-    device_id: &str,
+    target: ServerInfoTarget,
     capability: ServerInfoCapabilityState,
 ) -> ServerInfoFetchResult {
+    let ServerInfoTarget::Remote(device_id) = target else {
+        return ServerInfoFetchResult::Metrics(service.local_host_metrics());
+    };
     if capability == ServerInfoCapabilityState::Unknown {
-        match service.remote_host_info_blocking(device_id) {
+        match service.remote_host_info_blocking(&device_id) {
             Ok(info) if host_metrics_supported(&info) => {}
             Ok(_) => return ServerInfoFetchResult::Unsupported,
             Err(error) => return ServerInfoFetchResult::Error(error),
         }
     }
     service
-        .remote_host_metrics(device_id)
+        .remote_host_metrics(&device_id)
         .map(ServerInfoFetchResult::Metrics)
         .unwrap_or_else(ServerInfoFetchResult::Error)
 }
@@ -235,10 +231,9 @@ fn server_info_poll_accepts_epoch(current_epoch: u64, request_epoch: u64) -> boo
 
 fn server_info_poll_should_continue(
     panel_active: bool,
-    has_host_device: bool,
     capability: ServerInfoCapabilityState,
 ) -> bool {
-    panel_active && has_host_device && capability != ServerInfoCapabilityState::Unsupported
+    panel_active && capability != ServerInfoCapabilityState::Unsupported
 }
 
 impl Render for ServerInfoSidebarView {
@@ -264,18 +259,6 @@ impl Render for ServerInfoSidebarView {
 
 impl ServerInfoSidebarView {
     fn render_body(&self, language: &str, cx: &mut Context<Self>) -> gpui::AnyElement {
-        if self.snapshot.host_device_id.is_none() {
-            return server_empty_state(
-                HeroIconName::ServerStack,
-                server_text(
-                    language,
-                    "server.empty.local_project",
-                    "Select a remote project.",
-                ),
-                cx,
-            )
-            .into_any_element();
-        }
         if self.capability == ServerInfoCapabilityState::Unsupported {
             return server_empty_state(
                 HeroIconName::ServerStack,
@@ -1301,21 +1284,13 @@ mod tests {
         assert!(!server_info_poll_accepts_epoch(7, 6));
         assert!(server_info_poll_should_continue(
             true,
-            true,
             ServerInfoCapabilityState::Supported
         ));
         assert!(!server_info_poll_should_continue(
             false,
-            true,
             ServerInfoCapabilityState::Supported
         ));
         assert!(!server_info_poll_should_continue(
-            true,
-            false,
-            ServerInfoCapabilityState::Supported
-        ));
-        assert!(!server_info_poll_should_continue(
-            true,
             true,
             ServerInfoCapabilityState::Unsupported
         ));

@@ -369,6 +369,18 @@ pub fn terminal_pty_config_with_view(
     config.cols = Some(terminal_config.cols as u16);
     config.rows = Some(terminal_config.rows as u16);
     config.scrollback_lines = Some(terminal_config.scrollback);
+    // Theme colors for the tool wrapper to seed OSC 10/11: on Windows, ConPTY
+    // answers those queries itself from its own (black) palette, so TUIs like
+    // codex would detect a dark background under a light app theme.
+    let env = config.env.get_or_insert_with(Default::default);
+    env.insert(
+        "DMUX_TERMINAL_OSC_FG".to_string(),
+        terminal_config.colors.foreground_osc_payload(),
+    );
+    env.insert(
+        "DMUX_TERMINAL_OSC_BG".to_string(),
+        terminal_config.colors.background_osc_payload(),
+    );
     config
 }
 

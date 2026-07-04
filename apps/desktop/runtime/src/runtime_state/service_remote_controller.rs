@@ -12,6 +12,10 @@
 const REMOTE_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(12);
 
 impl RuntimeService {
+    pub fn local_host_metrics(&self) -> codux_protocol::RemoteHostMetrics {
+        codux_runtime_live::host_metrics::sample_host_metrics()
+    }
+
     pub fn open_host_browser_url(
         &self,
         device_id: &str,

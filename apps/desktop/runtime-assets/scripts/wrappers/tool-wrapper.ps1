@@ -488,6 +488,19 @@ if ([string]::IsNullOrWhiteSpace($realBin)) {
   exit 127
 }
 
+# Seed the console's reported default colors (OSC 10/11 set) with the app
+# theme: ConPTY answers color queries itself from its own black palette, so
+# TUIs would detect a dark background under a light theme.
+if (-not [Console]::IsOutputRedirected) {
+  $esc = [char]27
+  if (-not [string]::IsNullOrWhiteSpace($env:DMUX_TERMINAL_OSC_FG)) {
+    [Console]::Out.Write("$esc]10;$($env:DMUX_TERMINAL_OSC_FG)$esc\")
+  }
+  if (-not [string]::IsNullOrWhiteSpace($env:DMUX_TERMINAL_OSC_BG)) {
+    [Console]::Out.Write("$esc]11;$($env:DMUX_TERMINAL_OSC_BG)$esc\")
+  }
+}
+
 $settings = Read-Tool-Settings
 $memoryInjectionStrategy = Tool-Memory-Injection-Strategy $Tool
 $permissionKey = Tool-Config-Key $Tool

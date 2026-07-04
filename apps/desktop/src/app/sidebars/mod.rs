@@ -132,11 +132,13 @@ impl CoduxApp {
     fn server_info_sidebar_snapshot(&self) -> server_info::ServerInfoSidebarSnapshot {
         server_info::ServerInfoSidebarSnapshot {
             language: self.state.settings.language.clone(),
-            host_device_id: self
+            target: self
                 .state
                 .selected_project
                 .as_ref()
-                .and_then(|project| project.host_device_id.clone()),
+                .and_then(|project| project.host_device_id.clone())
+                .map(server_info::ServerInfoTarget::Remote)
+                .unwrap_or(server_info::ServerInfoTarget::Local),
         }
     }
 }

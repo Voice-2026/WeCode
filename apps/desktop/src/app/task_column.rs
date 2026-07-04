@@ -40,12 +40,11 @@ struct TaskSessionRow {
 }
 
 impl Render for TaskColumnView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         task_column_content(
             self.header_view.clone(),
             self.worktree_list_view.clone(),
             self.session_list_view.clone(),
-            cx,
         )
         .into_any_element()
     }
@@ -359,16 +358,9 @@ fn task_column_content(
     header_view: gpui::Entity<TaskColumnHeaderView>,
     worktree_list_view: gpui::Entity<TaskWorktreeListView>,
     session_list_view: gpui::Entity<TaskSessionListView>,
-    cx: &mut Context<TaskColumnView>,
 ) -> impl IntoElement {
-    // Worktree area hugs its content (capped at half the column) and sessions
-    // flow right below it — no resizable divider, matching the flat design.
-    let worktree_count = worktree_list_view.read(cx).snapshot.worktrees.len();
-    let worktree_area_height = if worktree_count == 0 {
-        148.0
-    } else {
-        24.0 + worktree_count as f32 * 58.0
-    };
+    // Fixed 5:5 split: worktrees on the top half, session history below —
+    // no resizable divider, matching the flat design.
     div()
         .flex()
         .flex_col()
@@ -388,8 +380,9 @@ fn task_column_content(
                 .child(
                     div()
                         .flex_none()
-                        .h(px(worktree_area_height))
-                        .max_h(relative(0.5))
+                        .h(relative(0.5))
+                        .min_h_0()
+                        .overflow_hidden()
                         .child(gpui::AnyView::from(worktree_list_view)),
                 )
                 .child(

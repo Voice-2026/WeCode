@@ -374,6 +374,26 @@ mod tests {
     }
 
     #[test]
+    fn pty_config_carries_theme_osc_env_for_wrappers() {
+        let mut terminal_config = terminal_config();
+        terminal_config.colors = ColorPalette::builder()
+            .background(0xfa, 0xfb, 0xfc)
+            .foreground(0x2a, 0x31, 0x40)
+            .build();
+        let config =
+            terminal_pty_config_with_view(TerminalPtyConfig::default(), &terminal_config);
+        let env = config.env.expect("env injected");
+        assert_eq!(
+            env.get("DMUX_TERMINAL_OSC_BG").map(String::as_str),
+            Some("rgb:fafa/fbfb/fcfc")
+        );
+        assert_eq!(
+            env.get("DMUX_TERMINAL_OSC_FG").map(String::as_str),
+            Some("rgb:2a2a/3131/4040")
+        );
+    }
+
+    #[test]
     fn color_scheme_report_matches_xterm_codes() {
         assert_eq!(
             terminal_color_scheme_report_for(ColorPalette::default().is_dark()),

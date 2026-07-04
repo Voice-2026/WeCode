@@ -172,6 +172,14 @@ impl ColorPalette {
             < relative_luminance(hsla_to_rgb(self.foreground))
     }
 
+    fn foreground_osc_payload(&self) -> String {
+        osc_color_payload(self.foreground)
+    }
+
+    fn background_osc_payload(&self) -> String {
+        osc_color_payload(self.background)
+    }
+
     fn resolve_fg(&self, color: &TerminalScreenColor, bold: bool, dim: bool) -> Hsla {
         let mut resolved = self.resolve_screen_color(color, self.foreground);
         if bold
@@ -325,6 +333,15 @@ fn hsla_to_rgb(color: Hsla) -> TerminalRgb {
         g: channel(rgba.g),
         b: channel(rgba.b),
     }
+}
+
+/// xterm dynamic-color payload ("rgb:rrrr/gggg/bbbb") for OSC 10/11 set/reply.
+fn osc_color_payload(color: Hsla) -> String {
+    let rgb = hsla_to_rgb(color);
+    format!(
+        "rgb:{:02x}{:02x}/{:02x}{:02x}/{:02x}{:02x}",
+        rgb.r, rgb.r, rgb.g, rgb.g, rgb.b, rgb.b
+    )
 }
 
 fn relative_luminance(rgb: TerminalRgb) -> f32 {

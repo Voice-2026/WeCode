@@ -272,12 +272,7 @@ fn terminal_osc_rgb_report(code: u8, (r, g, b): (u8, u8, u8)) -> Vec<u8> {
 // xterm dynamic color reply (OSC 10 = foreground, OSC 11 = background),
 // 16-bit per channel as rrrr/gggg/bbbb.
 fn terminal_osc_color_report(code: u8, color: Hsla) -> Vec<u8> {
-    let rgb = hsla_to_rgb(color);
-    format!(
-        "\x1b]{};rgb:{:02x}{:02x}/{:02x}{:02x}/{:02x}{:02x}\x07",
-        code, rgb.r, rgb.r, rgb.g, rgb.g, rgb.b, rgb.b
-    )
-    .into_bytes()
+    format!("\x1b]{};{}\x07", code, osc_color_payload(color)).into_bytes()
 }
 
 fn terminal_trace_enabled() -> bool {

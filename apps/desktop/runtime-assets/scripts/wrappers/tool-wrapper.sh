@@ -136,6 +136,14 @@ if [[ -z "$real_bin" ]]; then
   exit 127
 fi
 
+# Seed the console's reported default colors (OSC 10/11 set) with the app
+# theme: on Windows ConPTY answers color queries itself from its own black
+# palette, so TUIs would detect a dark background under a light theme.
+if [[ -t 1 ]]; then
+  [[ -n "${DMUX_TERMINAL_OSC_FG:-}" ]] && printf '\033]10;%s\033\\' "${DMUX_TERMINAL_OSC_FG}"
+  [[ -n "${DMUX_TERMINAL_OSC_BG:-}" ]] && printf '\033]11;%s\033\\' "${DMUX_TERMINAL_OSC_BG}"
+fi
+
 json_escape() {
   local value="$1"
   value="${value//\\/\\\\}"

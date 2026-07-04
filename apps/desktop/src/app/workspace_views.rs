@@ -827,7 +827,7 @@ pub(in crate::app) struct WorkspaceAssistantSnapshot {
 fn assistant_panel_available(panel: AssistantPanel, snapshot: &WorkspaceAssistantSnapshot) -> bool {
     match panel {
         AssistantPanel::SSH => true,
-        AssistantPanel::ServerInfo => snapshot.is_remote_project,
+        AssistantPanel::ServerInfo => snapshot.has_project,
         _ => snapshot.has_project,
     }
 }

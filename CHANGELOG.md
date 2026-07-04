@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [2.0.0-beta.11] - 2026-07-04
+
+### Added
+
+- Added local host metrics to the Server panel so local projects can inspect the same system overview as remote projects.
+
+### Fixed
+
+- Fixed light-theme terminal color detection for wrapped AI tools by seeding OSC 10/11 foreground and background colors before launch.
+
+### Changed
+
+- Refined workspace chrome with a fixed worktree/session split, clearer Server button availability, and stronger dark-theme card contrast.
+
 ## [2.0.0-beta.10] - 2026-07-03
 
 ### Added
