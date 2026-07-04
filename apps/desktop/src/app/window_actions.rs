@@ -21,7 +21,6 @@ pub(in crate::app) enum AuxiliaryWindowSlot {
     GitCredentials,
     MemoryManager,
     ProjectEditor,
-    TerminalTabEditor,
     WorktreeCreator,
     SshProfileEditor,
     DbProfileEditor,
@@ -123,7 +122,6 @@ impl CoduxApp {
             terminal_layout_loading: false,
             active_terminal_id: 0,
             active_terminal_runtime_ids: HashMap::new(),
-            active_bottom_terminal_ids: HashMap::new(),
             terminal_layout_cache: HashMap::new(),
             file_panel_cache: HashMap::new(),
             next_terminal_index: 1,
@@ -162,7 +160,6 @@ impl CoduxApp {
             file_picker_selected: None,
             file_picker_active_path: None,
             project_editor_window: None,
-            terminal_tab_editor_window: None,
             worktree_creator_window: None,
             child_windows: Vec::new(),
             parent_main_window: None,
@@ -183,6 +180,8 @@ impl CoduxApp {
             desktop_pet_line_hold_until: 0.0,
             pet_sprite_frame: 0,
             pet_sprite_animation_active: false,
+            pet_level_up: None,
+            pet_level_up_ticking: false,
             file_preview: "select a file to preview it".to_string(),
             file_preview_window_path: None,
             file_preview_window_content: String::new(),
@@ -410,8 +409,6 @@ impl CoduxApp {
             project_editor_browse_generation: 0,
             file_picker_rename_draft: None,
             file_picker_new_folder_active: false,
-            terminal_tab_editor_id: None,
-            terminal_tab_editor_label: String::new(),
             worktree_creator_project_id: None,
             worktree_creator_project_name: String::new(),
             worktree_creator_project_path: String::new(),
@@ -529,7 +526,6 @@ impl CoduxApp {
             AuxiliaryWindowSlot::GitCredentials => &mut self.git_credentials_window,
             AuxiliaryWindowSlot::MemoryManager => &mut self.memory_manager_window,
             AuxiliaryWindowSlot::ProjectEditor => &mut self.project_editor_window,
-            AuxiliaryWindowSlot::TerminalTabEditor => &mut self.terminal_tab_editor_window,
             AuxiliaryWindowSlot::WorktreeCreator => &mut self.worktree_creator_window,
             AuxiliaryWindowSlot::SshProfileEditor => &mut self.ssh_profile_editor_window,
             AuxiliaryWindowSlot::DbProfileEditor => &mut self.db_profile_editor_window,
@@ -913,7 +909,6 @@ impl CoduxApp {
             &mut self.pet_dex_window,
             &mut self.ssh_profile_editor_window,
             &mut self.project_editor_window,
-            &mut self.terminal_tab_editor_window,
             &mut self.worktree_creator_window,
         ] {
             if let Some(handle_value) = *handle {
@@ -940,7 +935,6 @@ impl CoduxApp {
             &mut self.pet_dex_window,
             &mut self.ssh_profile_editor_window,
             &mut self.project_editor_window,
-            &mut self.terminal_tab_editor_window,
             &mut self.worktree_creator_window,
         ];
 
@@ -1114,6 +1108,15 @@ impl CoduxApp {
             return true;
         }
 
+        // Debug: ⌃⌥L replays the pet level-up celebration for visual tuning.
+        if event.keystroke.modifiers.control
+            && event.keystroke.modifiers.alt
+            && event.keystroke.key.eq_ignore_ascii_case("l")
+        {
+            self.preview_pet_level_up(cx);
+            return true;
+        }
+
         let actual = shortcut_display_from_keystroke(&event.keystroke);
         let shortcuts = &self.state.settings.shortcuts;
 
@@ -1173,12 +1176,6 @@ impl CoduxApp {
             || shortcut_matches(shortcuts, "terminal.split", &actual)
         {
             self.split_terminal(window, cx);
-            return true;
-        }
-        if shortcut_matches(shortcuts, "terminal.tab.create", &actual)
-            || shortcut_matches(shortcuts, "terminal.tab", &actual)
-        {
-            self.add_terminal_tab(window, cx);
             return true;
         }
         if shortcut_matches(shortcuts, "editor.save", &actual) {
@@ -1940,12 +1937,6 @@ impl CoduxApp {
             native_menu::CreateSplit,
             |app: &mut CoduxApp, window: &mut Window, cx: &mut Context<CoduxApp>| {
                 app.split_terminal(window, cx)
-            }
-        );
-        register!(
-            native_menu::CreateTab,
-            |app: &mut CoduxApp, window: &mut Window, cx: &mut Context<CoduxApp>| {
-                app.add_terminal_tab(window, cx)
             }
         );
         register!(

@@ -744,7 +744,9 @@ mod app_runtime_ready_tests {
         project_id: &str,
         project_path: &str,
     ) {
-        for _ in 0..80 {
+        // Generous cap: the history indexer competes with the whole suite for
+        // scheduling; passing runs return on the first matching drain.
+        for _ in 0..800 {
             let result = service.drain_ai_history_events();
             if result.events.iter().any(|event| {
                 matches!(
@@ -1419,7 +1421,8 @@ mod app_runtime_ready_tests {
         let layout = service.reload_terminal_layout(Some(&layout_a_key));
         assert_eq!(layout.active_terminal_id, "");
         assert_eq!(layout.top_panes[0].terminal_id, terminal_a_top);
-        assert_eq!(layout.tabs[0].terminal_id, terminal_a_tab);
+        assert!(layout.tabs.is_empty());
+        assert_eq!(layout.top_panes[1].terminal_id, terminal_a_tab);
 
         let terminal_manager = service.terminal_manager();
         let launch_context = TerminalLaunchContext {

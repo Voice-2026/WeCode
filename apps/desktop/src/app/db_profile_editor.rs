@@ -252,7 +252,7 @@ pub(in crate::app) fn db_profile_editor_workspace(
 }
 
 fn db_test_result_message(message: String, ok: bool) -> impl IntoElement {
-    let tone = if ok { theme::GREEN } else { 0xFF5C68 };
+    let tone = if ok { theme::GREEN } else { theme::RED };
     div()
         .min_w_0()
         .flex()

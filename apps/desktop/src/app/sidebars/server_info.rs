@@ -336,7 +336,7 @@ fn server_card(_title: impl Into<String>, cx: &mut Context<ServerInfoSidebarView
     div()
         .flex()
         .flex_col()
-        .rounded(px(14.0))
+        .rounded(px(12.0))
         .bg(server_surface(cx))
         .p(px(14.0))
 }
@@ -557,33 +557,21 @@ fn cpu_card(
                 .mt(px(16.0))
                 .flex()
                 .items_center()
-                .justify_between()
-                .child(metric_tile(
+                .gap(px(12.0))
+                .child(div().flex_1().min_w_0().child(metric_tile(
                     server_text(language, "server.cores_short", "Cores"),
                     cores.to_string(),
                     None,
                     cx,
-                ))
-                .child(metric_tile(
-                    server_text(language, "server.idle_short", "Idle"),
-                    format!("{idle:.0}%"),
-                    None,
-                    cx,
-                ))
-                .child(metric_tile(
-                    server_text(language, "server.uptime", "Uptime"),
-                    format_duration(metrics.system.uptime_seconds),
-                    None,
-                    cx,
-                ))
+                )))
                 .when_some(load, |this, load| {
                     let load_ratio = (load[0] as f32 / cores.max(1) as f32).clamp(0.0, 1.0);
-                    this.child(metric_tile(
+                    this.child(div().flex_1().min_w_0().child(metric_tile(
                         server_text(language, "server.load_avg", "Load"),
                         format!("{:.1} {:.1} {:.1}", load[0], load[1], load[2]),
                         None,
                         cx,
-                    ))
+                    )))
                     .child(load_rings(load_ratio, cx))
                 }),
         )
@@ -604,23 +592,25 @@ fn memory_card(
         .saturating_sub(metrics.memory.free_bytes);
     let used_ratio = used as f32 / total as f32;
     let cache_ratio = cache as f32 / total as f32;
+    let swap_value = if metrics.memory.swap_total_bytes == 0 {
+        "—".to_string()
+    } else {
+        format_bytes(metrics.memory.swap_used_bytes)
+    };
+    // Shares the card anatomy of network/cpu: two equal columns + 52px figure,
+    // so column reference lines match across stacked cards.
     server_card(server_text(language, "server.memory", "Memory"), cx).child(
         div()
             .flex()
             .items_center()
-            .gap(px(16.0))
+            .gap(px(12.0))
             .child(
                 div()
                     .flex()
-                    .justify_between()
-                    .gap(px(16.0))
+                    .flex_col()
+                    .gap(px(8.0))
                     .flex_1()
-                    .child(metric_tile(
-                        server_text(language, "server.free_short", "Free"),
-                        format_bytes(free),
-                        None,
-                        cx,
-                    ))
+                    .min_w_0()
                     .child(metric_tile(
                         server_text(language, "server.used_short", "Used"),
                         format_bytes(used),
@@ -628,9 +618,29 @@ fn memory_card(
                         cx,
                     ))
                     .child(metric_tile(
+                        server_text(language, "server.free_short", "Free"),
+                        format_bytes(free),
+                        None,
+                        cx,
+                    )),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(8.0))
+                    .flex_1()
+                    .min_w_0()
+                    .child(metric_tile(
                         server_text(language, "server.cached_short", "Cache"),
                         format_bytes(cache),
                         Some(color(theme::ORANGE)),
+                        cx,
+                    ))
+                    .child(metric_tile(
+                        server_text(language, "server.swap", "Swap"),
+                        swap_value,
+                        None,
                         cx,
                     )),
             )
@@ -640,7 +650,7 @@ fn memory_card(
                     (cache_ratio, color(theme::ORANGE)),
                 ],
                 format!("{:.0}%", used_ratio.clamp(0.0, 1.0) * 100.0),
-                px(58.0),
+                px(52.0),
                 cx,
             )),
     )
@@ -686,7 +696,8 @@ fn network_card(
                     .flex()
                     .flex_col()
                     .gap(px(8.0))
-                    .flex_none()
+                    .flex_1()
+                    .min_w_0()
                     .child(metric_tile(
                         server_text(language, "server.download", "Down"),
                         format_bytes(metrics.network.rx_total_bytes),
@@ -703,7 +714,7 @@ fn network_card(
             .child(split_donut(
                 vec![(rx_ratio, down_color), (tx_ratio, up_color)],
                 "".to_string(),
-                px(48.0),
+                px(52.0),
                 cx,
             )),
     )
@@ -765,7 +776,7 @@ fn metric_tile(
             div()
                 .text_size(rems(SERVER_INFO_VALUE_TEXT))
                 .line_height(rems(1.05))
-                .whitespace_nowrap()
+                .truncate()
                 .font_family(cx.theme().mono_font_family.clone())
                 .text_color(cx.theme().foreground)
                 .child(value.into()),
@@ -876,7 +887,7 @@ fn core_dot_row(usage: f32, cx: &mut Context<ServerInfoSidebarView>) -> AnyEleme
 
 fn cpu_usage_color(usage: f32) -> gpui::Hsla {
     if usage >= 85.0 {
-        color(0xFF5C68)
+        color(theme::RED)
     } else if usage >= 60.0 {
         color(theme::ORANGE)
     } else {
@@ -1098,17 +1109,18 @@ fn disk_rate_line(
     div()
         .flex()
         .items_center()
-        .justify_between()
         .gap(px(6.0))
         .child(
             div()
+                .w(px(12.0))
+                .flex_none()
                 .text_size(rems(0.66))
                 .text_color(color(theme::TEXT_MUTED))
                 .child(label),
         )
         .child(
             div()
-                .text_size(rems(0.72))
+                .text_size(rems(0.75))
                 .whitespace_nowrap()
                 .font_family(cx.theme().mono_font_family.clone())
                 .text_color(cx.theme().foreground)

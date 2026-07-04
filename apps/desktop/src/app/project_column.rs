@@ -294,19 +294,10 @@ fn project_tools_snapshot(
     if collapsed {
         let add_project_label =
             project_column_text(language, "sidebar.footer.add_project", "Add Project");
-        let stats_label = project_column_text(language, "sidebar.footer.ai_usage", "AI Usage");
         let settings_label = project_column_text(language, "menu.settings", "Settings");
         let more_label = project_column_text(language, "sidebar.footer.more", "More");
         base.flex_col()
             .items_center()
-            .child(project_column_toggle_button(
-                collapsed,
-                language,
-                None,
-                app_entity.clone(),
-                window,
-                cx,
-            ))
             .child(project_tool_button(
                 HeroIconName::Plus,
                 None,
@@ -316,16 +307,6 @@ fn project_tools_snapshot(
                 window,
                 cx,
                 |app, _event, window, cx| app.open_project_create_window(window, cx),
-            ))
-            .child(project_tool_button(
-                HeroIconName::ChartBar,
-                None,
-                stats_label,
-                "project-ai-usage-footer",
-                app_entity.clone(),
-                window,
-                cx,
-                |app, _event, window, cx| app.show_stats_workspace_view(window, cx),
             ))
             .child(project_tool_button(
                 HeroIconName::Cog6Tooth,
@@ -351,7 +332,6 @@ fn project_tools_snapshot(
     } else {
         let add_project_label =
             project_column_text(language, "sidebar.footer.add_project", "Add Project");
-        let stats_label = project_column_text(language, "sidebar.footer.ai_usage", "AI Usage");
         let settings_label = project_column_text(language, "menu.settings", "Settings");
         let more_label = project_column_text(language, "sidebar.footer.more", "More");
         let toggle_label = project_column_text(language, "sidebar.collapse", "Collapse Sidebar");
@@ -374,16 +354,6 @@ fn project_tools_snapshot(
                 window,
                 cx,
                 |app, _event, window, cx| app.open_project_create_window(window, cx),
-            ))
-            .child(project_tool_button(
-                HeroIconName::ChartBar,
-                Some(stats_label.clone()),
-                stats_label,
-                "project-ai-usage-footer",
-                app_entity.clone(),
-                window,
-                cx,
-                |app, _event, window, cx| app.show_stats_workspace_view(window, cx),
             ))
             .child(project_tool_button(
                 HeroIconName::Cog6Tooth,
@@ -781,9 +751,22 @@ fn project_row(
             }))
             .w_full()
             .h(px(44.0))
+            .relative()
             .flex()
             .items_center()
             .justify_center()
+            .when(active, |this| {
+                this.child(
+                    div()
+                        .absolute()
+                        .left(px(0.0))
+                        .top(px(13.0))
+                        .w(px(3.0))
+                        .h(px(18.0))
+                        .rounded(px(3.0))
+                        .bg(cx.theme().primary),
+                )
+            })
             .child(
                 codux_tooltip_container_with_placement(
                     app_entity.clone(),
@@ -801,8 +784,7 @@ fn project_row(
                         .items_center()
                         .justify_center()
                         .cursor_pointer()
-                        .when(active, |this| this.bg(cx.theme().list_hover))
-                        .hover(|style| style.bg(cx.theme().list_hover))
+                        .hover(|style| style.bg(theme::elevate(cx.theme().sidebar, 0.07)))
                         .on_click(window.listener_for(
                             &app_entity,
                             move |app, _event, window, cx| {
@@ -1064,10 +1046,10 @@ fn project_activity_badge(
 }
 
 /// Disconnected-link badge color (no theme constant — danger red is local here).
-const REMOTE_LINK_RED: u32 = 0xE0566B;
+const REMOTE_LINK_RED: u32 = theme::RED;
 
 /// Dim non-current project icons so the current one reads as selected.
-const INACTIVE_PROJECT_ICON_OPACITY: f32 = 0.45;
+const INACTIVE_PROJECT_ICON_OPACITY: f32 = 0.85;
 
 /// A small connection badge overlaid on the bottom-right of a remote project's
 /// icon: a link glyph tinted by the client→host link state — green connected,

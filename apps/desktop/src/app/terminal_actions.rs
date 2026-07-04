@@ -1,8 +1,4 @@
 use super::*;
-use crate::app::window_actions::{AuxiliaryWindowSlot, AuxiliaryWindowSpec};
-use gpui::Focusable;
-use gpui_component::input::{Input, InputEvent, InputState};
-
 impl CoduxApp {
     pub(in crate::app) fn confirm_or_close_active_terminal_target(
         &mut self,
@@ -13,7 +9,7 @@ impl CoduxApp {
 
         let Some(target) = self.active_terminal_close_target(window, cx) else {
             self.pending_terminal_close = None;
-            self.status_message = "no terminal split or tab to close".to_string();
+            self.status_message = "no terminal split to close".to_string();
             self.invalidate_terminal_workspace(cx);
             return;
         };
@@ -27,9 +23,6 @@ impl CoduxApp {
             match target {
                 TerminalCloseTarget::Split { pane_index } => {
                     self.close_terminal_pane(pane_index, window, cx);
-                }
-                TerminalCloseTarget::Tab { terminal_id } => {
-                    self.close_terminal_tab(terminal_id, window, cx);
                 }
             }
             return;
@@ -51,12 +44,6 @@ impl CoduxApp {
                     "Press %@ again to close the current split",
                 )
                 .replace("%@", shortcut),
-            TerminalCloseTarget::Tab { .. } => self
-                .text(
-                    "terminal.close.confirm_tab",
-                    "Press %@ again to close the current tab",
-                )
-                .replace("%@", shortcut),
         };
         self.show_toast(confirm_message, cx);
         self.invalidate_terminal_workspace(cx);
@@ -76,24 +63,9 @@ impl CoduxApp {
                     if pane.view != focused {
                         continue;
                     }
-                    return match tab.placement {
-                        TerminalTabPlacement::Bottom => Some(TerminalCloseTarget::Tab {
-                            terminal_id: tab.id,
-                        }),
-                        TerminalTabPlacement::Top => {
-                            Some(TerminalCloseTarget::Split { pane_index })
-                        }
-                    };
+                    return Some(TerminalCloseTarget::Split { pane_index });
                 }
             }
-        }
-
-        if self.terminals.iter().any(|tab| {
-            tab.placement == TerminalTabPlacement::Bottom && tab.id == self.active_terminal_id
-        }) {
-            return Some(TerminalCloseTarget::Tab {
-                terminal_id: self.active_terminal_id,
-            });
         }
 
         let tab = self.main_terminal()?;
@@ -116,11 +88,7 @@ impl CoduxApp {
         cx: &mut Context<Self>,
     ) {
         self.refresh_terminal_slot_snapshots();
-        let Some(tab_index) = self
-            .terminals
-            .iter()
-            .position(|tab| tab.placement == TerminalTabPlacement::Top)
-        else {
+        let Some(tab_index) = (!self.terminals.is_empty()).then_some(0) else {
             return;
         };
         let Some(terminal_id) = self.terminals[tab_index]
@@ -167,7 +135,6 @@ impl CoduxApp {
             .top_panes
             .iter()
             .map(|pane| pane.terminal_id.clone())
-            .chain(layout.tabs.iter().map(|tab| tab.terminal_id.clone()))
             .filter(|terminal_id| !terminal_id.trim().is_empty())
             .collect();
         // An empty layout is NOT an early-out. reconcile runs only on a real
@@ -179,9 +146,6 @@ impl CoduxApp {
         let mut removed_stale = false;
         let mut removed_terminal_ids = Vec::new();
         for tab in &mut self.terminals {
-            if tab.placement != TerminalTabPlacement::Top {
-                continue;
-            }
             let tab_terminal_id = tab.terminal_id.clone();
             let mut index = 0;
             while tab.panes.len() > 1 && index < tab.panes.len() {
@@ -203,45 +167,10 @@ impl CoduxApp {
                 }
             }
         }
-        let mut index = 0;
-        while index < self.terminals.len() {
-            if self.terminals[index].placement == TerminalTabPlacement::Bottom {
-                let terminal_id = self.terminals[index].terminal_id.clone().or_else(|| {
-                    self.terminals[index]
-                        .panes
-                        .first()
-                        .and_then(|slot| slot.terminal_id.clone())
-                });
-                if terminal_id
-                    .as_deref()
-                    .is_some_and(|terminal_id| !layout_ids.contains(terminal_id))
-                {
-                    if let Some(terminal_id) = terminal_id.as_deref() {
-                        removed_terminal_ids.push(terminal_id.to_string());
-                    }
-                    self.terminals.remove(index);
-                    removed_stale = true;
-                    continue;
-                }
-            }
-            index += 1;
-        }
         for terminal_id in removed_terminal_ids {
             self.remove_registered_terminal_pane(&terminal_id);
         }
         if removed_stale {
-            if !self
-                .terminals
-                .iter()
-                .any(|tab| tab.id == self.active_terminal_id)
-            {
-                let next_active_id = self
-                    .bottom_terminals()
-                    .next()
-                    .map(|tab| tab.id)
-                    .unwrap_or(0);
-                self.active_terminal_id = next_active_id;
-            }
             let active_id = self.active_terminal_runtime_id();
             if active_id.trim().is_empty() || !layout_ids.contains(&active_id) {
                 self.activate_first_terminal();
@@ -301,59 +230,10 @@ impl CoduxApp {
             pending.push((pty_config, attach));
         }
 
-        // New bottom tabs -> append as separate Bottom tabs.
-        for tab_summary in &layout.tabs {
-            let raw_id = tab_summary.terminal_id.trim();
-            if raw_id.is_empty() {
-                continue;
-            }
-            let pane_plan = TerminalPanePlan {
-                terminal_id: Some(raw_id.to_string()),
-                title: tab_summary.label.clone(),
-                restored_output_bytes: 0,
-                restored_output_tail: String::new(),
-            };
-            let Some(pane_terminal_id) =
-                terminal_pane_terminal_id(Some(&launch_context), &pane_plan)
-            else {
-                continue;
-            };
-            if shown_ids.contains(&pane_terminal_id) {
-                continue;
-            }
-            let pty_config = terminal_pty_config_for_terminal_id(
-                &base_pty_config,
-                Some(&pane_terminal_id),
-                &tab_summary.label,
-            );
-            let (terminal_pane, attach) = TerminalPane::pending_with_pty_config(
-                cx,
-                pty_config.clone(),
-                self.terminal_config_from_settings(),
-            );
-            self.register_terminal_pane(Some(&pane_terminal_id), &terminal_pane, cx);
-            let id = self.next_terminal_index;
-            self.next_terminal_index += 1;
-            self.terminals.push(TerminalTab {
-                id,
-                label: tab_summary.label.clone(),
-                placement: TerminalTabPlacement::Bottom,
-                terminal_id: Some(pane_terminal_id.clone()),
-                panes: vec![TerminalPaneSlot {
-                    title: tab_summary.label.clone(),
-                    terminal_id: Some(pane_terminal_id),
-                    pane: Some(terminal_pane),
-                    restored_output_bytes: 0,
-                    restored_output_tail: String::new(),
-                }],
-            });
-            pending.push((pty_config, attach));
-        }
-
         if pending.is_empty() {
             if removed_stale {
                 self.sync_terminal_state_after_layout_change(cx);
-                self.detach_inactive_terminal_views();
+                self.refresh_terminal_slot_snapshots();
                 self.invalidate_terminal_workspace(cx);
             }
             return;
@@ -362,68 +242,6 @@ impl CoduxApp {
         // the new pane/tab just appears.
         self.sync_terminal_state_after_layout_change(cx);
         self.spawn_attach_pending_terminals(None, pending, cx);
-        self.invalidate_terminal_workspace(cx);
-    }
-
-    pub(in crate::app) fn add_terminal_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        prepare_memory_launch_artifacts(&self.runtime_service, &self.state);
-        let launch_context = self.current_terminal_launch_context();
-        let base_pty_config = launch_context
-            .as_ref()
-            .map(TerminalLaunchContext::to_config)
-            .unwrap_or_default();
-        let Some(owner_id) = launch_context
-            .as_ref()
-            .map(|context| context.project_id.as_str())
-        else {
-            self.status_message = "no selected workspace for terminal".to_string();
-            self.invalidate_terminal_workspace(cx);
-            return;
-        };
-        let id = self.next_terminal_index;
-        let tab_number = self.bottom_terminals().count() + 1;
-        let title = format!("Tab {tab_number}");
-        let pane_plan = TerminalPanePlan {
-            terminal_id: Some(bottom_terminal_id(owner_id, tab_number.saturating_sub(1))),
-            title: title.clone(),
-            restored_output_bytes: 0,
-            restored_output_tail: String::new(),
-        };
-        let pane_terminal_id = terminal_pane_terminal_id(launch_context.as_ref(), &pane_plan);
-        let pty_config = terminal_pty_config_for_terminal_id(
-            &base_pty_config,
-            pane_terminal_id.as_deref(),
-            &title,
-        );
-        let (pane, attach) = TerminalPane::pending_with_pty_config(
-            cx,
-            pty_config.clone(),
-            self.terminal_config_from_settings(),
-        );
-        self.refresh_terminal_slot_snapshots();
-        self.register_terminal_pane(pane_terminal_id.as_deref(), &pane, cx);
-        self.next_terminal_index += 1;
-        let active_runtime_id = pane_terminal_id.clone();
-        self.terminals.push(TerminalTab {
-            id,
-            label: title.clone(),
-            placement: TerminalTabPlacement::Bottom,
-            terminal_id: pane_terminal_id.clone(),
-            panes: vec![TerminalPaneSlot {
-                title: title.clone(),
-                terminal_id: pane_terminal_id,
-                pane: Some(pane),
-                restored_output_bytes: 0,
-                restored_output_tail: String::new(),
-            }],
-        });
-        self.active_terminal_id = id;
-        self.select_active_terminal_runtime_id(active_runtime_id.as_deref());
-        self.detach_inactive_terminal_views();
-        self.focus_active_terminal(window, cx);
-        self.status_message = format!("terminal tab added: {title}");
-        self.sync_terminal_state_after_layout_change(cx);
-        self.spawn_attach_pending_terminals(None, vec![(pty_config, attach)], cx);
         self.invalidate_terminal_workspace(cx);
     }
 
@@ -442,12 +260,37 @@ impl CoduxApp {
                 })
             })
             .unwrap_or(0);
-        self.split_terminal_direction(TerminalSplitDirection::Right, source_index, window, cx);
+        self.split_terminal_direction(
+            TerminalSplitDirection::Right,
+            TerminalSplitScope::Inner,
+            source_index,
+            window,
+            cx,
+        );
+    }
+
+    /// Single sync point after any split-tree mutation: the tree is the source
+    /// of truth; `top_grid`/`top_ratios` are derived mirrors kept only so older
+    /// app versions can still read the persisted layout.
+    pub(in crate::app) fn set_terminal_split_tree(&mut self, tree: Option<TerminalSplitNode>) {
+        self.state.terminal_layout.top_grid = tree
+            .as_ref()
+            .map(|tree| {
+                codux_runtime::terminal_layout::top_grid_from_split_tree(
+                    tree,
+                    codux_runtime::terminal_layout::split_tree_leaf_count(tree),
+                )
+            })
+            .unwrap_or_default();
+        self.state.terminal_layout.top_ratios =
+            terminal_top_ratios_from_grid(&self.state.terminal_layout.top_grid);
+        self.state.terminal_layout.split_tree = tree;
     }
 
     pub(in crate::app) fn split_terminal_direction(
         &mut self,
         direction: TerminalSplitDirection,
+        scope: TerminalSplitScope,
         source_index: usize,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -476,20 +319,58 @@ impl CoduxApp {
             return;
         };
         let source_index = source_index.min(pane_count.saturating_sub(1));
-        let grid = terminal_top_grid_for_panes(
-            self.state.terminal_layout.top_grid.clone(),
-            &self.state.terminal_layout.top_ratios,
+        let top_ratios = terminal_top_ratios_for_panes(
+            self.state.terminal_layout.top_ratios.clone(),
             pane_count,
         );
-        let (top_grid, insert_index) =
-            match terminal_grid_insert_pane(&grid, source_index, direction) {
-                Ok(result) => result,
-                Err(error) => {
-                    self.status_message = error.to_string();
-                    self.invalidate_terminal_workspace(cx);
-                    return;
+        let grid = terminal_top_grid_for_panes(
+            self.state.terminal_layout.top_grid.clone(),
+            &top_ratios,
+            pane_count,
+        );
+        let tree = terminal_split_tree_for_panes(
+            self.state.terminal_layout.split_tree.clone(),
+            &grid,
+            &top_ratios,
+            pane_count,
+        )
+        .unwrap_or(TerminalSplitNode::Leaf { pane: 0 });
+        let before = matches!(
+            direction,
+            TerminalSplitDirection::Left | TerminalSplitDirection::Up
+        );
+        let insert_index = match scope {
+            TerminalSplitScope::Inner => {
+                if before {
+                    source_index
+                } else {
+                    source_index + 1
                 }
-            };
+            }
+            TerminalSplitScope::Root => {
+                if before {
+                    0
+                } else {
+                    pane_count
+                }
+            }
+        };
+        let split_tree_result = match scope {
+            TerminalSplitScope::Inner => {
+                terminal_split_tree_insert_pane(&tree, source_index, insert_index, direction)
+            }
+            TerminalSplitScope::Root => {
+                terminal_split_tree_insert_pane_root(&tree, insert_index, direction)
+            }
+        };
+        let split_tree = match split_tree_result {
+            Ok(result) => result,
+            Err(error) => {
+                self.status_message = error.to_string();
+                self.invalidate_terminal_workspace(cx);
+                return;
+            }
+        };
         let pane_index = insert_index;
         let title = self
             .text("terminal.split.default_format", "Split %d")
@@ -527,9 +408,7 @@ impl CoduxApp {
                 },
             );
         }
-        self.state.terminal_layout.top_grid = top_grid;
-        self.state.terminal_layout.top_ratios =
-            terminal_top_ratios_from_grid(&self.state.terminal_layout.top_grid);
+        self.set_terminal_split_tree(Some(split_tree));
         self.select_active_terminal_runtime_id(active_runtime_id.as_deref());
         self.focus_active_terminal(window, cx);
         self.status_message = "terminal split added".to_string();
@@ -541,19 +420,21 @@ impl CoduxApp {
     pub(in crate::app) fn swap_terminal_top_panes(
         &mut self,
         from_index: usize,
-        to_index: usize,
+        target_index: usize,
         cx: &mut Context<Self>,
     ) {
-        if from_index == to_index {
+        let pane_count = self.main_terminal().map(|tab| tab.panes.len()).unwrap_or(0);
+        if pane_count <= 1
+            || from_index >= pane_count
+            || target_index >= pane_count
+            || from_index == target_index
+        {
             return;
         }
         let Some(tab) = self.main_terminal_mut() else {
             return;
         };
-        if from_index >= tab.panes.len() || to_index >= tab.panes.len() {
-            return;
-        }
-        tab.panes.swap(from_index, to_index);
+        tab.panes.swap(from_index, target_index);
         self.refresh_terminal_slot_snapshots();
         self.sync_terminal_state_after_layout_change(cx);
         self.status_message = "terminal panes swapped".to_string();
@@ -566,16 +447,7 @@ impl CoduxApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(tab_index) = self
-            .terminals
-            .iter()
-            .position(|tab| tab.placement == TerminalTabPlacement::Top)
-            .or_else(|| {
-                self.terminals
-                    .iter()
-                    .position(|tab| tab.id == self.active_terminal_id)
-            })
-        else {
+        let Some(tab_index) = (!self.terminals.is_empty()).then_some(0) else {
             return;
         };
         if self.terminals[tab_index].panes.len() <= 1 {
@@ -588,13 +460,24 @@ impl CoduxApp {
         }
 
         let pane_count = self.terminals[tab_index].panes.len();
-        let grid = terminal_top_grid_for_panes(
-            self.state.terminal_layout.top_grid.clone(),
-            &self.state.terminal_layout.top_ratios,
+        let top_ratios = terminal_top_ratios_for_panes(
+            self.state.terminal_layout.top_ratios.clone(),
             pane_count,
         );
-        let grid_cell = terminal_grid_cell_for_pane(&grid, pane_index);
-        let top_grid = terminal_grid_remove_pane(&grid, pane_index);
+        let grid = terminal_top_grid_for_panes(
+            self.state.terminal_layout.top_grid.clone(),
+            &top_ratios,
+            pane_count,
+        );
+        let tree = terminal_split_tree_for_panes(
+            self.state.terminal_layout.split_tree.clone(),
+            &grid,
+            &top_ratios,
+            pane_count,
+        )
+        .unwrap_or(TerminalSplitNode::Leaf { pane: 0 });
+        let split_location = terminal_split_tree_location_for_pane(&tree, pane_index);
+        let split_tree = terminal_split_tree_remove_pane(&tree, pane_index);
         self.refresh_terminal_slot_snapshots();
         let tab_view_id = self.terminals[tab_index].id;
         let mut slot = self.terminals[tab_index].panes.remove(pane_index);
@@ -627,9 +510,7 @@ impl CoduxApp {
                 }
             }
         }
-        self.state.terminal_layout.top_grid = top_grid;
-        self.state.terminal_layout.top_ratios =
-            terminal_top_ratios_from_grid(&self.state.terminal_layout.top_grid);
+        self.set_terminal_split_tree(split_tree);
         self.status_message = format!("terminal pane floated: {title}");
         self.sync_terminal_state_after_layout_change(cx);
 
@@ -646,7 +527,7 @@ impl CoduxApp {
             project_id,
             tab_view_id,
             pane_index,
-            grid_cell,
+            split_location,
             slot,
             cx,
         );
@@ -694,7 +575,7 @@ impl CoduxApp {
         project_id: Option<String>,
         tab_view_id: usize,
         pane_index: usize,
-        grid_cell: Option<TerminalGridCell>,
+        split_location: Option<TerminalSplitLocation>,
         slot: TerminalPaneSlot,
         cx: &mut Context<Self>,
     ) {
@@ -714,35 +595,40 @@ impl CoduxApp {
             .terminals
             .iter()
             .position(|tab| tab.id == tab_view_id)
-            .or_else(|| {
-                self.terminals
-                    .iter()
-                    .position(|tab| tab.placement == TerminalTabPlacement::Top)
-            })
+            .or_else(|| (!self.terminals.is_empty()).then_some(0))
         else {
             return;
         };
         let pane_count = self.terminals[tab_index].panes.len();
-        let grid = terminal_top_grid_for_panes(
-            self.state.terminal_layout.top_grid.clone(),
-            &self.state.terminal_layout.top_ratios,
+        let top_ratios = terminal_top_ratios_for_panes(
+            self.state.terminal_layout.top_ratios.clone(),
             pane_count,
         );
-        let (top_grid, insert_index) = grid_cell
-            .and_then(|cell| terminal_grid_restore_pane_cell(&grid, cell).ok())
-            .unwrap_or_else(|| {
-                terminal_grid_insert_pane(
-                    &grid,
-                    pane_count.saturating_sub(1),
-                    TerminalSplitDirection::Right,
-                )
-                .unwrap_or_else(|_| (grid, pane_index.min(pane_count)))
-            });
+        let grid = terminal_top_grid_for_panes(
+            self.state.terminal_layout.top_grid.clone(),
+            &top_ratios,
+            pane_count,
+        );
+        let tree = terminal_split_tree_for_panes(
+            self.state.terminal_layout.split_tree.clone(),
+            &grid,
+            &top_ratios,
+            pane_count,
+        )
+        .unwrap_or(TerminalSplitNode::Leaf { pane: 0 });
+        let insert_index = pane_index.min(self.terminals[tab_index].panes.len());
+        let (split_tree, insert_index) =
+            match terminal_split_tree_with_restored_location(&tree, split_location, insert_index) {
+                Ok(result) => result,
+                Err(error) => {
+                    self.status_message = error.to_string();
+                    self.invalidate_terminal_workspace(cx);
+                    return;
+                }
+            };
         let insert_index = insert_index.min(self.terminals[tab_index].panes.len());
         self.terminals[tab_index].panes.insert(insert_index, slot);
-        self.state.terminal_layout.top_grid = top_grid;
-        self.state.terminal_layout.top_ratios =
-            terminal_top_ratios_from_grid(&self.state.terminal_layout.top_grid);
+        self.set_terminal_split_tree(Some(split_tree));
         self.status_message = format!("terminal pane restored: {title}");
         self.sync_terminal_state_after_layout_change(cx);
         self.invalidate_terminal_workspace(cx);
@@ -754,16 +640,7 @@ impl CoduxApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(tab_index) = self
-            .terminals
-            .iter()
-            .position(|tab| tab.placement == TerminalTabPlacement::Top)
-            .or_else(|| {
-                self.terminals
-                    .iter()
-                    .position(|tab| tab.id == self.active_terminal_id)
-            })
-        else {
+        let Some(tab_index) = (!self.terminals.is_empty()).then_some(0) else {
             return;
         };
         if self.terminals[tab_index].panes.len() <= 1 {
@@ -774,12 +651,23 @@ impl CoduxApp {
             return;
         }
         let pane_count = self.terminals[tab_index].panes.len();
-        let grid = terminal_top_grid_for_panes(
-            self.state.terminal_layout.top_grid.clone(),
-            &self.state.terminal_layout.top_ratios,
+        let top_ratios = terminal_top_ratios_for_panes(
+            self.state.terminal_layout.top_ratios.clone(),
             pane_count,
         );
-        let top_grid = terminal_grid_remove_pane(&grid, pane_index);
+        let grid = terminal_top_grid_for_panes(
+            self.state.terminal_layout.top_grid.clone(),
+            &top_ratios,
+            pane_count,
+        );
+        let tree = terminal_split_tree_for_panes(
+            self.state.terminal_layout.split_tree.clone(),
+            &grid,
+            &top_ratios,
+            pane_count,
+        )
+        .unwrap_or(TerminalSplitNode::Leaf { pane: 0 });
+        let split_tree = terminal_split_tree_remove_pane(&tree, pane_index);
         self.refresh_terminal_slot_snapshots();
         let removed = self.terminals[tab_index].panes.remove(pane_index);
         let terminal_id = removed
@@ -793,9 +681,7 @@ impl CoduxApp {
             self.invalidate_terminal_workspace(cx);
             return;
         }
-        self.state.terminal_layout.top_grid = top_grid;
-        self.state.terminal_layout.top_ratios =
-            terminal_top_ratios_from_grid(&self.state.terminal_layout.top_grid);
+        self.set_terminal_split_tree(split_tree);
         let still_referenced = self.terminals.iter().any(|tab| {
             tab.panes.iter().enumerate().any(|(index, slot)| {
                 Self::terminal_slot_terminal_id(tab, index, slot).as_deref()
@@ -827,16 +713,7 @@ impl CoduxApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(tab_index) = self
-            .terminals
-            .iter()
-            .position(|tab| tab.placement == TerminalTabPlacement::Top)
-            .or_else(|| {
-                self.terminals
-                    .iter()
-                    .position(|tab| tab.id == self.active_terminal_id)
-            })
-        else {
+        let Some(tab_index) = (!self.terminals.is_empty()).then_some(0) else {
             return;
         };
         if pane_index >= self.terminals[tab_index].panes.len() {
@@ -861,7 +738,7 @@ impl CoduxApp {
         let kill_result = self.kill_terminal_session_if_present(&terminal_id);
         self.select_active_terminal_runtime_id(Some(&terminal_id));
         let mount_result = self.ensure_active_terminal_mounted(cx);
-        self.detach_inactive_terminal_views();
+        self.refresh_terminal_slot_snapshots();
         self.focus_active_terminal(window, cx);
         self.sync_terminal_state_after_layout_change(cx);
         if let Err(error) = kill_result {
@@ -957,14 +834,27 @@ impl CoduxApp {
             self.invalidate_terminal_workspace(cx);
             return;
         };
-        let grid = terminal_top_grid_for_panes(
-            self.state.terminal_layout.top_grid.clone(),
-            &self.state.terminal_layout.top_ratios,
+        let top_ratios = terminal_top_ratios_for_panes(
+            self.state.terminal_layout.top_ratios.clone(),
             pane_count,
         );
-        let (top_grid, pane_index) = match terminal_grid_insert_pane(
+        let grid = terminal_top_grid_for_panes(
+            self.state.terminal_layout.top_grid.clone(),
+            &top_ratios,
+            pane_count,
+        );
+        let tree = terminal_split_tree_for_panes(
+            self.state.terminal_layout.split_tree.clone(),
             &grid,
+            &top_ratios,
+            pane_count,
+        )
+        .unwrap_or(TerminalSplitNode::Leaf { pane: 0 });
+        let pane_index = pane_count;
+        let split_tree = match terminal_split_tree_insert_pane(
+            &tree,
             pane_count.saturating_sub(1),
+            pane_index,
             TerminalSplitDirection::Right,
         ) {
             Ok(result) => result,
@@ -1010,9 +900,7 @@ impl CoduxApp {
                 },
             );
         }
-        self.state.terminal_layout.top_grid = top_grid;
-        self.state.terminal_layout.top_ratios =
-            terminal_top_ratios_from_grid(&self.state.terminal_layout.top_grid);
+        self.set_terminal_split_tree(Some(split_tree));
         self.select_active_terminal_runtime_id(active_runtime_id.as_deref());
         if let Some(window) = window {
             self.focus_active_terminal(window, cx);
@@ -1025,354 +913,5 @@ impl CoduxApp {
         self.sync_terminal_state_after_layout_change(cx);
         self.spawn_attach_pending_terminals(None, vec![(pty_config, attach)], cx);
         self.invalidate_terminal_workspace(cx);
-    }
-
-    pub(in crate::app) fn close_terminal_tab(
-        &mut self,
-        terminal_id: usize,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(index) = self.terminals.iter().position(|tab| tab.id == terminal_id) else {
-            return;
-        };
-        self.refresh_terminal_slot_snapshots();
-        let removed = self.terminals.remove(index);
-        let terminal_ids = removed
-            .panes
-            .iter()
-            .enumerate()
-            .filter_map(|(pane_index, slot)| {
-                Self::terminal_slot_terminal_id(&removed, pane_index, slot)
-            })
-            .collect::<Vec<_>>();
-        let kill_errors = terminal_ids
-            .iter()
-            .filter_map(|terminal_id| self.kill_terminal_session_if_present(terminal_id).err())
-            .collect::<Vec<_>>();
-        self.active_terminal_id = self
-            .terminals
-            .get(index.saturating_sub(1))
-            .filter(|tab| tab.placement == TerminalTabPlacement::Bottom)
-            .or_else(|| self.bottom_terminals().next())
-            .map(|tab| tab.id)
-            .unwrap_or(0);
-        let active_runtime_id = self
-            .active_bottom_terminal()
-            .and_then(|tab| tab.panes.first())
-            .and_then(|slot| slot.terminal_id.clone())
-            .or_else(|| {
-                self.main_terminal()
-                    .and_then(|tab| tab.panes.first())
-                    .and_then(|slot| slot.terminal_id.clone())
-            });
-        self.select_active_terminal_runtime_id(active_runtime_id.as_deref());
-        let mount_result = self.ensure_active_terminal_mounted(cx);
-        self.detach_inactive_terminal_views();
-        self.focus_active_terminal(window, cx);
-        self.sync_terminal_state_after_layout_change(cx);
-        if let Err(error) = mount_result {
-            self.status_message = format!("terminal tab closed; mount failed: {error}");
-        } else if let Some(error) = kill_errors.first() {
-            self.status_message = format!("terminal tab closed; PTY cleanup failed: {error}");
-        }
-        self.invalidate_terminal_workspace(cx);
-    }
-
-    pub(in crate::app) fn select_terminal_tab(
-        &mut self,
-        terminal_id: usize,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.refresh_terminal_slot_snapshots();
-        self.active_terminal_id = terminal_id;
-        self.remember_active_bottom_terminal_for_current_scope();
-        let active_runtime_id = self
-            .terminals
-            .iter()
-            .find(|tab| tab.id == terminal_id)
-            .and_then(|tab| tab.panes.first())
-            .and_then(|slot| slot.terminal_id.clone());
-        self.select_active_terminal_runtime_id(active_runtime_id.as_deref());
-        if let Err(error) = self.ensure_active_terminal_mounted(cx) {
-            self.status_message = format!("failed to select terminal: {error}");
-            self.invalidate_terminal_workspace(cx);
-            return;
-        }
-        self.focus_active_terminal(window, cx);
-        self.detach_inactive_terminal_views();
-        self.sync_terminal_state_after_layout_change(cx);
-        self.invalidate_terminal_workspace(cx);
-    }
-
-    pub(in crate::app) fn reorder_bottom_terminal_tabs(
-        &mut self,
-        next_terminal_ids: Vec<usize>,
-        cx: &mut Context<Self>,
-    ) {
-        let current_bottom_ids = self
-            .terminals
-            .iter()
-            .filter(|tab| tab.placement == TerminalTabPlacement::Bottom)
-            .map(|tab| tab.id)
-            .collect::<Vec<_>>();
-        if current_bottom_ids == next_terminal_ids
-            || current_bottom_ids.len() != next_terminal_ids.len()
-        {
-            return;
-        }
-
-        let terminals = std::mem::take(&mut self.terminals);
-        let (mut bottom_tabs, mut other_tabs): (Vec<_>, Vec<_>) = terminals
-            .into_iter()
-            .partition(|tab| tab.placement == TerminalTabPlacement::Bottom);
-        let mut reordered = Vec::with_capacity(bottom_tabs.len());
-        for terminal_id in next_terminal_ids {
-            let Some(index) = bottom_tabs.iter().position(|tab| tab.id == terminal_id) else {
-                other_tabs.extend(bottom_tabs);
-                self.terminals = other_tabs;
-                return;
-            };
-            reordered.push(bottom_tabs.remove(index));
-        }
-        if !bottom_tabs.is_empty() {
-            other_tabs.extend(bottom_tabs);
-            self.terminals = other_tabs;
-            return;
-        }
-
-        other_tabs.extend(reordered);
-        self.terminals = other_tabs;
-        self.sync_terminal_state_after_layout_change(cx);
-        self.invalidate_terminal_workspace(cx);
-    }
-
-    pub(in crate::app) fn rename_bottom_terminal_tab(
-        &mut self,
-        terminal_id: usize,
-        label: String,
-        cx: &mut Context<Self>,
-    ) {
-        let label = normalized_terminal_tab_label(&label);
-        let Some(tab) = self
-            .terminals
-            .iter_mut()
-            .find(|tab| tab.id == terminal_id && tab.placement == TerminalTabPlacement::Bottom)
-        else {
-            return;
-        };
-        if tab.label == label {
-            return;
-        }
-        tab.label = label;
-        self.sync_terminal_state_after_layout_change(cx);
-        self.invalidate_terminal_workspace(cx);
-    }
-
-    pub(in crate::app) fn open_terminal_tab_editor_window(
-        &mut self,
-        terminal_id: usize,
-        label: String,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let title = self.text("terminal.tab.rename.title", "Rename Tab");
-        self.open_auxiliary_window(
-            AuxiliaryWindowSpec {
-                slot: AuxiliaryWindowSlot::TerminalTabEditor,
-                title: SharedString::from(title.clone()),
-                size: gpui::size(px(360.0), px(190.0)),
-                min_size: gpui::size(px(360.0), px(190.0)),
-                already_open_message: "terminal tab editor already opened",
-                opened_message: "terminal tab editor opened",
-                failed_prefix: "failed to open terminal tab editor",
-            },
-            cx,
-            move |state, runtime, runtime_service, _window, _cx| {
-                let mut app =
-                    CoduxApp::new_settings_window_from_state(state, runtime, runtime_service);
-                app.window_mode = AppWindowMode::TerminalTabEditor;
-                app.terminal_tab_editor_id = Some(terminal_id);
-                app.terminal_tab_editor_label = label;
-                app.status_message = title;
-                app
-            },
-            {
-                let parent = cx.entity().downgrade();
-                move |view, _window, cx| {
-                    view.update(cx, |app, _cx| {
-                        app.parent_main_window = Some(parent);
-                    });
-                }
-            },
-        );
-        self.invalidate_status_bar(cx);
-    }
-
-    pub(in crate::app) fn set_terminal_tab_editor_label(
-        &mut self,
-        label: String,
-        _window: &mut Window,
-        _cx: &mut Context<Self>,
-    ) {
-        self.terminal_tab_editor_label = label;
-    }
-
-    pub(in crate::app) fn save_terminal_tab_editor(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(terminal_id) = self.terminal_tab_editor_id else {
-            window.remove_window();
-            return;
-        };
-        let label = self.terminal_tab_editor_label.clone();
-        if let Some(parent) = self
-            .parent_main_window
-            .as_ref()
-            .and_then(|parent| parent.upgrade())
-        {
-            let _ = parent.update(cx, |app, cx| {
-                app.rename_bottom_terminal_tab(terminal_id, label, cx);
-                app.terminal_tab_editor_window = None;
-                app.invalidate_status_bar(cx);
-            });
-        }
-        window.remove_window();
-    }
-
-    pub(in crate::app) fn terminal_tab_editor_workspace(
-        &self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        let can_submit = !self.terminal_tab_editor_label.trim().is_empty();
-        let title = self.text("terminal.tab.rename.title", "Rename Tab");
-        let field_label = self.text("terminal.tab.rename.field", "Tab Title");
-        let placeholder = self.text("terminal.tab.rename.placeholder", "Tab Name");
-        let cancel_label = self.text("common.cancel", "Cancel");
-        let save_label = self.text("common.save", "Save");
-        child_window_shell(title, cx)
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .flex_1()
-                    .min_h_0()
-                    .p(px(18.0))
-                    .child(terminal_tab_editor_input(
-                        &self.terminal_tab_editor_label,
-                        field_label,
-                        placeholder,
-                        window,
-                        cx,
-                    )),
-            )
-            .child(dialog_footer_bar(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(8.0))
-                    .child(dialog_cancel_button(
-                        "terminal-tab-editor-cancel",
-                        cancel_label,
-                        cx,
-                        |_app, _event, window, _cx| window.remove_window(),
-                    ))
-                    .child(
-                        dialog_primary_button(
-                            "terminal-tab-editor-save",
-                            save_label,
-                            cx,
-                            |app, _event, window, cx| app.save_terminal_tab_editor(window, cx),
-                        )
-                        .disabled(!can_submit),
-                    ),
-                cx,
-            ))
-    }
-}
-
-fn normalized_terminal_tab_label(label: &str) -> String {
-    let label = label.trim();
-    if label.is_empty() {
-        "Tab".to_string()
-    } else {
-        label.chars().take(48).collect()
-    }
-}
-
-fn terminal_tab_editor_input(
-    value: &str,
-    field_label: String,
-    placeholder: String,
-    window: &mut Window,
-    cx: &mut Context<CoduxApp>,
-) -> AnyElement {
-    let value = value.to_string();
-    let input = window.use_keyed_state("terminal-tab-editor-label", cx, {
-        let value = value.clone();
-        move |window, cx| {
-            InputState::new(window, cx)
-                .default_value(value.clone())
-                .placeholder(placeholder.clone())
-        }
-    });
-    input.update(cx, |state, cx| {
-        if state.value().as_ref() != value.as_str() {
-            state.set_value(value.clone(), window, cx);
-        }
-        // Focus only on first appearance; re-focusing on every re-render
-        // restarts the blink cursor and makes the caret flicker.
-        if !state.focus_handle(cx).is_focused(window) {
-            state.focus(window, cx);
-        }
-    });
-    cx.subscribe_in(
-        &input,
-        window,
-        |app, state, event, window, cx| match event {
-            InputEvent::Change => {
-                app.set_terminal_tab_editor_label(state.read(cx).value().to_string(), window, cx);
-            }
-            InputEvent::PressEnter { .. } => {
-                cx.stop_propagation();
-                window.prevent_default();
-                app.save_terminal_tab_editor(window, cx);
-            }
-            InputEvent::Focus | InputEvent::Blur => {}
-        },
-    )
-    .detach();
-
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(6.0))
-        .child(
-            div()
-                .text_size(rems(0.875))
-                .line_height(rems(1.125))
-                .text_color(color(theme::TEXT))
-                .child(field_label),
-        )
-        .child(Input::new(&input).with_size(gpui_component::Size::Medium))
-        .into_any_element()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::normalized_terminal_tab_label;
-
-    #[test]
-    fn normalizes_terminal_tab_label() {
-        assert_eq!(normalized_terminal_tab_label("  dev  "), "dev");
-        assert_eq!(normalized_terminal_tab_label("   "), "Tab");
-        assert_eq!(
-            normalized_terminal_tab_label("abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz"),
-            "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuv"
-        );
     }
 }

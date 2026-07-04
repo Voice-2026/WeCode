@@ -34,7 +34,7 @@ use crate::ai_history_indexer::{AIHistoryIndexer, AIHistoryProjectState};
 use crate::ai_history_normalized::AIHistoryProjectRequest;
 use crate::project_store::{ProjectCreateRequest, ProjectStore, ProjectUpdateRequest};
 use crate::terminal_layout::{
-    TerminalLayoutService, TerminalPaneSummary, TerminalTabSummary, terminal_layout_storage_key,
+    TerminalLayoutService, TerminalPaneSummary, terminal_layout_storage_key,
 };
 use crate::terminal_pty::{
     TerminalEvent, TerminalManager, TerminalPtyConfig, TerminalSessionSnapshot,
@@ -2584,11 +2584,18 @@ impl RemoteHostRuntime {
         // backstop so a stale/duplicate view can never inject keystrokes into a
         // session another device is driving. An unknown/not-yet-started session
         // falls through (unwrap_or(true)) so the first input can still create it.
-        let is_owner = self
-            .terminals
-            .viewport_state(session_id)
-            .map(|state| state.owner == owner)
-            .unwrap_or(true);
+        // When the lease expired back to the host-local placeholder (nobody is
+        // driving), the first remote input RE-CLAIMS instead of being dropped:
+        // only resize/create claimed before, so a pane idle past the lease TTL
+        // went permanently deaf to keystrokes.
+        let is_owner = match self.terminals.viewport_state(session_id) {
+            Ok(state) if state.owner == owner => true,
+            Ok(state) if state.owner == crate::terminal_pty::terminal_viewport_local_owner() => {
+                self.terminals.claim_viewport(session_id, &owner).is_ok()
+            }
+            Ok(_) => false,
+            Err(_) => true,
+        };
         if !is_owner {
             if let Some(input_id) = envelope.payload.get("inputId").and_then(Value::as_str) {
                 self.send_terminal_data(
@@ -3942,18 +3949,11 @@ impl RemoteHostRuntime {
             title.trim()
         };
         let mut layout = layout;
-        // First terminal seeds the main split; later remote/host creates land as bottom tabs (splits are desktop-only).
-        if layout.top_panes.is_empty() && layout.tabs.is_empty() {
-            layout.top_panes.push(TerminalPaneSummary {
-                title: title.to_string(),
-                terminal_id: terminal_id.to_string(),
-            });
-        } else {
-            layout.tabs.push(TerminalTabSummary {
-                label: title.to_string(),
-                terminal_id: terminal_id.to_string(),
-            });
-        }
+        layout.top_panes.push(TerminalPaneSummary {
+            title: title.to_string(),
+            terminal_id: terminal_id.to_string(),
+        });
+        layout.tabs.clear();
         let _ = service.save_summary(layout_key, layout);
     }
 
@@ -5043,7 +5043,9 @@ mod tests {
         where
             F: FnMut(&(Option<String>, Vec<u8>)) -> bool,
         {
-            for _ in 0..160 {
+            // Generous cap: slow replies (host-metrics sampling under full-suite
+            // load) can exceed a few seconds; passing tests return early.
+            for _ in 0..600 {
                 for message in self.take_messages() {
                     if predicate(&message) {
                         return Some(message);
@@ -7773,6 +7775,70 @@ mod tests {
             .expect("expire viewport lease")
             .expect("expired viewport state");
         assert_eq!(expired.owner, "desktop");
+
+        fs::remove_dir_all(support_dir).ok();
+    }
+
+    #[test]
+    fn terminal_input_reclaims_viewport_after_lease_expired_to_host() {
+        let support_dir = temp_support_dir("codux-remote-terminal-input-reclaim");
+        write_paired_remote_settings(&support_dir);
+        let terminals = Arc::new(TerminalManager::new());
+        let runtime = Arc::new(RemoteHostRuntime::new_with_ai_history_and_terminals(
+            support_dir.clone(),
+            Default::default(),
+            Arc::clone(&terminals),
+        ));
+        if let Ok(mut current) = runtime.transport.lock() {
+            *current = Some(Arc::new(CapturingTransport::default()));
+        }
+        let session_id = terminals
+            .create(
+                TerminalPtyConfig {
+                    shell: Some("sh".to_string()),
+                    command: Some("cat".to_string()),
+                    cwd: Some(support_dir.to_string_lossy().to_string()),
+                    cols: Some(100),
+                    rows: Some(32),
+                    ..Default::default()
+                },
+                |_| {},
+            )
+            .expect("create terminal");
+        terminals
+            .claim_viewport(&session_id, "remote:device-1")
+            .expect("remote claim");
+        let expired = terminals
+            .expire_viewport_lease_for_test(&session_id)
+            .expect("expire viewport lease")
+            .expect("expired viewport state");
+        assert_eq!(expired.owner, "desktop");
+
+        // Nobody is driving: the first remote input re-claims and is accepted.
+        runtime.handle_terminal_input(&RemoteEnvelope {
+            kind: "terminal.input".to_string(),
+            device_id: Some("device-1".to_string()),
+            session_id: Some(session_id.clone()),
+            seq: None,
+            payload: json!({ "data": "x" }),
+        });
+        let state = terminals
+            .viewport_state(&session_id)
+            .expect("viewport state");
+        assert_eq!(state.owner, "remote:device-1");
+
+        // A different device is still rejected while the lease is live.
+        runtime.handle_terminal_input(&RemoteEnvelope {
+            kind: "terminal.input".to_string(),
+            device_id: Some("device-2".to_string()),
+            session_id: Some(session_id.clone()),
+            seq: None,
+            payload: json!({ "data": "y" }),
+        });
+        let state = terminals
+            .viewport_state(&session_id)
+            .expect("viewport state");
+        assert_eq!(state.owner, "remote:device-1");
 
         fs::remove_dir_all(support_dir).ok();
     }

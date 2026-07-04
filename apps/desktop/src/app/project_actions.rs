@@ -314,7 +314,6 @@ impl CoduxApp {
         self.project_switch_generation = self.project_switch_generation.wrapping_add(1);
         let switch_generation = self.project_switch_generation;
         self.remember_focused_terminal_for_current_scope(window, cx);
-        self.remember_active_bottom_terminal_for_current_scope();
         self.apply_selected_project_shell(&project_id, window, cx);
         self.memory_manager_scope = "project".to_string();
         self.memory_manager_project_id = Some(project_id.clone());
@@ -713,6 +712,7 @@ impl CoduxApp {
                 layout_snapshot.top_panes,
                 layout_snapshot.top_ratios,
                 layout_snapshot.top_grid,
+                layout_snapshot.split_tree,
                 layout_snapshot.bottom_ratio,
             ) {
                 codux_runtime::runtime_trace::runtime_trace(
@@ -1256,23 +1256,18 @@ impl CoduxApp {
             &self.state.terminal_runtime,
             &self.state.settings.language,
             self.remembered_active_terminal_runtime_id(),
-            self.remembered_active_bottom_terminal_id(),
         );
         self.state.terminal_layout.active_terminal_id =
             restore_plan.active_terminal_id.clone().unwrap_or_default();
         self.runtime_trace(
             "terminal-restore",
             &format!(
-                "plan elapsed_ms={} owner={} tabs={} active_index={} active_runtime={} active_bottom={}",
+                "plan elapsed_ms={} owner={} tabs={} active_index={} active_runtime={}",
                 plan_started_at.elapsed().as_millis(),
                 owner_id.as_deref().unwrap_or("none"),
                 restore_plan.tabs.len(),
                 restore_plan.active_index,
-                restore_plan.active_terminal_id.as_deref().unwrap_or("none"),
-                restore_plan
-                    .active_bottom_terminal_id
-                    .as_deref()
-                    .unwrap_or("none")
+                restore_plan.active_terminal_id.as_deref().unwrap_or("none")
             ),
         );
         let artifacts_started_at = Instant::now();
@@ -1348,21 +1343,12 @@ impl CoduxApp {
         let terminal_pane_registry = self.terminal_pane_registry.clone();
         let mut pending = Vec::new();
         let mut registrations = Vec::new();
-        let mount_target = terminal_restore_mount_target(restore_plan, &self.terminals);
         for (tab_index, tab) in self.terminals.iter_mut().enumerate() {
             let Some(tab_plan) = restore_plan.tabs.get(tab_index) else {
                 continue;
             };
             let _ = tab_plan;
-            for (slot_index, slot) in tab.panes.iter_mut().enumerate() {
-                if !should_mount_restored_terminal_slot(
-                    tab.placement,
-                    tab_index,
-                    slot_index,
-                    mount_target,
-                ) {
-                    continue;
-                }
+            for slot in tab.panes.iter_mut() {
                 if slot.pane.is_some() {
                     continue;
                 }
@@ -1780,8 +1766,6 @@ impl CoduxApp {
         self.terminal_layout_cache
             .retain(|key, _| live.contains(&key.project_id));
         self.active_terminal_runtime_ids
-            .retain(|key, _| live.contains(&key.project_id));
-        self.active_bottom_terminal_ids
             .retain(|key, _| live.contains(&key.project_id));
     }
 

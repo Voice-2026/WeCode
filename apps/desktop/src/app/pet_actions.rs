@@ -1,4 +1,5 @@
 use super::*;
+use crate::app::app_state::PetLevelUpFx;
 use chrono::Timelike as _;
 
 /// Minimum seconds a pet activity line stays before another same-tone line may
@@ -161,6 +162,68 @@ impl CoduxApp {
                 }) {
                     Ok(true) => {}
                     Ok(false) | Err(_) => break,
+                }
+            }
+        })
+        .detach();
+    }
+
+    /// Arm the full-screen celebration when a claimed pet just gained a level.
+    /// Pure state change — the ticker is started lazily from render.
+    pub(in crate::app) fn note_pet_level_transition(&mut self, previous_level: i64) {
+        let pet = &self.state.pet;
+        if self.window_mode != AppWindowMode::Main
+            || !pet.claimed
+            || previous_level <= 0
+            || pet.level <= previous_level
+        {
+            return;
+        }
+        self.pet_level_up = Some(PetLevelUpFx {
+            level: pet.level.max(1),
+            progress: 0.0,
+        });
+    }
+
+    /// Debug preview (⌃⌥L in the main window): replay the celebration with the
+    /// current level so the animation can be tuned without grinding XP.
+    pub(in crate::app) fn preview_pet_level_up(&mut self, cx: &mut Context<Self>) {
+        if self.window_mode != AppWindowMode::Main {
+            return;
+        }
+        self.pet_level_up = Some(PetLevelUpFx {
+            level: self.state.pet.level.max(1),
+            progress: 0.0,
+        });
+        cx.notify();
+    }
+
+    pub(in crate::app) fn ensure_pet_level_up_ticker(&mut self, cx: &mut Context<Self>) {
+        if self.pet_level_up_ticking || self.pet_level_up.is_none() {
+            return;
+        }
+        self.pet_level_up_ticking = true;
+        let timer = cx.background_executor().clone();
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            loop {
+                timer.timer(Duration::from_millis(33)).await;
+                let keep_going = this
+                    .update(cx, |app, cx| {
+                        let Some(fx) = app.pet_level_up.as_mut() else {
+                            app.pet_level_up_ticking = false;
+                            return false;
+                        };
+                        fx.progress += 0.014;
+                        if fx.progress >= 1.0 {
+                            app.pet_level_up = None;
+                            app.pet_level_up_ticking = false;
+                        }
+                        app.invalidate_ui_region(cx, UiRegion::Root);
+                        app.pet_level_up.is_some()
+                    })
+                    .unwrap_or(false);
+                if !keep_going {
+                    break;
                 }
             }
         })
@@ -799,7 +862,9 @@ impl CoduxApp {
         match result {
             Ok(state) => {
                 self.state.settings = state.settings;
+                let previous_level = self.state.pet.level;
                 self.state.pet = state.pet;
+                self.note_pet_level_transition(previous_level);
                 if action_id == DESKTOP_PET_SKIP_LINE {
                     self.desktop_pet_line.clear();
                     self.desktop_pet_tone = DesktopPetActivityTone::Normal;

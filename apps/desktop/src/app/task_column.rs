@@ -359,8 +359,16 @@ fn task_column_content(
     header_view: gpui::Entity<TaskColumnHeaderView>,
     worktree_list_view: gpui::Entity<TaskWorktreeListView>,
     session_list_view: gpui::Entity<TaskSessionListView>,
-    _cx: &mut Context<TaskColumnView>,
+    cx: &mut Context<TaskColumnView>,
 ) -> impl IntoElement {
+    // Worktree area hugs its content (capped at half the column) and sessions
+    // flow right below it — no resizable divider, matching the flat design.
+    let worktree_count = worktree_list_view.read(cx).snapshot.worktrees.len();
+    let worktree_area_height = if worktree_count == 0 {
+        148.0
+    } else {
+        24.0 + worktree_count as f32 * 58.0
+    };
     div()
         .flex()
         .flex_col()
@@ -375,19 +383,20 @@ fn task_column_content(
                 .min_h_0()
                 .overflow_hidden()
                 .bg(theme::vibrancy_panel(color(theme::BG_COLUMN)))
+                .flex()
+                .flex_col()
                 .child(
-                    v_resizable("task-column-resizable")
-                        .child(
-                            resizable_panel()
-                                .size(px(320.0))
-                                .size_range(px(96.0)..px(560.0))
-                                .child(gpui::AnyView::from(worktree_list_view)),
-                        )
-                        .child(
-                            resizable_panel()
-                                .size_range(px(96.0)..px(640.0))
-                                .child(gpui::AnyView::from(session_list_view)),
-                        ),
+                    div()
+                        .flex_none()
+                        .h(px(worktree_area_height))
+                        .max_h(relative(0.5))
+                        .child(gpui::AnyView::from(worktree_list_view)),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_h_0()
+                        .child(gpui::AnyView::from(session_list_view)),
                 ),
         )
 }
@@ -665,22 +674,18 @@ fn session_section_heading(
     cx: &mut Context<TaskSessionListView>,
 ) -> impl IntoElement {
     div()
-        .h(px(40.0))
-        .px_3()
+        .h(px(32.0))
+        .px(px(14.0))
         .flex_shrink_0()
         .flex()
         .items_center()
         .justify_between()
-        .border_t_1()
-        .border_color(cx.theme().border)
-        // Thin translucent darkening over the column's frosted fill: a touch
-        // deeper than the panel, still see-through.
-        .bg(theme::vibrancy_raised(cx.theme().list_head))
         .child(
             div()
                 .text_size(rems(0.875))
                 .line_height(rems(1.125))
-                .text_color(cx.theme().foreground)
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(cx.theme().muted_foreground)
                 .child(title),
         )
         .child(Tag::secondary().rounded_full().child(count.to_string()))
@@ -711,14 +716,16 @@ fn worktree_compact_row(
         .w_full()
         .min_w_0()
         .rounded(px(8.0))
-        .px_4()
-        .py_1()
+        .px_3()
+        .py(px(8.0))
         .flex()
         .items_center()
-        .gap_4()
-        .when(worktree.active, |this| this.bg(cx.theme().secondary_hover))
+        .gap_3()
+        .when(worktree.active, |this| {
+            this.bg(theme::elevate(color(theme::BG_COLUMN), 0.07))
+        })
         .cursor_pointer()
-        .hover(|style| style.bg(cx.theme().secondary_hover))
+        .hover(|style| style.bg(theme::elevate(color(theme::BG_COLUMN), 0.07)))
         .on_click(move |_, window, cx| {
             cx.update_entity(&select_entity, |app, cx| {
                 if activity_state == AIActivityState::Done {
@@ -735,51 +742,46 @@ fn worktree_compact_row(
                 .min_w_0()
                 .flex_1()
                 .overflow_hidden()
-                .gap(px(6.0))
+                .gap(px(4.0))
                 .child(
                     div()
                         .text_size(rems(0.875))
                         .line_height(rems(1.125))
+                        .font_weight(FontWeight::MEDIUM)
                         .text_color(color(theme::TEXT))
                         .truncate()
                         .child(worktree.title),
                 )
                 .child(
                     div()
-                        .flex()
-                        .items_center()
-                        .justify_between()
-                        .gap_2()
+                        .text_size(rems(0.75))
+                        .line_height(rems(1.0))
+                        .text_color(color(theme::TEXT_DIM))
+                        .truncate()
                         .child(
-                            div()
-                                .text_size(rems(0.75))
-                                .line_height(rems(1.0))
-                                .text_color(color(theme::TEXT_DIM))
-                                .truncate()
-                                .child(
-                                    labels
-                                        .changed_format
-                                        .replace("%@", &worktree.git_changes.to_string()),
-                                ),
-                        )
-                        .child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap_2()
-                                .text_size(rems(0.75))
-                                .line_height(rems(1.0))
-                                .child(
-                                    div()
-                                        .text_color(color(0x3EE66B))
-                                        .child(format!("+{}", worktree.git_additions.max(0))),
-                                )
-                                .child(
-                                    div()
-                                        .text_color(color(0xFF5C68))
-                                        .child(format!("-{}", worktree.git_deletions.max(0))),
-                                ),
+                            labels
+                                .changed_format
+                                .replace("%@", &worktree.git_changes.to_string()),
                         ),
+                ),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_none()
+                .items_center()
+                .gap_2()
+                .text_size(rems(0.75))
+                .line_height(rems(1.0))
+                .child(
+                    div()
+                        .text_color(cx.theme().success)
+                        .child(format!("+{}", worktree.git_additions.max(0))),
+                )
+                .child(
+                    div()
+                        .text_color(cx.theme().danger)
+                        .child(format!("-{}", worktree.git_deletions.max(0))),
                 ),
         )
         .context_menu(move |menu, _window, _cx| {
@@ -932,7 +934,7 @@ fn ai_session_compact_row(
     session: TaskSessionRow,
     labels: TaskColumnLabels,
     app_entity: gpui::Entity<CoduxApp>,
-    cx: &mut Context<TaskSessionListView>,
+    _cx: &mut Context<TaskSessionListView>,
 ) -> impl IntoElement {
     let restore_session_id = session.id.clone();
     let menu_session_id = session.id.clone();
@@ -947,12 +949,12 @@ fn ai_session_compact_row(
         .min_w_0()
         .flex()
         .flex_col()
-        .gap(px(2.0))
+        .gap(px(4.0))
         .rounded(px(8.0))
-        .px_2()
-        .py_1()
+        .px_3()
+        .py(px(8.0))
         .cursor_pointer()
-        .hover(|style| style.bg(cx.theme().secondary_hover))
+        .hover(|style| style.bg(theme::elevate(color(theme::BG_COLUMN), 0.07)))
         .on_double_click(move |_, window, cx| {
             cx.update_entity(&restore_entity, |app, cx| {
                 app.selected_ai_session_id = Some(restore_session_id.clone());
@@ -961,28 +963,12 @@ fn ai_session_compact_row(
         })
         .child(
             div()
-                .flex()
-                .items_center()
-                .justify_between()
-                .gap_2()
                 .min_w_0()
-                .child(
-                    div()
-                        .min_w_0()
-                        .flex_1()
-                        .text_sm()
-                        .text_color(color(theme::TEXT))
-                        .truncate()
-                        .child(session.title.clone()),
-                )
-                .child(
-                    div()
-                        .flex_shrink_0()
-                        .text_right()
-                        .text_size(rems(0.75))
-                        .text_color(color(theme::TEXT_DIM))
-                        .child(last_seen),
-                ),
+                .text_sm()
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(color(theme::TEXT))
+                .truncate()
+                .child(session.title.clone()),
         )
         .child(
             div()
@@ -995,17 +981,25 @@ fn ai_session_compact_row(
                 .text_color(color(theme::TEXT_DIM))
                 .child(
                     div()
+                        .flex()
+                        .items_center()
+                        .gap(px(6.0))
                         .min_w_0()
                         .flex_1()
-                        .truncate()
-                        .child(session.source.clone()),
+                        .child(
+                            div()
+                                .size(px(6.0))
+                                .flex_none()
+                                .rounded_full()
+                                .bg(color(theme::TEXT_DIM).opacity(0.55)),
+                        )
+                        .child(div().min_w_0().truncate().child(session.source.clone())),
                 )
-                .child(
-                    div()
-                        .flex_shrink_0()
-                        .text_right()
-                        .child(session_usage_label(&session)),
-                ),
+                .child(div().flex_shrink_0().text_right().child(format!(
+                    "{} · {}",
+                    session_usage_label(&session),
+                    last_seen
+                ))),
         )
         .context_menu(move |menu, _window, _cx| {
             let open_entity = app_entity.clone();

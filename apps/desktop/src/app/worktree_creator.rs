@@ -49,12 +49,12 @@ impl CoduxApp {
                         this.child(
                             div()
                                 .rounded(px(8.0))
-                                .bg(color(0xFF5C68).opacity(0.12))
+                                .bg(color(theme::RED).opacity(0.12))
                                 .px(px(10.0))
                                 .py(px(8.0))
                                 .text_size(rems(0.75))
                                 .line_height(rems(1.125))
-                                .text_color(color(0xFF5C68))
+                                .text_color(color(theme::RED))
                                 .child(error),
                         )
                     }),

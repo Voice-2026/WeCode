@@ -342,8 +342,6 @@ fn sanitize_shortcut_id(value: &str) -> Result<String, String> {
         "sidebar.tasks.toggle" => Ok("sidebar.tasks.toggle".to_string()),
         "terminal.split" => Ok("terminal.split".to_string()),
         "terminal.split.create" => Ok("terminal.split.create".to_string()),
-        "terminal.tab" => Ok("terminal.tab".to_string()),
-        "terminal.tab.create" => Ok("terminal.tab.create".to_string()),
         "panel.git" => Ok("panel.git".to_string()),
         "panel.ai" => Ok("panel.ai".to_string()),
         "assistant.git.open" => Ok("assistant.git.open".to_string()),

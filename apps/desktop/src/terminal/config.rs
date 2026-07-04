@@ -114,8 +114,11 @@ const TERMINAL_SNAPSHOT_PUBLISH_SLOW: Duration = Duration::from_millis(24);
 // this window; output-driven snapshot publishes are skipped outside of it.
 const TERMINAL_PAINT_RECENCY: Duration = Duration::from_millis(250);
 // Live window drags produce a new grid size nearly every frame; the PTY
-// resize (SIGWINCH -> full TUI redraw) is debounced to the trailing edge.
-const TERMINAL_PTY_RESIZE_DEBOUNCE: Duration = Duration::from_millis(80);
+// resize (SIGWINCH -> full TUI redraw, plus a host round-trip for remote
+// panes) is debounced to the trailing edge. Wider than the engine throttle:
+// the local rewrap should track the drag, but app repaints are the visible
+// flicker and can settle later.
+const TERMINAL_PTY_RESIZE_DEBOUNCE: Duration = Duration::from_millis(200);
 // Engine resizes with a column change rewrap the whole scrollback; during
 // split/window drags they are throttled to the same cadence as the PTY
 // resize (trailing edge guaranteed via a flush timer).

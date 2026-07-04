@@ -12,19 +12,16 @@ mod tests {
             shortcuts::{normalized_shortcut_text, shortcut_matches},
             terminal_state::{
                 TerminalSplitDirection, normalize_terminal_restore_state,
-                restore_terminal_tabs_skeleton, should_mount_restored_terminal_slot,
-                structural_terminal_layout, terminal_grid_cell_for_pane, terminal_grid_equal,
-                terminal_grid_insert_pane, terminal_grid_remove_pane,
-                terminal_grid_restore_pane_cell, terminal_grid_with_column_ratios,
-                terminal_grid_with_row_ratios, terminal_pane_terminal_id,
-                terminal_restore_mount_target, terminal_restore_plan,
-                terminal_restore_plan_for_language,
+                structural_terminal_layout, terminal_pane_terminal_id, terminal_restore_plan,
+                terminal_restore_plan_for_language, terminal_split_tree_insert_pane,
+                terminal_split_tree_insert_pane_root, terminal_split_tree_remove_pane,
+                terminal_split_tree_update_ratios,
             },
             terminal_worktree_actions::active_terminal_slot_indices,
             terminal_worktree_actions::restored_live_active_terminal_id,
-            types::{TerminalPanePlan, TerminalRestorePlan, TerminalTabPlacement, TerminalTabPlan},
+            types::{TerminalPanePlan, TerminalTabPlan},
             ui_helpers::restored_terminal_preview_lines,
-            workspace_views::{terminal_pane_index_at_position, terminal_pane_rect},
+            workspace_views::{terminal_pane_drop_target_at_position, terminal_pane_rect},
         },
         terminal::TerminalLaunchContext,
     };
@@ -33,8 +30,8 @@ mod tests {
         git::GitSummary,
         ssh::SSHProfileSummary,
         terminal_layout::{
-            TerminalGridColumn, TerminalLayoutSummary, TerminalPaneSummary, TerminalTabSummary,
-            TerminalTopGrid,
+            SplitAxis, TerminalGridColumn, TerminalLayoutSummary, TerminalPaneSummary,
+            TerminalSplitNode, TerminalTabSummary, TerminalTopGrid,
         },
         terminal_runtime::{TerminalRuntimeSessionSummary, TerminalRuntimeSummary},
     };
@@ -42,47 +39,31 @@ mod tests {
     use std::{collections::HashMap, path::PathBuf};
 
     fn terminal_focus_test_tabs() -> Vec<crate::app::types::TerminalTab> {
-        vec![
-            crate::app::types::TerminalTab {
-                id: 1,
-                label: "Main".to_string(),
-                placement: TerminalTabPlacement::Top,
-                terminal_id: None,
-                panes: vec![
-                    crate::app::types::TerminalPaneSlot {
-                        title: "Split 1".to_string(),
-                        terminal_id: Some("top-1".to_string()),
-                        pane: None,
-                        restored_output_bytes: 0,
-                        restored_output_tail: String::new(),
-                    },
-                    crate::app::types::TerminalPaneSlot {
-                        title: "Split 2".to_string(),
-                        terminal_id: Some("top-2".to_string()),
-                        pane: None,
-                        restored_output_bytes: 0,
-                        restored_output_tail: String::new(),
-                    },
-                ],
-            },
-            crate::app::types::TerminalTab {
-                id: 2,
-                label: "Tab 1".to_string(),
-                placement: TerminalTabPlacement::Bottom,
-                terminal_id: Some("bottom-1".to_string()),
-                panes: vec![crate::app::types::TerminalPaneSlot {
-                    title: "Tab 1".to_string(),
-                    terminal_id: Some("bottom-1".to_string()),
+        vec![crate::app::types::TerminalTab {
+            id: 1,
+            label: "Main".to_string(),
+            terminal_id: None,
+            panes: vec![
+                crate::app::types::TerminalPaneSlot {
+                    title: "Split 1".to_string(),
+                    terminal_id: Some("top-1".to_string()),
                     pane: None,
                     restored_output_bytes: 0,
                     restored_output_tail: String::new(),
-                }],
-            },
-        ]
+                },
+                crate::app::types::TerminalPaneSlot {
+                    title: "Split 2".to_string(),
+                    terminal_id: Some("top-2".to_string()),
+                    pane: None,
+                    restored_output_bytes: 0,
+                    restored_output_tail: String::new(),
+                },
+            ],
+        }]
     }
 
     #[test]
-    fn terminal_restore_plan_uses_terminal_ids_for_top_panes_and_bottom_tabs() {
+    fn terminal_restore_plan_migrates_legacy_tabs_to_top_panes() {
         let layout = TerminalLayoutSummary {
             active_terminal_id: "term-d".to_string(),
             top_panes: vec![
@@ -107,6 +88,7 @@ mod tests {
             ],
             top_ratios: vec![0.5, 0.5],
             top_grid: TerminalTopGrid::default(),
+            split_tree: None,
             bottom_ratio: 0.32,
             error: None,
         };
@@ -138,117 +120,28 @@ mod tests {
             &runtime,
             "simplifiedChinese",
             Some("term-d".to_string()),
-            None,
         );
 
-        assert_eq!(plan.tabs.len(), 3);
-        assert_eq!(plan.tabs[0].placement, TerminalTabPlacement::Top);
+        assert_eq!(plan.tabs.len(), 1);
         assert_eq!(
             plan.tabs[0]
                 .panes
                 .iter()
                 .map(|pane| pane.title.as_str())
                 .collect::<Vec<_>>(),
-            vec!["分屏 1", "长任务"]
+            vec!["分屏 1", "长任务", "标签页 1", "标签页 2"]
         );
         assert_eq!(plan.tabs[0].panes[0].terminal_id.as_deref(), Some("term-a"));
         assert_eq!(
             plan.tabs[0].panes[0].restored_output_tail,
             "restored top output"
         );
-        assert_eq!(plan.tabs[1].placement, TerminalTabPlacement::Bottom);
-        assert_eq!(plan.tabs[1].terminal_id.as_deref(), Some("term-c"));
-        assert_eq!(plan.tabs[2].terminal_id.as_deref(), Some("term-d"));
-        assert_eq!(plan.active_index, 2);
+        assert_eq!(plan.active_index, 0);
+        assert_eq!(plan.active_terminal_id.as_deref(), Some("term-d"));
     }
 
     #[test]
-    fn restore_mounts_all_visible_top_panes_but_only_active_bottom_tab() {
-        let plan = TerminalRestorePlan {
-            active_index: 0,
-            active_terminal_id: Some("top-2".to_string()),
-            active_bottom_terminal_id: Some("bottom-2".to_string()),
-            tabs: vec![
-                TerminalTabPlan {
-                    placement: TerminalTabPlacement::Top,
-                    terminal_id: None,
-                    label: "Main".to_string(),
-                    panes: vec![
-                        TerminalPanePlan {
-                            terminal_id: Some("top-1".to_string()),
-                            title: "Split 1".to_string(),
-                            restored_output_bytes: 0,
-                            restored_output_tail: String::new(),
-                        },
-                        TerminalPanePlan {
-                            terminal_id: Some("top-2".to_string()),
-                            title: "Split 2".to_string(),
-                            restored_output_bytes: 0,
-                            restored_output_tail: String::new(),
-                        },
-                    ],
-                },
-                TerminalTabPlan {
-                    placement: TerminalTabPlacement::Bottom,
-                    terminal_id: Some("bottom-1".to_string()),
-                    label: "Tab 1".to_string(),
-                    panes: vec![TerminalPanePlan {
-                        terminal_id: Some("bottom-1".to_string()),
-                        title: "Tab 1".to_string(),
-                        restored_output_bytes: 0,
-                        restored_output_tail: String::new(),
-                    }],
-                },
-                TerminalTabPlan {
-                    placement: TerminalTabPlacement::Bottom,
-                    terminal_id: Some("bottom-2".to_string()),
-                    label: "Tab 2".to_string(),
-                    panes: vec![TerminalPanePlan {
-                        terminal_id: Some("bottom-2".to_string()),
-                        title: "Tab 2".to_string(),
-                        restored_output_bytes: 0,
-                        restored_output_tail: String::new(),
-                    }],
-                },
-            ],
-        };
-        let (tabs, _, _) = restore_terminal_tabs_skeleton(&plan, None);
-        let target = terminal_restore_mount_target(&plan, &tabs);
-
-        assert_eq!(
-            target,
-            Some((2, 0)),
-            "bottom mount target must use the active bottom tab, not the focused top pane"
-        );
-
-        assert!(should_mount_restored_terminal_slot(
-            TerminalTabPlacement::Top,
-            0,
-            0,
-            target
-        ));
-        assert!(should_mount_restored_terminal_slot(
-            TerminalTabPlacement::Top,
-            0,
-            1,
-            target
-        ));
-        assert!(!should_mount_restored_terminal_slot(
-            TerminalTabPlacement::Bottom,
-            1,
-            0,
-            target
-        ));
-        assert!(should_mount_restored_terminal_slot(
-            TerminalTabPlacement::Bottom,
-            2,
-            0,
-            target
-        ));
-    }
-
-    #[test]
-    fn terminal_restore_state_keeps_valid_terminal_ids() {
+    fn terminal_restore_state_migrates_legacy_bottom_tabs() {
         let layout = TerminalLayoutSummary {
             active_terminal_id: "gpui-term-worktree-1-bottom-1".to_string(),
             top_panes: vec![TerminalPaneSummary {
@@ -261,6 +154,7 @@ mod tests {
             }],
             top_ratios: vec![1.0],
             top_grid: TerminalTopGrid::default(),
+            split_tree: None,
             bottom_ratio: 0.32,
             error: None,
         };
@@ -299,7 +193,6 @@ mod tests {
             &runtime,
             "simplifiedChinese",
             Some("gpui-term-worktree-1-bottom-1".to_string()),
-            None,
         );
 
         assert_eq!(layout.active_terminal_id, "");
@@ -307,9 +200,13 @@ mod tests {
             layout.top_panes[0].terminal_id,
             "gpui-term-worktree-1-top-1"
         );
-        assert_eq!(layout.tabs[0].terminal_id, "gpui-term-worktree-1-bottom-1");
+        assert!(layout.tabs.is_empty());
+        assert_eq!(
+            layout.top_panes[1].terminal_id,
+            "gpui-term-worktree-1-bottom-1"
+        );
         assert_eq!(runtime.sessions.len(), 1);
-        assert_eq!(plan.active_index, 1);
+        assert_eq!(plan.active_index, 0);
         assert_eq!(
             plan.active_terminal_id.as_deref(),
             Some("gpui-term-worktree-1-bottom-1")
@@ -331,6 +228,7 @@ mod tests {
             tabs: Vec::new(),
             top_ratios: vec![1.0],
             top_grid: TerminalTopGrid::default(),
+            split_tree: None,
             bottom_ratio: 0.32,
             error: None,
         };
@@ -359,7 +257,6 @@ mod tests {
         assert_eq!(
             plan.tabs,
             vec![TerminalTabPlan {
-                placement: TerminalTabPlacement::Top,
                 terminal_id: None,
                 label: "终端 1".to_string(),
                 panes: vec![TerminalPanePlan {
@@ -504,6 +401,7 @@ mod tests {
                     row_ratios: vec![0.25, 0.75],
                 }],
             },
+            split_tree: None,
             bottom_ratio: 0.32,
             error: None,
         };
@@ -519,230 +417,184 @@ mod tests {
     }
 
     #[test]
-    fn terminal_grid_ratio_helpers_preserve_shape() {
-        let grid = TerminalTopGrid {
-            columns: vec![
-                TerminalGridColumn {
-                    ratio: 0.5,
-                    rows: 1,
-                    row_ratios: vec![1.0],
-                },
-                TerminalGridColumn {
-                    ratio: 0.5,
-                    rows: 2,
-                    row_ratios: vec![0.5, 0.5],
-                },
-            ],
-        };
+    fn terminal_split_tree_supports_nested_splits_and_ratio_updates() {
+        let root = TerminalSplitNode::Leaf { pane: 0 };
+        let down =
+            terminal_split_tree_insert_pane(&root, 0, 1, TerminalSplitDirection::Down).unwrap();
+        let nested =
+            terminal_split_tree_insert_pane(&down, 0, 1, TerminalSplitDirection::Right).unwrap();
 
-        let columns = terminal_grid_with_column_ratios(&grid, vec![1.0, 2.0]);
-        assert_eq!(columns.columns[0].rows, 1);
-        assert_eq!(columns.columns[1].rows, 2);
-        assert_eq!(columns.columns[0].ratio, 1.0 / 3.0);
-        assert_eq!(columns.columns[1].ratio, 2.0 / 3.0);
-        assert_eq!(columns.columns[1].row_ratios, vec![0.5, 0.5]);
-
-        let rows = terminal_grid_with_row_ratios(&grid, 1, vec![1.0, 3.0]);
-        assert_eq!(rows.columns[0].ratio, 0.5);
-        assert_eq!(rows.columns[1].rows, 2);
-        assert_eq!(rows.columns[1].row_ratios, vec![0.25, 0.75]);
-        assert!(terminal_grid_equal(&grid, &grid));
-        assert!(!terminal_grid_equal(&grid, &rows));
-    }
-
-    #[test]
-    fn terminal_grid_remove_preserves_column_shape() {
-        let grid = TerminalTopGrid {
-            columns: vec![
-                TerminalGridColumn {
-                    ratio: 0.5,
-                    rows: 2,
-                    row_ratios: vec![0.5, 0.5],
-                },
-                TerminalGridColumn {
-                    ratio: 0.5,
-                    rows: 2,
-                    row_ratios: vec![0.5, 0.5],
-                },
-            ],
-        };
-
-        let left_bottom_removed = terminal_grid_remove_pane(&grid, 1);
-        assert_eq!(left_bottom_removed.columns.len(), 2);
-        assert_eq!(left_bottom_removed.columns[0].rows, 1);
-        assert_eq!(left_bottom_removed.columns[1].rows, 2);
-
-        let right_top_removed = terminal_grid_remove_pane(&grid, 2);
-        assert_eq!(right_top_removed.columns.len(), 2);
-        assert_eq!(right_top_removed.columns[0].rows, 2);
-        assert_eq!(right_top_removed.columns[1].rows, 1);
-
-        let single_row_column_removed = terminal_grid_remove_pane(
-            &TerminalTopGrid {
-                columns: vec![
-                    TerminalGridColumn {
-                        ratio: 0.5,
-                        rows: 1,
-                        row_ratios: vec![1.0],
+        assert_eq!(
+            nested,
+            TerminalSplitNode::Split {
+                axis: SplitAxis::Vertical,
+                ratios: vec![0.5, 0.5],
+                children: vec![
+                    TerminalSplitNode::Split {
+                        axis: SplitAxis::Horizontal,
+                        ratios: vec![0.5, 0.5],
+                        children: vec![
+                            TerminalSplitNode::Leaf { pane: 0 },
+                            TerminalSplitNode::Leaf { pane: 1 },
+                        ],
                     },
-                    TerminalGridColumn {
-                        ratio: 0.5,
-                        rows: 2,
-                        row_ratios: vec![0.5, 0.5],
-                    },
+                    TerminalSplitNode::Leaf { pane: 2 },
                 ],
-            },
-            0,
+            }
         );
-        assert_eq!(single_row_column_removed.columns.len(), 1);
-        assert_eq!(single_row_column_removed.columns[0].rows, 2);
+
+        let updated = terminal_split_tree_update_ratios(&nested, &[0], vec![1.0, 3.0]);
+        match updated {
+            TerminalSplitNode::Split { children, .. } => match &children[0] {
+                TerminalSplitNode::Split { ratios, .. } => {
+                    assert_eq!(ratios, &vec![0.25, 0.75]);
+                }
+                _ => panic!("expected nested horizontal split"),
+            },
+            _ => panic!("expected root split"),
+        }
     }
 
     #[test]
-    fn terminal_grid_insert_direction_keeps_clear_semantics() {
-        let grid = TerminalTopGrid {
-            columns: vec![TerminalGridColumn {
-                ratio: 1.0,
-                rows: 1,
-                row_ratios: vec![1.0],
-            }],
-        };
-
-        let (down, down_index) =
-            terminal_grid_insert_pane(&grid, 0, TerminalSplitDirection::Down).unwrap();
-        assert_eq!(down_index, 1);
-        assert_eq!(down.columns.len(), 1);
-        assert_eq!(down.columns[0].rows, 2);
-
-        let (right, right_index) =
-            terminal_grid_insert_pane(&down, 0, TerminalSplitDirection::Right).unwrap();
-        assert_eq!(right_index, 2);
-        assert_eq!(right.columns.len(), 2);
-        assert_eq!(right.columns[0].rows, 2);
-        assert_eq!(right.columns[1].rows, 1);
-
-        let (left, left_index) =
-            terminal_grid_insert_pane(&right, 2, TerminalSplitDirection::Left).unwrap();
-        assert_eq!(left_index, 2);
-        assert_eq!(left.columns.len(), 3);
-        assert_eq!(left.columns[1].rows, 1);
-
-        let max_rows = TerminalTopGrid {
-            columns: vec![TerminalGridColumn {
-                ratio: 1.0,
-                rows: 6,
-                row_ratios: vec![1.0 / 6.0; 6],
-            }],
-        };
-        assert!(terminal_grid_insert_pane(&max_rows, 0, TerminalSplitDirection::Down).is_err());
-
-        let max_columns = TerminalTopGrid {
-            columns: (0..6)
-                .map(|_| TerminalGridColumn {
-                    ratio: 1.0 / 6.0,
-                    rows: 1,
-                    row_ratios: vec![1.0],
-                })
-                .collect(),
-        };
-        assert!(terminal_grid_insert_pane(&max_columns, 0, TerminalSplitDirection::Right).is_err());
-    }
-
-    #[test]
-    fn terminal_grid_restore_reinserts_original_cell() {
-        let grid = TerminalTopGrid {
-            columns: vec![
-                TerminalGridColumn {
-                    ratio: 0.5,
-                    rows: 2,
-                    row_ratios: vec![0.5, 0.5],
-                },
-                TerminalGridColumn {
-                    ratio: 0.5,
-                    rows: 2,
-                    row_ratios: vec![0.5, 0.5],
-                },
+    fn terminal_split_tree_rebalances_after_insert_and_remove() {
+        let tree = TerminalSplitNode::Split {
+            axis: SplitAxis::Horizontal,
+            ratios: vec![0.25, 0.75],
+            children: vec![
+                TerminalSplitNode::Leaf { pane: 0 },
+                TerminalSplitNode::Leaf { pane: 1 },
             ],
         };
-        let cell = terminal_grid_cell_for_pane(&grid, 1).expect("left-bottom cell");
-        let floated = terminal_grid_remove_pane(&grid, 1);
-        assert_eq!(floated.columns[0].rows, 1);
 
-        let (restored, insert_index) =
-            terminal_grid_restore_pane_cell(&floated, cell).expect("restore cell");
-        assert_eq!(insert_index, 1);
-        assert_eq!(restored.columns.len(), 2);
-        assert_eq!(restored.columns[0].rows, 2);
-        assert_eq!(restored.columns[1].rows, 2);
+        let inserted =
+            terminal_split_tree_insert_pane(&tree, 0, 1, TerminalSplitDirection::Right).unwrap();
+        assert_eq!(
+            inserted,
+            TerminalSplitNode::Split {
+                axis: SplitAxis::Horizontal,
+                ratios: vec![1.0 / 3.0; 3],
+                children: vec![
+                    TerminalSplitNode::Leaf { pane: 0 },
+                    TerminalSplitNode::Leaf { pane: 1 },
+                    TerminalSplitNode::Leaf { pane: 2 },
+                ],
+            }
+        );
+
+        let removed = terminal_split_tree_remove_pane(&inserted, 1).unwrap();
+        assert_eq!(
+            removed,
+            TerminalSplitNode::Split {
+                axis: SplitAxis::Horizontal,
+                ratios: vec![0.5, 0.5],
+                children: vec![
+                    TerminalSplitNode::Leaf { pane: 0 },
+                    TerminalSplitNode::Leaf { pane: 1 },
+                ],
+            }
+        );
     }
 
     #[test]
-    fn terminal_grid_restore_recreates_original_single_row_column() {
-        let grid = TerminalTopGrid {
-            columns: vec![
-                TerminalGridColumn {
-                    ratio: 1.0 / 3.0,
-                    rows: 1,
-                    row_ratios: vec![1.0],
+    fn terminal_split_tree_root_insert_wraps_or_extends_root() {
+        let nested = TerminalSplitNode::Split {
+            axis: SplitAxis::Vertical,
+            ratios: vec![0.5, 0.5],
+            children: vec![
+                TerminalSplitNode::Split {
+                    axis: SplitAxis::Horizontal,
+                    ratios: vec![0.5, 0.5],
+                    children: vec![
+                        TerminalSplitNode::Leaf { pane: 0 },
+                        TerminalSplitNode::Leaf { pane: 1 },
+                    ],
                 },
-                TerminalGridColumn {
-                    ratio: 1.0 / 3.0,
-                    rows: 2,
-                    row_ratios: vec![0.5, 0.5],
-                },
-                TerminalGridColumn {
-                    ratio: 1.0 / 3.0,
-                    rows: 1,
-                    row_ratios: vec![1.0],
-                },
+                TerminalSplitNode::Leaf { pane: 2 },
             ],
         };
-        let cell = terminal_grid_cell_for_pane(&grid, 0).expect("left single-row column");
-        let floated = terminal_grid_remove_pane(&grid, 0);
-        assert_eq!(floated.columns.len(), 2);
-        assert_eq!(floated.columns[0].rows, 2);
 
-        let (restored, insert_index) =
-            terminal_grid_restore_pane_cell(&floated, cell).expect("restore original column");
-        assert_eq!(insert_index, 0);
-        assert_eq!(restored.columns.len(), 3);
-        assert_eq!(restored.columns[0].rows, 1);
-        assert_eq!(restored.columns[1].rows, 2);
-        assert_eq!(restored.columns[2].rows, 1);
+        let right = terminal_split_tree_insert_pane_root(&nested, 3, TerminalSplitDirection::Right)
+            .unwrap();
+        assert_eq!(
+            right,
+            TerminalSplitNode::Split {
+                axis: SplitAxis::Horizontal,
+                ratios: vec![0.5, 0.5],
+                children: vec![nested.clone(), TerminalSplitNode::Leaf { pane: 3 }],
+            }
+        );
+
+        let up =
+            terminal_split_tree_insert_pane_root(&nested, 0, TerminalSplitDirection::Up).unwrap();
+        assert_eq!(
+            up,
+            TerminalSplitNode::Split {
+                axis: SplitAxis::Vertical,
+                ratios: vec![1.0 / 3.0; 3],
+                children: vec![
+                    TerminalSplitNode::Leaf { pane: 0 },
+                    TerminalSplitNode::Split {
+                        axis: SplitAxis::Horizontal,
+                        ratios: vec![0.5, 0.5],
+                        children: vec![
+                            TerminalSplitNode::Leaf { pane: 1 },
+                            TerminalSplitNode::Leaf { pane: 2 },
+                        ],
+                    },
+                    TerminalSplitNode::Leaf { pane: 3 },
+                ],
+            }
+        );
     }
 
     #[test]
     fn terminal_grid_drag_hit_test_maps_columns_and_rows() {
-        let grid = TerminalTopGrid {
-            columns: vec![
-                TerminalGridColumn {
-                    ratio: 1.0,
-                    rows: 1,
-                    row_ratios: vec![1.0],
-                },
-                TerminalGridColumn {
-                    ratio: 1.0,
-                    rows: 2,
-                    row_ratios: vec![0.5, 0.5],
+        let split_tree = TerminalSplitNode::Split {
+            axis: SplitAxis::Horizontal,
+            ratios: vec![0.5, 0.5],
+            children: vec![
+                TerminalSplitNode::Leaf { pane: 0 },
+                TerminalSplitNode::Split {
+                    axis: SplitAxis::Vertical,
+                    ratios: vec![0.5, 0.5],
+                    children: vec![
+                        TerminalSplitNode::Leaf { pane: 1 },
+                        TerminalSplitNode::Leaf { pane: 2 },
+                    ],
                 },
             ],
         };
         let bounds = Bounds::new(point(px(10.0), px(20.0)), size(px(400.0), px(300.0)));
 
         assert_eq!(
-            terminal_pane_index_at_position(&grid, 3, bounds, point(px(40.0), px(120.0))),
-            Some(0)
+            terminal_pane_drop_target_at_position(
+                &split_tree,
+                3,
+                bounds,
+                point(px(40.0), px(120.0))
+            ),
+            Some(0),
         );
         assert_eq!(
-            terminal_pane_index_at_position(&grid, 3, bounds, point(px(260.0), px(80.0))),
-            Some(1)
+            terminal_pane_drop_target_at_position(
+                &split_tree,
+                3,
+                bounds,
+                point(px(260.0), px(80.0))
+            ),
+            Some(1),
         );
         assert_eq!(
-            terminal_pane_index_at_position(&grid, 3, bounds, point(px(260.0), px(260.0))),
-            Some(2)
+            terminal_pane_drop_target_at_position(
+                &split_tree,
+                3,
+                bounds,
+                point(px(260.0), px(260.0))
+            ),
+            Some(2),
         );
 
-        let bottom_right = terminal_pane_rect(&grid, 3, 2);
+        let bottom_right = terminal_pane_rect(&split_tree, 3, 2);
         assert!((bottom_right.left - 0.5).abs() < 0.001);
         assert!((bottom_right.top - 0.5).abs() < 0.001);
         assert!((bottom_right.width - 0.5).abs() < 0.001);
@@ -763,16 +615,16 @@ mod tests {
         );
         assert_eq!(
             active_terminal_slot_indices(&terminals, "bottom-1", 1),
-            Some((1, 0))
+            Some((0, 0))
         );
         assert_eq!(
             active_terminal_slot_indices(&terminals, "", 1),
             Some((0, 0))
         );
         assert_eq!(
-            active_terminal_slot_indices(&terminals, "top-1", 2),
+            active_terminal_slot_indices(&terminals, "top-1", 1),
             Some((0, 0)),
-            "terminal focus may point at a top pane while the bottom tab UI keeps its own active id"
+            "terminal focus should resolve by pane runtime id"
         );
     }
 
@@ -781,95 +633,17 @@ mod tests {
         let terminals = terminal_focus_test_tabs();
 
         assert_eq!(
-            restored_live_active_terminal_id(&terminals, "top-2", Some("bottom-1")).as_deref(),
+            restored_live_active_terminal_id(&terminals, "top-2", Some("top-1")).as_deref(),
             Some("top-2")
         );
         assert_eq!(
-            restored_live_active_terminal_id(&terminals, "missing", Some("bottom-1")).as_deref(),
-            Some("bottom-1")
+            restored_live_active_terminal_id(&terminals, "missing", Some("top-1")).as_deref(),
+            Some("top-1")
         );
         assert_eq!(
             restored_live_active_terminal_id(&terminals, "missing", Some("gone")),
             None
         );
-    }
-
-    #[test]
-    fn restored_terminal_ui_active_id_stays_on_bottom_tab_when_runtime_active_is_top() {
-        let plan = TerminalRestorePlan {
-            active_index: 0,
-            active_terminal_id: Some("top-1".to_string()),
-            active_bottom_terminal_id: Some("bottom-1".to_string()),
-            tabs: vec![
-                TerminalTabPlan {
-                    placement: TerminalTabPlacement::Top,
-                    terminal_id: None,
-                    label: "Main".to_string(),
-                    panes: vec![TerminalPanePlan {
-                        terminal_id: Some("top-1".to_string()),
-                        title: "Split 1".to_string(),
-                        restored_output_bytes: 0,
-                        restored_output_tail: String::new(),
-                    }],
-                },
-                TerminalTabPlan {
-                    placement: TerminalTabPlacement::Bottom,
-                    terminal_id: Some("bottom-1".to_string()),
-                    label: "Tab 1".to_string(),
-                    panes: vec![TerminalPanePlan {
-                        terminal_id: Some("bottom-1".to_string()),
-                        title: "Tab 1".to_string(),
-                        restored_output_bytes: 0,
-                        restored_output_tail: String::new(),
-                    }],
-                },
-            ],
-        };
-
-        let (tabs, active_tab_id, _) = restore_terminal_tabs_skeleton(&plan, None);
-
-        assert_eq!(tabs[0].placement, TerminalTabPlacement::Top);
-        assert_eq!(tabs[1].placement, TerminalTabPlacement::Bottom);
-        assert_eq!(
-            active_tab_id, tabs[1].id,
-            "bottom tab UI active id must not be replaced by a top pane runtime focus id"
-        );
-    }
-
-    #[test]
-    fn restored_terminal_ui_active_id_uses_session_bottom_tab_memory() {
-        let layout = TerminalLayoutSummary {
-            active_terminal_id: "top-1".to_string(),
-            top_panes: vec![TerminalPaneSummary {
-                title: "Split".to_string(),
-                terminal_id: "top-1".to_string(),
-            }],
-            tabs: vec![
-                TerminalTabSummary {
-                    label: "Tab 1".to_string(),
-                    terminal_id: "bottom-1".to_string(),
-                },
-                TerminalTabSummary {
-                    label: "Tab 2".to_string(),
-                    terminal_id: "bottom-2".to_string(),
-                },
-            ],
-            top_ratios: vec![1.0],
-            top_grid: TerminalTopGrid::default(),
-            bottom_ratio: 0.32,
-            error: None,
-        };
-        let plan = terminal_restore_plan_for_language(
-            &layout,
-            &TerminalRuntimeSummary::default(),
-            "simplifiedChinese",
-            None,
-            Some("bottom-2".to_string()),
-        );
-        let (tabs, active_tab_id, _) = restore_terminal_tabs_skeleton(&plan, None);
-
-        assert_eq!(plan.active_index, 0);
-        assert_eq!(active_tab_id, tabs[2].id);
     }
 
     #[test]

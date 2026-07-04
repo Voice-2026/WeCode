@@ -779,9 +779,8 @@ fn assistant_panel_header(
         .flex()
         .items_center()
         .justify_between()
-        // Thin translucent darkening over the panel: frosted, but a touch deeper
-        // than the panel behind it (not a second full fill).
-        .bg(theme::vibrancy_raised(color(theme::BG_HEADER)))
+        .border_b_1()
+        .border_color(color(theme::BORDER_SOFT).opacity(0.5))
         .child(
             div()
                 .flex()
@@ -796,6 +795,7 @@ fn assistant_panel_header(
                         .ml(px(8.0))
                         .text_size(rems(0.875))
                         .line_height(rems(1.125))
+                        .font_weight(FontWeight::SEMIBOLD)
                         .text_color(color(theme::TEXT))
                         .child(title),
                 ),

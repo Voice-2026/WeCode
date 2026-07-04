@@ -266,6 +266,7 @@ impl RuntimeService {
         top_panes: Vec<crate::terminal_layout::TerminalPaneSummary>,
         top_ratios: Vec<f64>,
         top_grid: crate::terminal_layout::TerminalTopGrid,
+        split_tree: Option<crate::terminal_layout::TerminalSplitNode>,
         bottom_ratio: f64,
     ) -> Result<TerminalLayoutSummary, String> {
         TerminalLayoutService::new(self.support_dir.clone()).save_from_gpui_with_grid(
@@ -274,6 +275,7 @@ impl RuntimeService {
             top_panes,
             top_ratios,
             top_grid,
+            split_tree,
             bottom_ratio,
         )
     }

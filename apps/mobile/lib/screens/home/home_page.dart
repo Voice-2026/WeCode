@@ -337,7 +337,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       creatingWorktree: c._creatingWorktree,
       onBack: c._closeTerminalSwitcher,
       onSelectTerminal: c._selectTerminalFromSwitcher,
-      onCreateTerminal: c._createCurrentProjectTabTerminal,
+      onCreateTerminal: c._createCurrentProjectTerminal,
       onCloseTerminal: c._closeTerminal,
       onSelectWorktree: c._selectWorktree,
       onCreateWorktree: c._createWorktree,
@@ -470,8 +470,8 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       onDeleteWorktree: c._deleteWorktree,
       onSelectTerminal: c._selectTerminal,
       onRefreshLists: c._refreshLists,
-      // Mobile (phone + pad) "+" creates a tab; split panes are desktop-only.
-      onCreateTerminal: c._createCurrentProjectTabTerminal,
+      // Mobile “+” creates another terminal session; desktop arranges sessions in the main grid.
+      onCreateTerminal: c._createCurrentProjectTerminal,
       onCloseCurrentTerminal: c._closeCurrentTerminal,
       onCloseTerminal: c._closeTerminal,
       onRebuildTerminal: c._rebuildCurrentTerminal,

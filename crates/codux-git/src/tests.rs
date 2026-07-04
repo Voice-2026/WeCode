@@ -428,6 +428,21 @@ mod tests {
         assert_eq!(result.expect_err("operation should cancel"), "Git operation cancelled.");
     }
 
+    #[test]
+    fn git_watch_changed_paths_dedup_and_cap() {
+        let mut changed = HashSet::new();
+        push_unique_strings(
+            &mut changed,
+            vec!["a".to_string(), "b".to_string(), "a".to_string()],
+        );
+        assert_eq!(changed.len(), 2);
+        let flood = (0..GIT_WATCH_MAX_CHANGED_PATHS * 2)
+            .map(|index| format!("path-{index}"))
+            .collect::<Vec<_>>();
+        push_unique_strings(&mut changed, flood);
+        assert_eq!(changed.len(), GIT_WATCH_MAX_CHANGED_PATHS);
+    }
+
     fn temp_dir(label: &str) -> PathBuf {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)

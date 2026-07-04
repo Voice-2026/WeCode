@@ -874,7 +874,7 @@ fn file_picker_root_crumb(
         .gap(px(5.0))
         .px(px(6.0))
         .py(px(2.0))
-        .rounded(px(5.0))
+        .rounded(px(6.0))
         .cursor_pointer()
         .hover(|style| style.bg(cx.theme().secondary))
         .child(
@@ -911,7 +911,7 @@ fn file_picker_crumb(
         .flex_shrink_0()
         .px(px(6.0))
         .py(px(2.0))
-        .rounded(px(5.0))
+        .rounded(px(6.0))
         .cursor_pointer()
         .hover(|style| style.bg(cx.theme().secondary))
         .text_size(rems(0.8125))

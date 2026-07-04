@@ -416,15 +416,17 @@ pub(in crate::app) fn git_section(
         .h_full()
         .min_h_0()
         .flex_col()
-        .child(git_panel_header(
-            git,
-            branch,
-            selected_branch,
-            default_push_remote,
-            language,
-            running_operation,
-            cx,
-        ))
+        .when(git.is_repository, |this| {
+            this.child(git_panel_header(
+                git,
+                branch,
+                selected_branch,
+                default_push_remote,
+                language,
+                running_operation,
+                cx,
+            ))
+        })
         .child(if git.is_repository {
             git_repository_panel(
                 git,
@@ -1621,7 +1623,7 @@ fn git_empty_action_button(label: String, primary: bool) -> Stateful<Div> {
         .flex()
         .items_center()
         .justify_center()
-        .rounded(px(5.0))
+        .rounded(px(6.0))
         .text_size(rems(0.75))
         .line_height(rems(1.0))
         .font_weight(FontWeight::MEDIUM)
@@ -1775,7 +1777,7 @@ pub(in crate::app) fn git_credentials_window_workspace(
                             .mt(px(8.0))
                             .text_size(rems(0.75))
                             .line_height(rems(1.0))
-                            .text_color(color(0xF47C7C))
+                            .text_color(color(theme::RED))
                             .child(error),
                     )
                 }),
@@ -2214,7 +2216,7 @@ fn git_status_group_header(
                         .flex()
                         .items_center()
                         .justify_center()
-                        .rounded(px(5.0))
+                        .rounded(px(6.0))
                         .bg(cx.theme().secondary)
                         .text_size(rems(0.75))
                         .line_height(rems(0.875))
@@ -3031,9 +3033,9 @@ fn git_diff_window_code_line(cell: GitReviewAlignedCell) -> AnyElement {
             color(theme::GREEN),
         ),
         Some(GitReviewLineTone::Deletion) => (
-            Some(color(0xF87171).opacity(0.11)),
-            color(0xF87171).opacity(0.16),
-            color(0xF87171),
+            Some(color(theme::RED).opacity(0.11)),
+            color(theme::RED).opacity(0.16),
+            color(theme::RED),
         ),
         None => (
             None,
@@ -3079,7 +3081,7 @@ fn git_diff_line_row(line: &str) -> impl IntoElement {
     let line_color = if line.starts_with('+') && !line.starts_with("+++") {
         theme::GREEN
     } else if line.starts_with('-') && !line.starts_with("---") {
-        0xF87171
+        theme::RED
     } else if line.starts_with("@@") {
         theme::ACCENT
     } else {
@@ -3221,7 +3223,7 @@ fn git_history_timeline_row(
                         .top(px(-4.0))
                         .h(px(13.0))
                         .w(px(1.0))
-                        .bg(color(0x7A8599).opacity(0.82)),
+                        .bg(color(theme::TEXT_MUTED).opacity(0.82)),
                 )
             })
             .when(!is_last, |this| {
@@ -3232,7 +3234,7 @@ fn git_history_timeline_row(
                         .top(px(21.0))
                         .bottom(px(-4.0))
                         .w(px(1.0))
-                        .bg(color(0x7A8599).opacity(0.82)),
+                        .bg(color(theme::TEXT_MUTED).opacity(0.82)),
                 )
             })
             .child(
@@ -3453,7 +3455,7 @@ pub(in crate::app) fn git_review_workspace(
                         )
                         .child(
                             div()
-                                .text_color(color(0xF47C7C))
+                                .text_color(color(theme::RED))
                                 .child(format!("-{}", content.deleted_lines.len())),
                         ),
                 ),
@@ -3649,7 +3651,7 @@ fn review_content_width(cells: &[GitReviewAlignedCell]) -> Pixels {
 fn git_review_code_line(cell: GitReviewAlignedCell, content_width: Pixels) -> AnyElement {
     let line_bg = match cell.tone {
         Some(GitReviewLineTone::Addition) => Some(color(theme::GREEN).opacity(0.13)),
-        Some(GitReviewLineTone::Deletion) => Some(color(0xF87171).opacity(0.14)),
+        Some(GitReviewLineTone::Deletion) => Some(color(theme::RED).opacity(0.14)),
         None => None,
     };
     div()

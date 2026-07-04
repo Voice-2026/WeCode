@@ -1,5 +1,12 @@
 use super::*;
 
+/// In-flight pet level-up celebration overlay; progress runs 0..1.
+#[derive(Clone)]
+pub(in crate::app) struct PetLevelUpFx {
+    pub(in crate::app) level: i64,
+    pub(in crate::app) progress: f32,
+}
+
 /// One entry in the file-picker directory listing (local or on a host).
 #[derive(Clone)]
 pub(in crate::app) struct RemoteBrowseEntry {
@@ -62,7 +69,6 @@ pub struct CoduxApp {
     pub(in crate::app) terminal_layout_loading: bool,
     pub(in crate::app) active_terminal_id: usize,
     pub(in crate::app) active_terminal_runtime_ids: HashMap<WorktreeScopeKey, String>,
-    pub(in crate::app) active_bottom_terminal_ids: HashMap<WorktreeScopeKey, String>,
     pub(in crate::app) terminal_layout_cache: HashMap<WorktreeScopeKey, TerminalLayoutCacheEntry>,
     pub(in crate::app) file_panel_cache: HashMap<WorktreeScopeKey, FilePanelState>,
     pub(in crate::app) next_terminal_index: usize,
@@ -101,7 +107,6 @@ pub struct CoduxApp {
     pub(in crate::app) file_picker_selected: Option<String>,
     pub(in crate::app) file_picker_active_path: Option<String>,
     pub(in crate::app) project_editor_window: Option<AnyWindowHandle>,
-    pub(in crate::app) terminal_tab_editor_window: Option<AnyWindowHandle>,
     pub(in crate::app) worktree_creator_window: Option<AnyWindowHandle>,
     pub(in crate::app) child_windows: Vec<AnyWindowHandle>,
     pub(in crate::app) parent_main_window: Option<gpui::WeakEntity<CoduxApp>>,
@@ -129,6 +134,8 @@ pub struct CoduxApp {
     pub(in crate::app) desktop_pet_line_hold_until: f64,
     pub(in crate::app) pet_sprite_frame: usize,
     pub(in crate::app) pet_sprite_animation_active: bool,
+    pub(in crate::app) pet_level_up: Option<PetLevelUpFx>,
+    pub(in crate::app) pet_level_up_ticking: bool,
     pub(in crate::app) file_preview: String,
     pub(in crate::app) file_preview_window_path: Option<String>,
     pub(in crate::app) file_preview_window_content: String,
@@ -389,8 +396,6 @@ pub struct CoduxApp {
     /// When the file picker is showing an inline "new folder" name editor in the
     /// listing (triggered by the footer button).
     pub(in crate::app) file_picker_new_folder_active: bool,
-    pub(in crate::app) terminal_tab_editor_id: Option<usize>,
-    pub(in crate::app) terminal_tab_editor_label: String,
     pub(in crate::app) worktree_creator_project_id: Option<String>,
     pub(in crate::app) worktree_creator_project_name: String,
     pub(in crate::app) worktree_creator_project_path: String,
@@ -463,7 +468,6 @@ pub(in crate::app) struct PendingTerminalClose {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::app) enum TerminalCloseTarget {
     Split { pane_index: usize },
-    Tab { terminal_id: usize },
 }
 
 #[derive(Clone, Debug, Default)]

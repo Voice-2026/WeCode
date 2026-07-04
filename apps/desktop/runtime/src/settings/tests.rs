@@ -511,14 +511,12 @@ mod tests {
             "assistant.ai.open",
             "assistant.ssh.open",
             "terminal.split.create",
-            "terminal.tab.create",
             "editor.save",
             "editor.search",
             "close.active",
             "panel.git",
             "panel.ai",
             "terminal.split",
-            "terminal.tab",
         ] {
             let summary = service
                 .set_shortcut(shortcut_id, "Cmd+Shift+P")

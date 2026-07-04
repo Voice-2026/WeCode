@@ -1,7 +1,10 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
-use crate::terminal_layout::{TerminalTopGrid, normalize_top_grid};
+use crate::terminal_layout::{
+    TerminalSplitNode, TerminalTopGrid, normalize_split_tree, normalize_top_grid,
+    top_grid_from_split_tree,
+};
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -16,6 +19,8 @@ pub struct TerminalLayoutRecord {
     pub top_ratios: Vec<f64>,
     #[serde(default)]
     pub top_grid: TerminalTopGrid,
+    #[serde(default)]
+    pub split_tree: Option<TerminalSplitNode>,
     #[serde(default = "default_bottom_ratio", skip_serializing)]
     pub bottom_ratio: f64,
 }
@@ -43,37 +48,55 @@ pub struct TerminalLayoutsSnapshot {
 pub(super) fn sanitize_terminal_layout(
     layout: TerminalLayoutRecord,
 ) -> Option<TerminalLayoutRecord> {
-    let tabs = sanitize_bottom_tabs(layout.tabs);
-    let (top_panes, top_ratios) =
-        sanitize_top_pane_ratio_entries(layout.top_panes, layout.top_ratios);
-    let top_grid = normalize_top_grid(layout.top_grid, &top_ratios, top_panes.len());
-    if tabs.is_empty() && top_panes.is_empty() {
+    let top_panes = migrate_legacy_tabs_to_top_panes(layout.top_panes, layout.tabs);
+    let (top_panes, top_ratios) = sanitize_top_pane_ratio_entries(top_panes, layout.top_ratios);
+    let fallback_grid = normalize_top_grid(layout.top_grid, &top_ratios, top_panes.len());
+    let split_tree = normalize_split_tree(
+        layout.split_tree,
+        &fallback_grid,
+        &top_ratios,
+        top_panes.len(),
+    );
+    let top_grid = split_tree
+        .as_ref()
+        .map(|tree| top_grid_from_split_tree(tree, top_panes.len()))
+        .unwrap_or(fallback_grid);
+    if top_panes.is_empty() {
         return None;
     }
     Some(TerminalLayoutRecord {
-        tabs,
+        tabs: Vec::new(),
         active_terminal_id: String::new(),
         top_panes,
-        top_ratios,
+        top_ratios: top_grid.columns.iter().map(|column| column.ratio).collect(),
         top_grid,
+        split_tree,
         bottom_ratio: clamp_ratio(layout.bottom_ratio, 0.18, 0.72, default_bottom_ratio()),
     })
 }
 
-fn sanitize_bottom_tabs(tabs: Vec<TerminalBottomTabRecord>) -> Vec<TerminalBottomTabRecord> {
-    let mut seen = HashSet::new();
-    tabs.into_iter()
-        .filter_map(|tab| {
-            let terminal_id = normalized_string(&tab.terminal_id)?;
-            if !seen.insert(terminal_id.clone()) {
-                return None;
-            }
-            Some(TerminalBottomTabRecord {
-                label: normalized_string(&tab.label).unwrap_or_else(|| "Tab".to_string()),
-                terminal_id,
-            })
-        })
-        .collect::<Vec<_>>()
+fn migrate_legacy_tabs_to_top_panes(
+    mut panes: Vec<TerminalTopPaneRecord>,
+    tabs: Vec<TerminalBottomTabRecord>,
+) -> Vec<TerminalTopPaneRecord> {
+    let mut seen = panes
+        .iter()
+        .map(|pane| pane.terminal_id.trim().to_string())
+        .filter(|terminal_id| !terminal_id.is_empty())
+        .collect::<HashSet<_>>();
+    for tab in tabs {
+        let Some(terminal_id) = normalized_string(&tab.terminal_id) else {
+            continue;
+        };
+        if !seen.insert(terminal_id.clone()) {
+            continue;
+        }
+        panes.push(TerminalTopPaneRecord {
+            title: normalized_string(&tab.label).unwrap_or_else(|| "Terminal".to_string()),
+            terminal_id,
+        });
+    }
+    panes
 }
 
 fn sanitize_top_pane_ratio_entries(
@@ -156,7 +179,7 @@ mod tests {
     use crate::terminal_layout::{TerminalGridColumn, single_row_top_grid};
 
     #[test]
-    fn sanitize_terminal_layout_drops_empty_records_and_keeps_array_order() {
+    fn sanitize_terminal_layout_migrates_legacy_bottom_tabs_to_top_panes() {
         let layout = sanitize_terminal_layout(TerminalLayoutRecord {
             tabs: vec![
                 TerminalBottomTabRecord {
@@ -179,19 +202,29 @@ mod tests {
             }],
             top_ratios: vec![0.0],
             top_grid: TerminalTopGrid::default(),
+            split_tree: None,
             bottom_ratio: 0.99,
         })
         .unwrap();
 
-        assert_eq!(layout.tabs.len(), 2);
-        assert_eq!(layout.tabs[0].terminal_id, "term-2");
-        assert_eq!(layout.tabs[1].label, "Tab");
+        assert!(layout.tabs.is_empty());
         assert_eq!(layout.active_terminal_id, "");
-        assert_eq!(layout.top_panes[0].title, "Split");
-        assert_eq!(layout.top_ratios, vec![1.0]);
+        assert_eq!(
+            layout
+                .top_panes
+                .iter()
+                .map(|pane| (pane.title.as_str(), pane.terminal_id.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("Split", "term-3"),
+                ("Second", "term-2"),
+                ("Terminal", "term-1")
+            ]
+        );
+        assert_eq!(layout.top_ratios, vec![1.0 / 3.0; 3]);
         assert_eq!(
             layout.top_grid.columns,
-            single_row_top_grid(vec![1.0], 1).columns
+            single_row_top_grid(vec![1.0 / 3.0; 3], 3).columns
         );
         assert_eq!(layout.bottom_ratio, 0.72);
     }
@@ -205,6 +238,7 @@ mod tests {
                 top_panes: Vec::new(),
                 top_ratios: Vec::new(),
                 top_grid: TerminalTopGrid::default(),
+                split_tree: None,
                 bottom_ratio: 0.32,
             })
             .is_none()
@@ -222,6 +256,7 @@ mod tests {
             }],
             top_ratios: vec![1.0],
             top_grid: TerminalTopGrid::default(),
+            split_tree: None,
             bottom_ratio: 0.72,
         };
 
@@ -255,6 +290,7 @@ mod tests {
                     row_ratios: vec![1.0, 3.0],
                 }],
             },
+            split_tree: None,
             bottom_ratio: 0.32,
         })
         .unwrap();

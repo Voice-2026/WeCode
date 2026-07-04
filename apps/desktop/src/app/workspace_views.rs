@@ -1,7 +1,7 @@
 use super::*;
 use crate::app::ui_helpers::codux_tooltip_container;
 use gpui::Anchor;
-use gpui_component::{InteractiveElementExt as _, popover::Popover};
+use gpui_component::popover::Popover;
 
 #[derive(Clone)]
 struct TerminalPaneDrag {
@@ -19,29 +19,11 @@ struct TerminalPaneDropPreview {
     pane_index: usize,
 }
 
-#[derive(Clone)]
-struct TerminalBottomTabDrag {
-    terminal_id: usize,
-    label: String,
-    active: bool,
-}
-
-impl Render for TerminalBottomTabDrag {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        terminal_bottom_tab_container(
-            if self.active {
-                cx.theme().foreground
-            } else {
-                cx.theme().secondary_foreground
-            },
-            if self.active {
-                cx.theme().secondary_hover
-            } else {
-                cx.theme().transparent
-            },
-        )
-        .child(terminal_bottom_tab_label(self.label.clone()))
-    }
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TerminalSplitDivider {
+    None,
+    Left,
+    Top,
 }
 
 pub(in crate::app) struct WorkspaceColumnView {
@@ -964,19 +946,16 @@ fn workspace_pet_fingerprint(app: &CoduxApp) -> u64 {
 pub(in crate::app) struct TerminalWorkspaceSnapshot {
     loading: bool,
     layout_key: String,
-    bottom_ratio: f64,
     top_ratios: Vec<f64>,
     top_grid: TerminalTopGrid,
+    split_tree: Option<TerminalSplitNode>,
     main_panes: Vec<TerminalPaneViewSnapshot>,
-    bottom_tabs: Vec<TerminalBottomTabViewSnapshot>,
-    active_bottom: Option<TerminalPaneViewSnapshot>,
 }
 
 impl TerminalWorkspaceSnapshot {
     fn visible_terminal_views(&self) -> Vec<gpui::Entity<TerminalView>> {
         self.main_panes
             .iter()
-            .chain(self.active_bottom.iter())
             .filter_map(|pane| pane.view.clone())
             .collect()
     }
@@ -1011,17 +990,9 @@ impl PartialEq for TerminalPaneViewSnapshot {
     }
 }
 
-#[derive(Clone, PartialEq)]
-struct TerminalBottomTabViewSnapshot {
-    id: usize,
-    label: String,
-    active: bool,
-}
-
 pub(in crate::app) struct TerminalWorkspaceView {
     app_entity: gpui::Entity<CoduxApp>,
     snapshot: TerminalWorkspaceSnapshot,
-    tab_scroll_handle: ScrollHandle,
     // Real size of the terminal workspace, recorded at prepaint. Used to
     // derive panel sizes from the persisted ratios so the first frame
     // after a layout-key switch matches the actual container.
@@ -1037,7 +1008,6 @@ impl TerminalWorkspaceView {
         Self {
             app_entity,
             snapshot,
-            tab_scroll_handle: ScrollHandle::new(),
             container_height: None,
             container_width: None,
             pane_drop_preview: None,
@@ -1063,12 +1033,6 @@ impl TerminalWorkspaceView {
             if !next_visible.contains(&view.entity_id()) {
                 view.update(cx, |view, cx| view.set_render_visible(false, cx));
             }
-        }
-        if active_terminal_bottom_tab_id(&self.snapshot.bottom_tabs)
-            != active_terminal_bottom_tab_id(&snapshot.bottom_tabs)
-            && let Some(index) = snapshot.bottom_tabs.iter().position(|tab| tab.active)
-        {
-            self.tab_scroll_handle.scroll_to_item(index);
         }
         if self
             .open_split_menu_pane
@@ -1100,8 +1064,10 @@ impl TerminalWorkspaceView {
     fn close_split_menu_after_hover_gap(&mut self, pane_index: usize, cx: &mut Context<Self>) {
         let epoch = self.split_menu_hover_epoch;
         cx.spawn(async move |view: gpui::WeakEntity<Self>, cx| {
+            // Grace long enough to cross the trigger→popover gap without the
+            // menu vanishing mid-travel.
             cx.background_executor()
-                .timer(Duration::from_millis(120))
+                .timer(Duration::from_millis(260))
                 .await;
             let _ = view.update(cx, |view, cx| {
                 if view.open_split_menu_pane == Some(pane_index)
@@ -1119,37 +1085,21 @@ impl TerminalWorkspaceView {
 
 impl Render for TerminalWorkspaceView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let has_bottom_tabs = !self.snapshot.bottom_tabs.is_empty();
-        let bottom_ratio = clamp_terminal_bottom_ratio(self.snapshot.bottom_ratio);
-        let total_size = self.container_height.unwrap_or(TERMINAL_SPLIT_BASE_SIZE);
-        let bottom_size = terminal_bottom_panel_size(bottom_ratio, total_size);
-        let main_size = (total_size - bottom_size).max(px(220.0));
-        let split_id = SharedString::from(format!(
-            "workspace-terminal-split-{}",
-            terminal_layout_key_for_element_id(&self.snapshot.layout_key)
-        ));
         let main = terminal_main_split_area(
             self.app_entity.clone(),
             self.snapshot.main_panes.clone(),
             &self.snapshot.layout_key,
             &self.snapshot.top_ratios,
             &self.snapshot.top_grid,
+            &self.snapshot.split_tree,
             self.container_width,
-            self.container_height
-                .map(|height| if has_bottom_tabs { main_size } else { height }),
+            self.container_height,
             self.pane_drop_preview,
             self.open_split_menu_pane,
             cx,
         );
-        let bottom = terminal_bottom_tabs_area(
-            self.app_entity.clone(),
-            self.snapshot.bottom_tabs.clone(),
-            self.snapshot.active_bottom.clone(),
-            self.tab_scroll_handle.clone(),
-            cx,
-        );
 
-        let base = div()
+        div()
             .flex()
             .flex_col()
             .flex_1()
@@ -1173,73 +1123,22 @@ impl Render for TerminalWorkspaceView {
                         if changed {
                             view.container_height = Some(height);
                             view.container_width = Some(width);
-                            // Re-render so panel sizes derived from the
-                            // measured size converge this frame cycle
-                            // instead of waiting for an unrelated update.
                             cx.notify();
                         }
                     });
                 }
-            });
-
-        if !has_bottom_tabs {
-            return base
-                .child(
-                    div()
-                        .flex_1()
-                        .flex_basis(px(0.0))
-                        .min_w_0()
-                        .min_h_0()
-                        .w_full()
-                        .relative()
-                        .overflow_hidden()
-                        .child(main),
-                )
-                .child(div().h(TERMINAL_BOTTOM_TAB_BAR_HEIGHT).child(bottom));
-        }
-
-        base.child(
-            v_resizable(split_id)
-                .on_resize({
-                    let app_entity = self.app_entity.clone();
-                    let layout_key = self.snapshot.layout_key.clone();
-                    move |state, window, cx| {
-                        let sizes = state.read(cx).sizes().clone();
-                        let Some(ratio) = terminal_bottom_ratio_from_sizes(&sizes) else {
-                            return;
-                        };
-                        window.defer(cx, {
-                            let app_entity = app_entity.clone();
-                            let layout_key = layout_key.clone();
-                            move |_window, cx| {
-                                let _ = app_entity.update(cx, |app, cx| {
-                                    app.update_terminal_bottom_ratio(layout_key, ratio, cx);
-                                });
-                            }
-                        });
-                    }
-                })
-                .child(
-                    resizable_panel()
-                        .size(main_size)
-                        .size_range(px(220.0)..Pixels::MAX)
-                        .child(
-                            div()
-                                .relative()
-                                .size_full()
-                                .min_w_0()
-                                .min_h_0()
-                                .overflow_hidden()
-                                .child(main),
-                        ),
-                )
-                .child(
-                    resizable_panel()
-                        .size(bottom_size)
-                        .size_range(TERMINAL_BOTTOM_PANEL_MIN_SIZE..px(520.0))
-                        .child(bottom),
-                ),
-        )
+            })
+            .child(
+                div()
+                    .flex_1()
+                    .flex_basis(px(0.0))
+                    .min_w_0()
+                    .min_h_0()
+                    .w_full()
+                    .relative()
+                    .overflow_hidden()
+                    .child(main),
+            )
     }
 }
 
@@ -1321,53 +1220,31 @@ impl CoduxApp {
             })
             .unwrap_or_default();
 
-        let bottom_tabs = self
-            .bottom_terminals()
-            .map(|terminal| TerminalBottomTabViewSnapshot {
-                id: terminal.id,
-                label: terminal.label.clone(),
-                active: terminal.id == self.active_terminal_id,
-            })
-            .collect::<Vec<_>>();
-
-        let active_bottom = self
-            .active_bottom_terminal()
-            .and_then(|tab| tab.panes.first())
-            .map(|slot| {
-                let (title, subtitle) = terminal_pane_display_title(slot, &ai_titles);
-                TerminalPaneViewSnapshot {
-                    view: slot.pane.as_ref().map(|pane| pane.view.clone()),
-                    title,
-                    subtitle,
-                }
-            });
-
+        let top_ratios = terminal_top_ratios_for_panes(
+            self.state.terminal_layout.top_ratios.clone(),
+            main_panes.len(),
+        );
+        let top_grid = terminal_top_grid_for_panes(
+            self.state.terminal_layout.top_grid.clone(),
+            &top_ratios,
+            main_panes.len(),
+        );
+        let split_tree = terminal_split_tree_for_panes(
+            self.state.terminal_layout.split_tree.clone(),
+            &top_grid,
+            &top_ratios,
+            main_panes.len(),
+        );
         TerminalWorkspaceSnapshot {
             loading: self.terminal_layout_loading,
             layout_key: super::ai_runtime_status::current_terminal_layout_storage_key(&self.state)
                 .unwrap_or_default(),
-            bottom_ratio: clamp_terminal_bottom_ratio(self.state.terminal_layout.bottom_ratio),
-            top_ratios: terminal_top_ratios_for_panes(
-                self.state.terminal_layout.top_ratios.clone(),
-                main_panes.len(),
-            ),
-            top_grid: terminal_top_grid_for_panes(
-                self.state.terminal_layout.top_grid.clone(),
-                &terminal_top_ratios_for_panes(
-                    self.state.terminal_layout.top_ratios.clone(),
-                    main_panes.len(),
-                ),
-                main_panes.len(),
-            ),
+            top_ratios,
+            top_grid,
+            split_tree,
             main_panes,
-            bottom_tabs,
-            active_bottom,
         }
     }
-}
-
-fn active_terminal_bottom_tab_id(tabs: &[TerminalBottomTabViewSnapshot]) -> Option<usize> {
-    tabs.iter().find(|tab| tab.active).map(|tab| tab.id)
 }
 
 fn terminal_ai_titles_by_terminal_id(
@@ -1431,28 +1308,8 @@ fn terminal_pane_display_title(
 
 const TERMINAL_SPLIT_BASE_SIZE: Pixels = px(640.0);
 const TERMINAL_SPLIT_BASE_WIDTH: Pixels = px(1200.0);
-const TERMINAL_BOTTOM_TAB_BAR_HEIGHT: Pixels = px(40.0);
-const TERMINAL_PANE_HEADER_HEIGHT: Pixels = px(32.0);
-const TERMINAL_BOTTOM_PANEL_MIN_SIZE: Pixels = px(128.0);
 const TERMINAL_TOP_PANE_MIN_WIDTH: Pixels = px(160.0);
 const TERMINAL_TOP_PANE_MIN_HEIGHT: Pixels = px(120.0);
-
-fn terminal_bottom_panel_size(ratio: f64, total: Pixels) -> Pixels {
-    px((total.as_f32() as f64 * ratio) as f32).clamp(TERMINAL_BOTTOM_PANEL_MIN_SIZE, px(520.0))
-}
-
-fn terminal_bottom_ratio_from_sizes(sizes: &[Pixels]) -> Option<f64> {
-    let [main, bottom, ..] = sizes else {
-        return None;
-    };
-    let total = main.as_f32() + bottom.as_f32();
-    if total <= 1.0 {
-        return None;
-    }
-    Some(clamp_terminal_bottom_ratio(
-        (bottom.as_f32() / total) as f64,
-    ))
-}
 
 fn terminal_layout_key_for_element_id(key: &str) -> String {
     key.chars()
@@ -1472,6 +1329,7 @@ fn terminal_main_split_area(
     layout_key: &str,
     top_ratios: &[f64],
     top_grid: &TerminalTopGrid,
+    split_tree: &Option<TerminalSplitNode>,
     container_width: Option<Pixels>,
     container_height: Option<Pixels>,
     pane_drop_preview: Option<TerminalPaneDropPreview>,
@@ -1488,103 +1346,30 @@ fn terminal_main_split_area(
 
     let pane_count = panes.len();
     let grid = terminal_top_grid_for_panes(top_grid.clone(), top_ratios, pane_count);
+    let tree = terminal_split_tree_for_panes(split_tree.clone(), &grid, top_ratios, pane_count)
+        .unwrap_or(TerminalSplitNode::Leaf { pane: 0 });
     let total_width = container_width.unwrap_or(TERMINAL_SPLIT_BASE_WIDTH);
     let total_height = container_height.unwrap_or(TERMINAL_SPLIT_BASE_SIZE);
     let overlay = terminal_pane_drag_overlay(
         app_entity.clone(),
-        grid.clone(),
+        tree.clone(),
         pane_count,
         pane_drop_preview,
         cx,
     );
-    let content = if pane_count == 1 {
-        div()
-            .flex()
-            .flex_1()
-            .flex_basis(px(0.0))
-            .size_full()
-            .min_w_0()
-            .min_h_0()
-            .overflow_hidden()
-            .children(panes.into_iter().enumerate().map(move |(index, slot)| {
-                terminal_pane(
-                    app_entity.clone(),
-                    index,
-                    pane_count,
-                    slot,
-                    open_split_menu_pane,
-                    cx,
-                )
-            }))
-            .into_any_element()
-    } else if grid.columns.len() == 1 {
-        terminal_grid_column(
-            app_entity.clone(),
-            layout_key,
-            0,
-            0,
-            pane_count,
-            &grid.columns[0],
-            panes,
-            total_height,
-            open_split_menu_pane,
-            cx,
-        )
-    } else {
-        let split_id = SharedString::from(format!(
-            "workspace-terminal-top-grid-{}-{}",
-            terminal_layout_key_for_element_id(layout_key),
-            pane_count
-        ));
-        let resize_app_entity = app_entity.clone();
-        let resize_layout_key = layout_key.to_string();
-        let mut next_pane_index = 0usize;
-        h_resizable(split_id)
-            .on_resize(move |state, window, cx| {
-                let sizes = state.read(cx).sizes().clone();
-                let Some(ratios) = terminal_top_ratios_from_sizes(&sizes) else {
-                    return;
-                };
-                window.defer(cx, {
-                    let app_entity = resize_app_entity.clone();
-                    let layout_key = resize_layout_key.clone();
-                    move |_window, cx| {
-                        let _ = app_entity.update(cx, |app, cx| {
-                            app.update_terminal_grid_ratios(layout_key, None, ratios, cx);
-                        });
-                    }
-                });
-            })
-            .children(
-                grid.columns
-                    .iter()
-                    .enumerate()
-                    .map(move |(column_index, column)| {
-                        let start_index = next_pane_index;
-                        let end_index = (start_index + column.rows).min(panes.len());
-                        next_pane_index = end_index;
-                        let column_panes = panes[start_index..end_index].to_vec();
-                        let ratio = column.ratio;
-                        let column_element = terminal_grid_column(
-                            app_entity.clone(),
-                            layout_key,
-                            column_index,
-                            start_index,
-                            pane_count,
-                            column,
-                            column_panes,
-                            total_height,
-                            open_split_menu_pane,
-                            cx,
-                        );
-                        resizable_panel()
-                            .size(px((total_width.as_f32() as f64 * ratio) as f32))
-                            .size_range(TERMINAL_TOP_PANE_MIN_WIDTH..Pixels::MAX)
-                            .child(column_element)
-                    }),
-            )
-            .into_any_element()
-    };
+    let content = terminal_split_node_element(
+        app_entity.clone(),
+        layout_key,
+        panes,
+        &tree,
+        Vec::new(),
+        TerminalSplitDivider::None,
+        pane_count,
+        total_width,
+        total_height,
+        open_split_menu_pane,
+        cx,
+    );
 
     div()
         .relative()
@@ -1600,7 +1385,7 @@ fn terminal_main_split_area(
 
 fn terminal_pane_drag_overlay(
     app_entity: gpui::Entity<CoduxApp>,
-    grid: TerminalTopGrid,
+    split_tree: TerminalSplitNode,
     pane_count: usize,
     pane_drop_preview: Option<TerminalPaneDropPreview>,
     cx: &mut Context<TerminalWorkspaceView>,
@@ -1619,10 +1404,10 @@ fn terminal_pane_drag_overlay(
             window.prevent_default();
         })
         .on_drag_move::<TerminalPaneDrag>(cx.listener({
-            let grid = grid.clone();
+            let split_tree = split_tree.clone();
             move |view, event: &gpui::DragMoveEvent<TerminalPaneDrag>, _window, cx| {
-                let Some(pane_index) = terminal_pane_index_at_position(
-                    &grid,
+                let Some(pane_index) = terminal_pane_drop_target_at_position(
+                    &split_tree,
                     pane_count,
                     event.bounds,
                     event.event.position,
@@ -1643,9 +1428,8 @@ fn terminal_pane_drag_overlay(
             let app_entity = app_entity.clone();
             move |view, drag: &TerminalPaneDrag, window, cx| {
                 let from_index = drag.pane_index;
-                let target = view
-                    .pane_drop_preview
-                    .take()
+                let preview = view.pane_drop_preview.take();
+                let target = preview
                     .map(|preview| preview.pane_index)
                     .unwrap_or(from_index);
                 if target != from_index {
@@ -1670,18 +1454,22 @@ fn terminal_pane_drag_overlay(
                 .bottom_0()
                 .left_0()
                 .when_some(pane_drop_preview, |this, preview| {
-                    this.children(terminal_pane_drop_placeholder(&grid, pane_count, preview))
+                    this.children(terminal_pane_drop_placeholder(
+                        &split_tree,
+                        pane_count,
+                        preview,
+                    ))
                 }),
         )
         .into_any_element()
 }
 
 fn terminal_pane_drop_placeholder(
-    grid: &TerminalTopGrid,
+    split_tree: &TerminalSplitNode,
     pane_count: usize,
     preview: TerminalPaneDropPreview,
 ) -> Vec<AnyElement> {
-    let rect = terminal_pane_rect(grid, pane_count, preview.pane_index);
+    let rect = terminal_pane_rect(split_tree, pane_count, preview.pane_index);
     vec![
         div()
             .absolute()
@@ -1695,8 +1483,8 @@ fn terminal_pane_drop_placeholder(
                     .size_full()
                     .rounded(px(10.0))
                     .border_1()
-                    .border_color(color(theme::ACCENT).opacity(0.62))
-                    .bg(color(theme::ACCENT).opacity(0.30)),
+                    .border_color(color(theme::ACCENT).opacity(0.70))
+                    .bg(color(theme::ACCENT).opacity(0.20)),
             )
             .into_any_element(),
     ]
@@ -1711,43 +1499,22 @@ pub(in crate::app) struct TerminalPaneRect {
 }
 
 pub(in crate::app) fn terminal_pane_rect(
-    grid: &TerminalTopGrid,
+    split_tree: &TerminalSplitNode,
     pane_count: usize,
     pane_index: usize,
 ) -> TerminalPaneRect {
-    let mut left = 0.0_f32;
-    let mut start_index = 0usize;
-    let total_column_ratio = grid
-        .columns
-        .iter()
-        .map(|column| column.ratio.max(0.0))
-        .sum::<f64>()
-        .max(f64::EPSILON);
-    for column in &grid.columns {
-        let column_width = (column.ratio.max(0.0) / total_column_ratio) as f32;
-        let end_index = (start_index + column.rows).min(pane_count);
-        if pane_index >= start_index && pane_index < end_index {
-            let rows = (end_index - start_index).max(1);
-            let row_ratios = terminal_top_ratios_for_panes(column.row_ratios.clone(), rows);
-            let row_offset = pane_index - start_index;
-            let top = row_ratios
-                .iter()
-                .take(row_offset)
-                .map(|ratio| *ratio as f32)
-                .sum::<f32>();
-            let height = row_ratios
-                .get(row_offset)
-                .copied()
-                .unwrap_or(1.0 / rows as f64) as f32;
-            return TerminalPaneRect {
-                left,
-                top,
-                width: column_width,
-                height,
-            };
-        }
-        left += column_width;
-        start_index = end_index;
+    if let Some(rect) = terminal_pane_rect_in_node(
+        split_tree,
+        pane_count,
+        pane_index,
+        TerminalPaneRect {
+            left: 0.0,
+            top: 0.0,
+            width: 1.0,
+            height: 1.0,
+        },
+    ) {
+        return rect;
     }
     TerminalPaneRect {
         left: 0.0,
@@ -1757,8 +1524,59 @@ pub(in crate::app) fn terminal_pane_rect(
     }
 }
 
-pub(in crate::app) fn terminal_pane_index_at_position(
-    grid: &TerminalTopGrid,
+fn terminal_pane_rect_in_node(
+    node: &TerminalSplitNode,
+    pane_count: usize,
+    pane_index: usize,
+    rect: TerminalPaneRect,
+) -> Option<TerminalPaneRect> {
+    match node {
+        TerminalSplitNode::Leaf { pane } => {
+            (*pane == pane_index && *pane < pane_count).then_some(rect)
+        }
+        TerminalSplitNode::Split {
+            axis,
+            ratios,
+            children,
+        } => {
+            let ratios = codux_runtime::terminal_layout::normalize_split_ratios(
+                ratios.clone(),
+                children.len(),
+            );
+            let mut offset = 0.0_f32;
+            for (child, ratio) in children.iter().zip(ratios) {
+                let ratio = ratio as f32;
+                let child_rect = match axis {
+                    SplitAxis::Horizontal => TerminalPaneRect {
+                        left: rect.left + offset,
+                        top: rect.top,
+                        width: rect.width * ratio,
+                        height: rect.height,
+                    },
+                    SplitAxis::Vertical => TerminalPaneRect {
+                        left: rect.left,
+                        top: rect.top + offset,
+                        width: rect.width,
+                        height: rect.height * ratio,
+                    },
+                };
+                if let Some(rect) =
+                    terminal_pane_rect_in_node(child, pane_count, pane_index, child_rect)
+                {
+                    return Some(rect);
+                }
+                offset += match axis {
+                    SplitAxis::Horizontal => rect.width * ratio,
+                    SplitAxis::Vertical => rect.height * ratio,
+                };
+            }
+            None
+        }
+    }
+}
+
+pub(in crate::app) fn terminal_pane_drop_target_at_position(
+    split_tree: &TerminalSplitNode,
     pane_count: usize,
     bounds: Bounds<Pixels>,
     position: gpui::Point<Pixels>,
@@ -1768,111 +1586,226 @@ pub(in crate::app) fn terminal_pane_index_at_position(
     }
     let x = ((position.x - bounds.left()) / bounds.size.width).clamp(0.0, 0.999_999);
     let y = ((position.y - bounds.top()) / bounds.size.height).clamp(0.0, 0.999_999);
-    let mut left = 0.0_f32;
-    let mut start_index = 0usize;
-    let total_column_ratio = grid
-        .columns
-        .iter()
-        .map(|column| column.ratio.max(0.0))
-        .sum::<f64>()
-        .max(f64::EPSILON);
-    for column in &grid.columns {
-        let column_width = (column.ratio.max(0.0) / total_column_ratio) as f32;
-        let end_index = (start_index + column.rows).min(pane_count);
-        if x <= left + column_width || end_index == pane_count {
-            let rows = (end_index - start_index).max(1);
-            let row_ratios = terminal_top_ratios_for_panes(column.row_ratios.clone(), rows);
-            let local_y = if column_width > 0.0 { y } else { 0.0 };
-            let mut top = 0.0_f32;
-            for (offset, ratio) in row_ratios.iter().enumerate() {
-                let height = *ratio as f32;
-                if local_y <= top + height || offset + 1 == rows {
-                    return Some((start_index + offset).min(pane_count - 1));
-                }
-                top += height;
-            }
-            return Some(start_index.min(pane_count - 1));
-        }
-        left += column_width;
-        start_index = end_index;
-    }
-    Some(pane_count - 1)
+    terminal_pane_drop_target_in_node(
+        split_tree,
+        pane_count,
+        x,
+        y,
+        TerminalPaneRect {
+            left: 0.0,
+            top: 0.0,
+            width: 1.0,
+            height: 1.0,
+        },
+    )
 }
 
-fn terminal_grid_column(
+fn terminal_pane_drop_target_in_node(
+    node: &TerminalSplitNode,
+    pane_count: usize,
+    x: f32,
+    y: f32,
+    rect: TerminalPaneRect,
+) -> Option<usize> {
+    match node {
+        TerminalSplitNode::Leaf { pane } if *pane < pane_count => Some(*pane),
+        TerminalSplitNode::Leaf { .. } => None,
+        TerminalSplitNode::Split {
+            axis,
+            ratios,
+            children,
+        } => {
+            let ratios = codux_runtime::terminal_layout::normalize_split_ratios(
+                ratios.clone(),
+                children.len(),
+            );
+            let mut offset = 0.0_f32;
+            for (index, (child, ratio)) in children.iter().zip(ratios).enumerate() {
+                let ratio = ratio as f32;
+                let child_rect = match axis {
+                    SplitAxis::Horizontal => TerminalPaneRect {
+                        left: rect.left + offset,
+                        top: rect.top,
+                        width: rect.width * ratio,
+                        height: rect.height,
+                    },
+                    SplitAxis::Vertical => TerminalPaneRect {
+                        left: rect.left,
+                        top: rect.top + offset,
+                        width: rect.width,
+                        height: rect.height * ratio,
+                    },
+                };
+                let inside = x >= child_rect.left
+                    && x <= child_rect.left + child_rect.width
+                    && y >= child_rect.top
+                    && y <= child_rect.top + child_rect.height;
+                if inside || index + 1 == children.len() {
+                    return terminal_pane_drop_target_in_node(child, pane_count, x, y, child_rect);
+                }
+                offset += match axis {
+                    SplitAxis::Horizontal => rect.width * ratio,
+                    SplitAxis::Vertical => rect.height * ratio,
+                };
+            }
+            None
+        }
+    }
+}
+
+fn terminal_split_node_element(
     app_entity: gpui::Entity<CoduxApp>,
     layout_key: &str,
-    column_index: usize,
-    start_index: usize,
-    pane_count: usize,
-    column: &TerminalGridColumn,
     panes: Vec<TerminalPaneViewSnapshot>,
+    node: &TerminalSplitNode,
+    path: Vec<usize>,
+    divider: TerminalSplitDivider,
+    pane_count: usize,
+    total_width: Pixels,
     total_height: Pixels,
     open_split_menu_pane: Option<usize>,
     cx: &mut Context<TerminalWorkspaceView>,
 ) -> AnyElement {
-    if panes.len() <= 1 {
-        return panes
-            .into_iter()
-            .enumerate()
-            .map(|(offset, slot)| {
+    let content = match node {
+        TerminalSplitNode::Leaf { pane } => {
+            let slot = panes.get(*pane).cloned();
+            slot.map(|slot| {
                 terminal_pane(
-                    app_entity.clone(),
-                    start_index + offset,
+                    app_entity,
+                    *pane,
                     pane_count,
                     slot,
                     open_split_menu_pane,
                     cx,
                 )
             })
-            .next()
-            .unwrap_or_else(|| div().size_full().into_any_element());
-    }
-
-    let split_id = SharedString::from(format!(
-        "workspace-terminal-top-grid-column-{}-{}-{}",
-        terminal_layout_key_for_element_id(layout_key),
-        pane_count,
-        column_index
-    ));
-    let resize_app_entity = app_entity.clone();
-    let resize_layout_key = layout_key.to_string();
-    let row_ratios = terminal_top_ratios_for_panes(column.row_ratios.clone(), panes.len());
-    let row_count = panes.len();
-    v_resizable(split_id)
-        .on_resize(move |state, window, cx| {
-            let sizes = state.read(cx).sizes().clone();
-            let Some(ratios) = terminal_top_ratios_from_sizes(&sizes) else {
-                return;
-            };
-            window.defer(cx, {
-                let app_entity = resize_app_entity.clone();
-                let layout_key = resize_layout_key.clone();
-                move |_window, cx| {
-                    let _ = app_entity.update(cx, |app, cx| {
-                        app.update_terminal_grid_ratios(layout_key, Some(column_index), ratios, cx);
-                    });
-                }
-            });
-        })
-        .children(panes.into_iter().enumerate().map(move |(offset, slot)| {
-            let ratio = row_ratios
-                .get(offset)
-                .copied()
-                .unwrap_or(1.0 / row_count as f64);
-            resizable_panel()
-                .size(px((total_height.as_f32() as f64 * ratio) as f32))
-                .size_range(TERMINAL_TOP_PANE_MIN_HEIGHT..Pixels::MAX)
-                .child(terminal_pane(
+            .unwrap_or_else(|| div().size_full().into_any_element())
+        }
+        TerminalSplitNode::Split {
+            axis,
+            ratios,
+            children,
+        } => {
+            let split_id = SharedString::from(format!(
+                "workspace-terminal-split-tree-{}-{}-{}",
+                terminal_layout_key_for_element_id(layout_key),
+                pane_count,
+                path.iter()
+                    .map(|index| index.to_string())
+                    .collect::<Vec<_>>()
+                    .join("-")
+            ));
+            let resize_app_entity = app_entity.clone();
+            let resize_layout_key = layout_key.to_string();
+            let resize_path = path.clone();
+            let ratios = codux_runtime::terminal_layout::normalize_split_ratios(
+                ratios.clone(),
+                children.len(),
+            );
+            let render_child = move |(index, child): (usize, &TerminalSplitNode)| {
+                let mut child_path = path.clone();
+                child_path.push(index);
+                let divider = if index == 0 {
+                    TerminalSplitDivider::None
+                } else {
+                    match axis {
+                        SplitAxis::Horizontal => TerminalSplitDivider::Left,
+                        SplitAxis::Vertical => TerminalSplitDivider::Top,
+                    }
+                };
+                let ratio = ratios
+                    .get(index)
+                    .copied()
+                    .unwrap_or(1.0 / children.len().max(1) as f64);
+                let child_element = terminal_split_node_element(
                     app_entity.clone(),
-                    start_index + offset,
+                    layout_key,
+                    panes.clone(),
+                    child,
+                    child_path,
+                    divider,
                     pane_count,
-                    slot,
+                    total_width,
+                    total_height,
                     open_split_menu_pane,
                     cx,
-                ))
-        }))
-        .into_any_element()
+                );
+                match axis {
+                    SplitAxis::Horizontal => resizable_panel()
+                        .size(px((total_width.as_f32() as f64 * ratio) as f32))
+                        .size_range(TERMINAL_TOP_PANE_MIN_WIDTH..Pixels::MAX)
+                        .child(child_element),
+                    SplitAxis::Vertical => resizable_panel()
+                        .size(px((total_height.as_f32() as f64 * ratio) as f32))
+                        .size_range(TERMINAL_TOP_PANE_MIN_HEIGHT..Pixels::MAX)
+                        .child(child_element),
+                }
+            };
+            match axis {
+                SplitAxis::Horizontal => h_resizable(split_id)
+                    .on_resize({
+                        let resize_app_entity = resize_app_entity.clone();
+                        let resize_layout_key = resize_layout_key.clone();
+                        let resize_path = resize_path.clone();
+                        move |state: &gpui::Entity<ResizableState>, window, cx| {
+                            let sizes = state.read(cx).sizes().clone();
+                            let Some(ratios) = terminal_top_ratios_from_sizes(&sizes) else {
+                                return;
+                            };
+                            window.defer(cx, {
+                                let app_entity = resize_app_entity.clone();
+                                let layout_key = resize_layout_key.clone();
+                                let path = resize_path.clone();
+                                move |_window, cx| {
+                                    let _ = app_entity.update(cx, |app, cx| {
+                                        app.update_terminal_split_ratios(
+                                            layout_key, path, ratios, cx,
+                                        );
+                                    });
+                                }
+                            });
+                        }
+                    })
+                    .children(children.iter().enumerate().map(render_child))
+                    .into_any_element(),
+                SplitAxis::Vertical => v_resizable(split_id)
+                    .on_resize(move |state: &gpui::Entity<ResizableState>, window, cx| {
+                        let sizes = state.read(cx).sizes().clone();
+                        let Some(ratios) = terminal_top_ratios_from_sizes(&sizes) else {
+                            return;
+                        };
+                        window.defer(cx, {
+                            let app_entity = resize_app_entity.clone();
+                            let layout_key = resize_layout_key.clone();
+                            let path = resize_path.clone();
+                            move |_window, cx| {
+                                let _ = app_entity.update(cx, |app, cx| {
+                                    app.update_terminal_split_ratios(layout_key, path, ratios, cx);
+                                });
+                            }
+                        });
+                    })
+                    .children(children.iter().enumerate().map(render_child))
+                    .into_any_element(),
+            }
+        }
+    };
+    terminal_split_divider(content, divider)
+}
+
+fn terminal_split_divider(child: AnyElement, divider: TerminalSplitDivider) -> AnyElement {
+    let element = div()
+        .size_full()
+        .min_w_0()
+        .min_h_0()
+        .overflow_hidden()
+        .child(child);
+    match divider {
+        TerminalSplitDivider::None => element,
+        TerminalSplitDivider::Left => element.border_l_1().border_color(color(theme::BORDER_SOFT)),
+        TerminalSplitDivider::Top => element.border_t_1().border_color(color(theme::BORDER_SOFT)),
+    }
+    .into_any_element()
 }
 
 fn terminal_top_ratios_from_sizes(sizes: &[Pixels]) -> Option<Vec<f64>> {
@@ -1903,6 +1836,8 @@ fn terminal_pane(
     let float_id = SharedString::from(format!("terminal-pane-float-{index}"));
     let add_id = SharedString::from(format!("terminal-pane-add-{index}"));
 
+    // Flat pane: hairline divider against the previous column, controls float
+    // over the terminal's top-right corner and appear on hover.
     div()
         .id(SharedString::from(format!("terminal-pane-{index}")))
         .relative()
@@ -1916,58 +1851,6 @@ fn terminal_pane(
         .min_h_0()
         .overflow_hidden()
         .bg(theme::terminal_fill(color(theme::BG_TERMINAL)))
-        .border_l_1()
-        .border_color(color(if index == 0 {
-            theme::BG_TERMINAL
-        } else {
-            theme::BORDER_SOFT
-        }))
-        .child(
-            div()
-                .h(TERMINAL_PANE_HEADER_HEIGHT)
-                .flex_none()
-                .flex()
-                .items_center()
-                .justify_between()
-                .gap_2()
-                .px_2()
-                .border_b_1()
-                .border_color(cx.theme().border.opacity(0.36))
-                .child(terminal_pane_header_title(&slot, cx))
-                .child(
-                    div()
-                        .flex()
-                        .flex_none()
-                        .items_center()
-                        .gap_1()
-                        .child(terminal_pane_drag_handle(app_entity.clone(), index, cx))
-                        .child(terminal_pane_control_button(
-                            app_entity.clone(),
-                            float_id,
-                            HeroIconName::ArrowTopRightOnSquare,
-                            "浮窗",
-                            pane_count > 1,
-                            cx,
-                            move |app, window, cx| app.float_terminal_pane(index, window, cx),
-                        ))
-                        .child(terminal_pane_split_button(
-                            app_entity.clone(),
-                            add_id,
-                            index,
-                            open_split_menu_pane,
-                            cx,
-                        ))
-                        .child(terminal_pane_control_button(
-                            app_entity,
-                            close_id,
-                            HeroIconName::XMark,
-                            "关闭分屏",
-                            pane_count > 1,
-                            cx,
-                            move |app, window, cx| app.close_terminal_pane(index, window, cx),
-                        )),
-                ),
-        )
         .child(
             div()
                 .flex_1()
@@ -1988,149 +1871,51 @@ fn terminal_pane(
                         .into_any_element(),
                 }),
         )
-        .into_any_element()
-}
-
-fn terminal_pane_header_title(
-    slot: &TerminalPaneViewSnapshot,
-    cx: &mut Context<TerminalWorkspaceView>,
-) -> AnyElement {
-    let title = match slot.subtitle.as_deref() {
-        Some(subtitle) if !subtitle.trim().is_empty() => format!("{} · {}", slot.title, subtitle),
-        _ => slot.title.clone(),
-    };
-    div()
-        .flex()
-        .flex_1()
-        .min_w_0()
-        .items_center()
-        .overflow_hidden()
         .child(
             div()
-                .flex_1()
-                .min_w_0()
-                .truncate()
-                .text_size(rems(0.76))
-                .line_height(rems(1.0))
-                .text_color(cx.theme().foreground)
-                .font_weight(FontWeight::MEDIUM)
-                .child(title),
-        )
-        .into_any_element()
-}
-
-fn terminal_bottom_tabs_area(
-    app_entity: gpui::Entity<CoduxApp>,
-    tabs: Vec<TerminalBottomTabViewSnapshot>,
-    active: Option<TerminalPaneViewSnapshot>,
-    tab_scroll_handle: ScrollHandle,
-    cx: &mut Context<TerminalWorkspaceView>,
-) -> AnyElement {
-    let has_bottom_tabs = active.is_some();
-    let tab_order = tabs
-        .iter()
-        .map(|tab| tab.id.to_string())
-        .collect::<Vec<_>>();
-
-    div()
-        .flex()
-        .flex_col()
-        .size_full()
-        .min_w_0()
-        .min_h_0()
-        .overflow_hidden()
-        .child(
-            div()
-                .h(TERMINAL_BOTTOM_TAB_BAR_HEIGHT)
-                .flex_none()
+                .absolute()
+                .top(px(6.0))
+                .right(px(8.0))
                 .flex()
                 .items_center()
-                .justify_between()
-                .gap_2()
-                .px_2()
-                .border_t_1()
-                .border_color(cx.theme().border)
-                // The tab strip is frosted chrome matching the title header:
-                // same base color (title_bar) and the same vibrancy opacity, so
-                // it reads as solid chrome rather than see-through terminal bg.
-                .bg(theme::vibrancy(cx.theme().title_bar))
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap_1()
-                        .flex_1()
-                        .min_w_0()
-                        .overflow_hidden()
-                        .when(!has_bottom_tabs, |this| {
-                            this.child(
-                                div()
-                                    .px_2()
-                                    .text_size(rems(0.75))
-                                    .line_height(rems(1.0))
-                                    .text_color(cx.theme().secondary_foreground)
-                                    .child("终端"),
-                            )
-                        })
-                        .child(
-                            div()
-                                .id("terminal-bottom-tab-scroll")
-                                .flex()
-                                .h_full()
-                                .min_w_0()
-                                .items_center()
-                                .gap_1()
-                                .overflow_x_scroll()
-                                .track_scroll(&tab_scroll_handle)
-                                .children(tabs.into_iter().map(|tab| {
-                                    terminal_bottom_tab_button(
-                                        app_entity.clone(),
-                                        tab,
-                                        tab_order.clone(),
-                                        cx,
-                                    )
-                                    .into_any_element()
-                                })),
-                        ),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap_1()
-                        .child(terminal_bottom_add_button(app_entity.clone(), cx)),
-                ),
+                .gap_1()
+                .rounded(px(6.0))
+                .p(px(2.0))
+                .bg(theme::elevate(color(theme::BG_TERMINAL), 0.08).opacity(0.92))
+                .opacity(0.0)
+                .group_hover("terminal-pane", |style| style.opacity(1.0))
+                // The popover overlay lives outside the group, so hovering the
+                // menu would fade the controls out — pin them while it's open.
+                .when(open_split_menu_pane == Some(index), |style| {
+                    style.opacity(1.0)
+                })
+                .child(terminal_pane_drag_handle(app_entity.clone(), index, cx))
+                .child(terminal_pane_control_button(
+                    app_entity.clone(),
+                    float_id,
+                    HeroIconName::ArrowTopRightOnSquare,
+                    "浮窗",
+                    pane_count > 1,
+                    cx,
+                    move |app, window, cx| app.float_terminal_pane(index, window, cx),
+                ))
+                .child(terminal_pane_split_button(
+                    app_entity.clone(),
+                    add_id,
+                    index,
+                    open_split_menu_pane,
+                    cx,
+                ))
+                .child(terminal_pane_control_button(
+                    app_entity,
+                    close_id,
+                    HeroIconName::XMark,
+                    "关闭分屏",
+                    pane_count > 1,
+                    cx,
+                    move |app, window, cx| app.close_terminal_pane(index, window, cx),
+                )),
         )
-        .when_some(active, |this, tab| {
-            this.child(
-                div()
-                    .flex_1()
-                    .flex_basis(px(0.0))
-                    .min_h_0()
-                    .overflow_hidden()
-                    .child(terminal_bottom_content(tab)),
-            )
-        })
-        .into_any_element()
-}
-
-fn terminal_bottom_content(tab: TerminalPaneViewSnapshot) -> AnyElement {
-    div()
-        .size_full()
-        .min_h_0()
-        .overflow_hidden()
-        .child(match tab.view {
-            Some(view) => gpui::AnyView::from(view).into_any_element(),
-            None => div()
-                .size_full()
-                .flex()
-                .items_center()
-                .justify_center()
-                .bg(theme::terminal_fill(color(theme::BG_TERMINAL)))
-                .text_color(color(theme::TEXT_DIM))
-                .child("Terminal mounting...")
-                .into_any_element(),
-        })
         .into_any_element()
 }
 
@@ -2195,11 +1980,11 @@ fn terminal_pane_split_button(
     open_split_menu_pane: Option<usize>,
     cx: &mut Context<TerminalWorkspaceView>,
 ) -> AnyElement {
-    let directions = [
-        (TerminalSplitDirection::Left, "左分屏"),
-        (TerminalSplitDirection::Right, "右分屏"),
-        (TerminalSplitDirection::Up, "上分屏"),
-        (TerminalSplitDirection::Down, "下分屏"),
+    const DIRECTIONS: [TerminalSplitDirection; 4] = [
+        TerminalSplitDirection::Left,
+        TerminalSplitDirection::Right,
+        TerminalSplitDirection::Up,
+        TerminalSplitDirection::Down,
     ];
     let is_open = open_split_menu_pane.is_some_and(|index| index == pane_index);
     let view = cx.entity();
@@ -2230,6 +2015,7 @@ fn terminal_pane_split_button(
                 cx.update_entity(&app_entity, |app, cx| {
                     app.split_terminal_direction(
                         TerminalSplitDirection::Right,
+                        TerminalSplitScope::Inner,
                         pane_index,
                         window,
                         cx,
@@ -2245,6 +2031,24 @@ fn terminal_pane_split_button(
         .open(is_open)
         .trigger(button)
         .content(move |_, _window, cx| {
+            // Icon-only grid: row 1 = split inside the current pane (dashed
+            // frame), row 2 = split the whole layout (solid frame, edge slice).
+            let row = |scope: TerminalSplitScope,
+                       app_entity: &gpui::Entity<CoduxApp>,
+                       view: &gpui::Entity<TerminalWorkspaceView>| {
+                div()
+                    .flex()
+                    .gap_1()
+                    .children(DIRECTIONS.into_iter().map(|direction| {
+                        terminal_split_direction_menu_button(
+                            app_entity.clone(),
+                            view.clone(),
+                            pane_index,
+                            direction,
+                            scope,
+                        )
+                    }))
+            };
             div()
                 .id(content_id.clone())
                 .flex()
@@ -2257,15 +2061,8 @@ fn terminal_pane_split_button(
                 .shadow_lg()
                 .p_1()
                 .on_hover(split_menu_hover_listener(view.clone(), pane_index))
-                .children(directions.into_iter().map(|(direction, label)| {
-                    terminal_split_direction_menu_button(
-                        app_entity.clone(),
-                        view.clone(),
-                        pane_index,
-                        direction,
-                        label,
-                    )
-                }))
+                .child(row(TerminalSplitScope::Inner, &app_entity, &view))
+                .child(row(TerminalSplitScope::Root, &app_entity, &view))
         })
         .into_any_element()
 }
@@ -2290,79 +2087,108 @@ fn terminal_split_direction_menu_button(
     view: gpui::Entity<TerminalWorkspaceView>,
     pane_index: usize,
     direction: TerminalSplitDirection,
-    label: &'static str,
+    scope: TerminalSplitScope,
 ) -> AnyElement {
     div()
         .id(SharedString::from(format!(
-            "terminal-pane-split-{pane_index}-{direction:?}"
+            "terminal-pane-split-{pane_index}-{scope:?}-{direction:?}"
         )))
+        .size(px(30.0))
         .flex()
         .items_center()
-        .gap_2()
-        .min_w(px(108.0))
+        .justify_center()
         .rounded_md()
-        .px_2()
-        .py_1()
         .cursor_pointer()
         .hover(|style| style.bg(color(theme::ACCENT).opacity(0.12)))
-        .child(terminal_split_direction_icon(direction))
-        .child(
-            div()
-                .text_size(rems(0.76))
-                .line_height(rems(1.0))
-                .child(label),
-        )
+        .child(terminal_split_direction_icon(direction, scope))
         .on_click(move |_, window, cx| {
             let _ = view.update(cx, |view, cx| {
                 view.open_split_menu_pane = None;
                 cx.notify();
             });
             cx.update_entity(&app_entity, |app, cx| {
-                app.split_terminal_direction(direction, pane_index, window, cx);
+                app.split_terminal_direction(direction, scope, pane_index, window, cx);
             });
         })
         .into_any_element()
 }
 
-fn terminal_split_direction_icon(direction: TerminalSplitDirection) -> AnyElement {
-    let active = color(theme::ACCENT).opacity(0.50);
-    let inactive = color(theme::BG_TERMINAL).opacity(0.78);
-    let cell = |is_active: bool| {
-        div()
-            .flex_1()
-            .rounded(px(2.0))
-            .bg(if is_active { active } else { inactive })
+/// Split glyphs: INNER = dashed frame (the current pane) cut in half, the new
+/// half filled; ROOT = solid frame (the whole layout) with a new slice pushed
+/// in from that edge.
+fn terminal_split_direction_icon(
+    direction: TerminalSplitDirection,
+    scope: TerminalSplitScope,
+) -> AnyElement {
+    // Frames must stay legible on the dark popover: border rides on text-level
+    // grey (dashed gaps read darker than solid, so no extra dimming), the new
+    // slice is near-solid accent, the remaining area a faint grey wash.
+    let frame_line = color(theme::TEXT_DIM).opacity(0.9);
+    let active = color(theme::ACCENT).opacity(0.95);
+    let inactive = color(theme::TEXT_DIM).opacity(0.16);
+    let horizontal = matches!(
+        direction,
+        TerminalSplitDirection::Left | TerminalSplitDirection::Right
+    );
+    let before = matches!(
+        direction,
+        TerminalSplitDirection::Left | TerminalSplitDirection::Up
+    );
+
+    let frame = div()
+        .size(px(22.0))
+        .gap(px(2.0))
+        .p(px(2.0))
+        .rounded(px(4.0))
+        .border_1()
+        .border_color(frame_line)
+        .flex()
+        .map(|frame| if horizontal { frame } else { frame.flex_col() })
+        .map(|frame| match scope {
+            TerminalSplitScope::Inner => frame.border_dashed(),
+            TerminalSplitScope::Root => frame,
+        });
+
+    let (new_cell, old_cell) = match scope {
+        // Inner: the pane splits 50/50, new half filled.
+        TerminalSplitScope::Inner => (
+            div()
+                .flex_1()
+                .rounded(px(1.0))
+                .bg(active)
+                .into_any_element(),
+            div()
+                .flex_1()
+                .rounded(px(1.0))
+                .bg(inactive)
+                .into_any_element(),
+        ),
+        // Root: a narrow full-length slice lands at the edge of the layout.
+        TerminalSplitScope::Root => (
+            div()
+                .map(|cell| {
+                    if horizontal {
+                        cell.w(px(5.0)).h_full()
+                    } else {
+                        cell.h(px(5.0)).w_full()
+                    }
+                })
+                .flex_none()
+                .rounded(px(1.0))
+                .bg(active)
+                .into_any_element(),
+            div()
+                .flex_1()
+                .rounded(px(1.0))
+                .bg(inactive)
+                .into_any_element(),
+        ),
     };
-    let left_active = direction == TerminalSplitDirection::Left;
-    let right_active = direction == TerminalSplitDirection::Right;
-    let up_active = direction == TerminalSplitDirection::Up;
-    let down_active = direction == TerminalSplitDirection::Down;
 
-    let horizontal = div()
-        .flex()
-        .size(px(26.0))
-        .gap(px(2.0))
-        .p(px(2.0))
-        .rounded(px(5.0))
-        .border_1()
-        .border_color(color(theme::BORDER_SOFT))
-        .child(cell(left_active))
-        .child(cell(right_active));
-    let vertical = div()
-        .flex()
-        .flex_col()
-        .size(px(26.0))
-        .gap(px(2.0))
-        .p(px(2.0))
-        .rounded(px(5.0))
-        .border_1()
-        .border_color(color(theme::BORDER_SOFT))
-        .child(cell(up_active))
-        .child(cell(down_active));
-
-    match direction {
-        TerminalSplitDirection::Left | TerminalSplitDirection::Right => horizontal,
-        TerminalSplitDirection::Up | TerminalSplitDirection::Down => vertical,
+    if before {
+        frame.child(new_cell).child(old_cell)
+    } else {
+        frame.child(old_cell).child(new_cell)
     }
     .into_any_element()
 }
@@ -2421,182 +2247,6 @@ fn terminal_pane_control_button(
     } else {
         button.opacity(0.45).into_any_element()
     }
-}
-
-fn terminal_bottom_tab_button(
-    app_entity: gpui::Entity<CoduxApp>,
-    tab: TerminalBottomTabViewSnapshot,
-    tab_order: Vec<String>,
-    cx: &mut Context<TerminalWorkspaceView>,
-) -> impl IntoElement {
-    let terminal_id = tab.id;
-    let target_terminal_id = terminal_id;
-    let drag_label = tab.label.clone();
-    let drag_active = tab.active;
-    let text_color = if tab.active {
-        cx.theme().foreground
-    } else {
-        cx.theme().secondary_foreground
-    };
-    let background = if tab.active {
-        cx.theme().secondary_hover
-    } else {
-        cx.theme().transparent
-    };
-    terminal_bottom_tab_container(text_color, background)
-        .id(SharedString::from(format!(
-            "terminal-bottom-tab-{terminal_id}"
-        )))
-        .cursor_pointer()
-        .hover(|style| style.bg(cx.theme().secondary_hover))
-        .on_double_click(cx.listener({
-            let app_entity = app_entity.clone();
-            let label = tab.label.clone();
-            move |_view, _event, window, cx| {
-                cx.stop_propagation();
-                window.prevent_default();
-                let label = label.clone();
-                defer_terminal_workspace_app_update(
-                    app_entity.clone(),
-                    window,
-                    cx,
-                    move |app, window, app_cx| {
-                        app.open_terminal_tab_editor_window(
-                            terminal_id,
-                            label.clone(),
-                            window,
-                            app_cx,
-                        );
-                    },
-                );
-            }
-        }))
-        .on_drag(
-            TerminalBottomTabDrag {
-                terminal_id,
-                label: drag_label,
-                active: drag_active,
-            },
-            move |drag, _, _, cx| {
-                cx.new(|_| TerminalBottomTabDrag {
-                    terminal_id: drag.terminal_id,
-                    label: drag.label.clone(),
-                    active: drag.active,
-                })
-            },
-        )
-        .drag_over::<TerminalBottomTabDrag>(move |this, _drag, _window, _cx| this)
-        .on_drop(cx.listener({
-            let app_entity = app_entity.clone();
-            move |_view, drag: &TerminalBottomTabDrag, window, cx| {
-                let Some(next_ids) = reordered_ids(
-                    &tab_order,
-                    drag.terminal_id.to_string().as_str(),
-                    target_terminal_id.to_string().as_str(),
-                ) else {
-                    return;
-                };
-                let next_terminal_ids = next_ids
-                    .into_iter()
-                    .filter_map(|id| id.parse::<usize>().ok())
-                    .collect::<Vec<_>>();
-                defer_terminal_workspace_app_update(
-                    app_entity.clone(),
-                    window,
-                    cx,
-                    move |app, _window, app_cx| {
-                        app.reorder_bottom_terminal_tabs(next_terminal_ids, app_cx);
-                    },
-                );
-                cx.stop_propagation();
-            }
-        }))
-        .on_click(cx.listener({
-            let app_entity = app_entity.clone();
-            move |_view, _event, window, cx| {
-                defer_terminal_workspace_app_update(
-                    app_entity.clone(),
-                    window,
-                    cx,
-                    move |app, window, app_cx| app.select_terminal_tab(terminal_id, window, app_cx),
-                );
-            }
-        }))
-        .child(terminal_bottom_tab_label(tab.label))
-        .child(
-            div()
-                .id(SharedString::from(format!(
-                    "terminal-bottom-tab-close-{terminal_id}"
-                )))
-                .size(px(20.0))
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded_sm()
-                .text_color(cx.theme().secondary_foreground)
-                .hover(|style| style.bg(cx.theme().secondary_hover))
-                .on_click(cx.listener(move |_view, _event, window, cx| {
-                    cx.stop_propagation();
-                    window.prevent_default();
-                    defer_terminal_workspace_app_update(
-                        app_entity.clone(),
-                        window,
-                        cx,
-                        move |app, window, app_cx| {
-                            app.close_terminal_tab(terminal_id, window, app_cx)
-                        },
-                    );
-                }))
-                .child(Icon::new(HeroIconName::XMark).size_3()),
-        )
-}
-
-fn terminal_bottom_tab_container(text_color: gpui::Hsla, background: gpui::Hsla) -> gpui::Div {
-    div()
-        .h(px(32.0))
-        .px_3()
-        .relative()
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap_2()
-        .rounded_md()
-        .text_color(text_color)
-        .bg(background)
-}
-
-fn terminal_bottom_tab_label(label: String) -> AnyElement {
-    div()
-        .text_size(rems(0.75))
-        .line_height(rems(0.875))
-        .child(label)
-        .into_any_element()
-}
-
-fn terminal_bottom_add_button(
-    app_entity: gpui::Entity<CoduxApp>,
-    cx: &mut Context<TerminalWorkspaceView>,
-) -> impl IntoElement {
-    div()
-        .id("terminal-bottom-tab-add")
-        .size(px(26.0))
-        .flex()
-        .flex_none()
-        .items_center()
-        .justify_center()
-        .rounded_sm()
-        .cursor_pointer()
-        .text_color(cx.theme().secondary_foreground)
-        .hover(|style| style.bg(cx.theme().secondary_hover))
-        .on_click(cx.listener(move |_view, _event, window, cx| {
-            defer_terminal_workspace_app_update(
-                app_entity.clone(),
-                window,
-                cx,
-                |app, window, app_cx| app.add_terminal_tab(window, app_cx),
-            );
-        }))
-        .child(Icon::new(HeroIconName::Plus).size_3p5())
 }
 
 fn defer_terminal_workspace_app_update(

@@ -63,7 +63,7 @@ pub(in crate::app) fn ai_stats_sidebar(
         .flex_col()
         .child(assistant_panel_header(
             title,
-            HeroIconName::Sparkles,
+            HeroIconName::CpuChip,
             header_icon_button_loading(
                 "ai-stats-refresh",
                 HeroIconName::ArrowPath,
@@ -627,7 +627,7 @@ fn ai_memory_stat_chip(
         .flex()
         .items_baseline()
         .gap(px(5.0))
-        .rounded(px(7.0))
+        .rounded(px(6.0))
         .bg(cx.theme().secondary)
         .px(px(9.0))
         .py(px(5.0))
@@ -850,7 +850,7 @@ fn ai_memory_manager_status_bar(
             )
         })
         .when_some(error.clone(), |this, _| {
-            this.child(div().size(px(8.0)).rounded_full().bg(color(0xF47C7C)))
+            this.child(div().size(px(8.0)).rounded_full().bg(color(theme::RED)))
         })
         .child(
             div()
@@ -858,7 +858,7 @@ fn ai_memory_manager_status_bar(
                 .flex_1()
                 .truncate()
                 .text_color(color(if error.is_some() {
-                    0xF47C7C
+                    theme::RED
                 } else if active {
                     theme::ORANGE
                 } else {
@@ -870,7 +870,7 @@ fn ai_memory_manager_status_bar(
             this.child(
                 div()
                     .flex_shrink_0()
-                    .text_color(color(0xF47C7C))
+                    .text_color(color(theme::RED))
                     .child(format!(
                         "{failed} {}",
                         ai_sidebar_text(language, "memory.status.short_failed", "Failed")
@@ -1320,7 +1320,7 @@ fn ai_memory_manager_tab_button(
         .mr(px(6.0))
         .h(px(30.0))
         .px(px(12.0))
-        .rounded(px(7.0))
+        .rounded(px(6.0))
         .flex()
         .items_center()
         .cursor_pointer()

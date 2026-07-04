@@ -1,9 +1,5 @@
 use super::*;
 use crate::app::ui_helpers::codux_tooltip_container;
-use gpui_component::resizable::{resizable_panel, v_resizable};
-
-const TERMINAL_BOTTOM_TAB_BAR_HEIGHT: Pixels = px(40.0);
-const TERMINAL_BOTTOM_PANEL_MIN_SIZE: Pixels = px(128.0);
 
 impl CoduxApp {
     /// Overlay descriptor for the terminal when the selected project's remote
@@ -18,7 +14,7 @@ impl CoduxApp {
         match self.remote_link_states.get(host).copied() {
             Some(codux_runtime::remote::ControllerLinkState::Disconnected) => Some((
                 HeroIconName::LinkSlash,
-                0xE0566B,
+                theme::RED,
                 "远程主机已离线 · 正在自动重连…".to_string(),
             )),
             Some(codux_runtime::remote::ControllerLinkState::Connecting) => Some((
@@ -34,33 +30,6 @@ impl CoduxApp {
         &self,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let has_bottom_tabs = self.bottom_terminals().next().is_some();
-        if !has_bottom_tabs {
-            return div()
-                .flex()
-                .flex_col()
-                .flex_1()
-                .flex_basis(px(0.0))
-                .min_w_0()
-                .min_h_0()
-                .w_full()
-                .h_full()
-                .child(
-                    div()
-                        .flex_1()
-                        .flex_basis(px(0.0))
-                        .min_w_0()
-                        .min_h_0()
-                        .w_full()
-                        .child(self.terminal_main_split_area(cx)),
-                )
-                .child(
-                    div()
-                        .h(TERMINAL_BOTTOM_TAB_BAR_HEIGHT)
-                        .child(self.terminal_bottom_tabs_area(cx)),
-                );
-        }
-
         div()
             .flex()
             .flex_col()
@@ -71,19 +40,13 @@ impl CoduxApp {
             .w_full()
             .h_full()
             .child(
-                v_resizable("workspace-terminal-split")
-                    .child(
-                        resizable_panel()
-                            .size(px(420.0))
-                            .size_range(px(220.0)..px(900.0))
-                            .child(self.terminal_main_split_area(cx)),
-                    )
-                    .child(
-                        resizable_panel()
-                            .size(px(220.0))
-                            .size_range(TERMINAL_BOTTOM_PANEL_MIN_SIZE..px(520.0))
-                            .child(self.terminal_bottom_tabs_area(cx)),
-                    ),
+                div()
+                    .flex_1()
+                    .flex_basis(px(0.0))
+                    .min_w_0()
+                    .min_h_0()
+                    .w_full()
+                    .child(self.terminal_main_split_area(cx)),
             )
     }
 
@@ -96,70 +59,6 @@ impl CoduxApp {
             .min_w_0()
             .min_h_0()
             .child(self.terminal_panes(cx))
-    }
-
-    fn terminal_bottom_tabs_area(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let active = self.active_bottom_terminal();
-        let has_bottom_tabs = active.is_some();
-
-        div()
-            .flex()
-            .flex_col()
-            .size_full()
-            .min_w_0()
-            .min_h_0()
-            .overflow_hidden()
-            .child(
-                div()
-                    .h(TERMINAL_BOTTOM_TAB_BAR_HEIGHT)
-                    .flex_none()
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .gap_2()
-                    .px_2()
-                    .border_t_1()
-                    .border_color(cx.theme().border)
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap_1()
-                            .flex_1()
-                            .min_w_0()
-                            .overflow_hidden()
-                            .when(!has_bottom_tabs, |this| {
-                                this.child(
-                                    div()
-                                        .px_2()
-                                        .text_size(rems(0.75))
-                                        .line_height(rems(1.0))
-                                        .text_color(cx.theme().secondary_foreground)
-                                        .child("终端"),
-                                )
-                            })
-                            .children(self.bottom_terminals().map(|terminal| {
-                                terminal_bottom_tab_button(
-                                    terminal.id,
-                                    terminal.label.clone(),
-                                    terminal.id == self.active_terminal_id,
-                                    cx,
-                                )
-                                .into_any_element()
-                            })),
-                    )
-                    .child(terminal_bottom_add_button(cx)),
-            )
-            .when_some(active, |this, tab| {
-                this.child(
-                    div()
-                        .flex_1()
-                        .flex_basis(px(0.0))
-                        .min_h_0()
-                        .overflow_hidden()
-                        .child(terminal_bottom_content(tab)),
-                )
-            })
     }
 
     pub(in crate::app) fn terminal_panes(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -286,25 +185,6 @@ fn terminal_link_overlay(overlay: (HeroIconName, u32, String)) -> impl IntoEleme
         )
 }
 
-fn terminal_bottom_content(tab: &TerminalTab) -> impl IntoElement {
-    div().size_full().min_h_0().overflow_hidden().child(
-        match tab.panes.first().and_then(|slot| slot.pane.as_ref()) {
-            Some(pane) => gpui::AnyView::from(pane.view.clone())
-                .cached(gpui::StyleRefinement::default().flex().size_full())
-                .into_any_element(),
-            None => div()
-                .size_full()
-                .flex()
-                .items_center()
-                .justify_center()
-                .bg(theme::terminal_fill(color(theme::BG_TERMINAL)))
-                .text_color(color(theme::TEXT_DIM))
-                .child("Terminal mounting...")
-                .into_any_element(),
-        },
-    )
-}
-
 fn terminal_pane_control_button(
     id: SharedString,
     icon: HeroIconName,
@@ -341,79 +221,4 @@ fn terminal_pane_control_button(
     } else {
         button.opacity(0.45).into_any_element()
     }
-}
-
-fn terminal_bottom_tab_button(
-    terminal_id: usize,
-    label: String,
-    active: bool,
-    cx: &mut Context<CoduxApp>,
-) -> impl IntoElement {
-    div()
-        .id(SharedString::from(format!(
-            "terminal-bottom-tab-{terminal_id}"
-        )))
-        .h(px(32.0))
-        .px_3()
-        .relative()
-        .flex()
-        .items_center()
-        .gap_2()
-        .rounded_md()
-        .cursor_pointer()
-        .text_color(if active {
-            cx.theme().foreground
-        } else {
-            cx.theme().secondary_foreground
-        })
-        .bg(if active {
-            cx.theme().secondary_hover
-        } else {
-            cx.theme().transparent
-        })
-        .hover(|style| style.bg(cx.theme().secondary_hover))
-        .on_click(cx.listener(move |app, _event, window, cx| {
-            app.select_terminal_tab(terminal_id, window, cx)
-        }))
-        .child(
-            div()
-                .text_size(rems(0.75))
-                .line_height(rems(0.875))
-                .child(label),
-        )
-        .child(
-            div()
-                .id(SharedString::from(format!(
-                    "terminal-bottom-tab-close-{terminal_id}"
-                )))
-                .size(px(20.0))
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded_sm()
-                .text_color(cx.theme().secondary_foreground)
-                .hover(|style| style.bg(cx.theme().secondary_hover))
-                .on_click(cx.listener(move |app, _event, window, cx| {
-                    cx.stop_propagation();
-                    window.prevent_default();
-                    app.close_terminal_tab(terminal_id, window, cx)
-                }))
-                .child(Icon::new(HeroIconName::XMark).size_3()),
-        )
-}
-
-fn terminal_bottom_add_button(cx: &mut Context<CoduxApp>) -> impl IntoElement {
-    div()
-        .id("terminal-bottom-tab-add")
-        .size(px(26.0))
-        .flex()
-        .flex_none()
-        .items_center()
-        .justify_center()
-        .rounded_sm()
-        .cursor_pointer()
-        .text_color(cx.theme().secondary_foreground)
-        .hover(|style| style.bg(cx.theme().secondary_hover))
-        .on_click(cx.listener(|app, _event, window, cx| app.add_terminal_tab(window, cx)))
-        .child(Icon::new(HeroIconName::Plus).size_3p5())
 }

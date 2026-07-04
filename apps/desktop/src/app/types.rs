@@ -47,7 +47,6 @@ pub(in crate::app) enum AppWindowMode {
     PetDex,
     Settings,
     ProjectEditor,
-    TerminalTabEditor,
     WorktreeCreator,
     SshProfileEditor,
     DbProfileEditor,
@@ -58,15 +57,8 @@ pub(in crate::app) enum AppWindowMode {
 pub(in crate::app) struct TerminalTab {
     pub(in crate::app) id: usize,
     pub(in crate::app) label: String,
-    pub(in crate::app) placement: TerminalTabPlacement,
     pub(in crate::app) terminal_id: Option<String>,
     pub(in crate::app) panes: Vec<TerminalPaneSlot>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(in crate::app) enum TerminalTabPlacement {
-    Top,
-    Bottom,
 }
 
 pub(in crate::app) struct TerminalPaneSlot {
@@ -79,7 +71,6 @@ pub(in crate::app) struct TerminalPaneSlot {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::app) struct TerminalTabPlan {
-    pub(in crate::app) placement: TerminalTabPlacement,
     pub(in crate::app) terminal_id: Option<String>,
     pub(in crate::app) label: String,
     pub(in crate::app) panes: Vec<TerminalPanePlan>,
@@ -98,7 +89,6 @@ pub(in crate::app) struct TerminalRestorePlan {
     pub(in crate::app) tabs: Vec<TerminalTabPlan>,
     pub(in crate::app) active_index: usize,
     pub(in crate::app) active_terminal_id: Option<String>,
-    pub(in crate::app) active_bottom_terminal_id: Option<String>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

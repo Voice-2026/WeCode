@@ -14,7 +14,7 @@ extension _HomePageWorkspace on HomeController {
     _takeOverTerminalViewport(sessionId: terminal.id);
   }
 
-  void _createCurrentProjectTabTerminal() {
+  void _createCurrentProjectTerminal() {
     _terminalActions.createTerminalForSelectedProject(_createTerminal);
   }
 

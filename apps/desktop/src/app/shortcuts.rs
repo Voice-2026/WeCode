@@ -78,8 +78,6 @@ fn default_shortcut_display(shortcut_id: &str) -> Option<&'static str> {
         ("assistant.ssh.open", "⌘") => Some("⌘⇧S"),
         ("terminal.split", "⌘") => Some("⌘T"),
         ("terminal.split.create", "⌘") => Some("⌘T"),
-        ("terminal.tab", "⌘") => Some("⌘⇧T"),
-        ("terminal.tab.create", "⌘") => Some("⌘⇧T"),
         ("view.terminal", _) => Some("Ctrl+Alt+1"),
         ("view.files", _) => Some("Ctrl+Alt+2"),
         ("view.review", _) => Some("Ctrl+Alt+3"),
@@ -100,8 +98,6 @@ fn default_shortcut_display(shortcut_id: &str) -> Option<&'static str> {
         ("assistant.ssh.open", _) => Some("Ctrl+Shift+S"),
         ("terminal.split", _) => Some("Ctrl+T"),
         ("terminal.split.create", _) => Some("Ctrl+T"),
-        ("terminal.tab", _) => Some("Ctrl+Shift+T"),
-        ("terminal.tab.create", _) => Some("Ctrl+Shift+T"),
         _ => None,
     }
 }

@@ -22,7 +22,9 @@ use codux_runtime_live::remote_terminal_dispatch::{
     prepare_terminal_create_lifecycle,
 };
 use codux_runtime_live::terminal_pty::{TerminalManager, TerminalPtyConfig};
-use codux_runtime_live::terminal_pty::{TerminalViewportState, terminal_viewport_remote_owner};
+use codux_runtime_live::terminal_pty::{
+    TerminalViewportState, terminal_viewport_local_owner, terminal_viewport_remote_owner,
+};
 use codux_terminal_core::TerminalEvent;
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -763,11 +765,18 @@ impl RemoteTerminalDispatch for AgentTerminalCtx<'_> {
         match msg.session_id {
             Some(id) => {
                 let owner = self.viewport_owner_for(msg.device_id);
-                let is_owner = self
-                    .driver
-                    .viewport_state(id)
-                    .map(|state| state.owner == owner)
-                    .unwrap_or(true);
+                // Same handoff guard as the desktop host: a non-owner's input is
+                // dropped — except when the lease expired back to the host-local
+                // placeholder (nobody driving), where the first remote input
+                // re-claims instead of leaving the pane permanently deaf.
+                let is_owner = match self.driver.viewport_state(id) {
+                    Ok(state) if state.owner == owner => true,
+                    Ok(state) if state.owner == terminal_viewport_local_owner() => {
+                        self.driver.claim_viewport(id, &owner).is_ok()
+                    }
+                    Ok(_) => false,
+                    Err(_) => true,
+                };
                 if !is_owner {
                     if let Some(input_id) = msg.payload.get("inputId").and_then(Value::as_str) {
                         reply(

@@ -311,7 +311,7 @@ fn status_bar_content(
                         status_text(&snapshot.language, "git.remote.pull", "Pull"),
                         snapshot.git.incoming,
                         snapshot.theme_is_light,
-                        0x6AA1FF,
+                        theme::ACCENT,
                         "status-pull",
                         pull_running,
                         git_operation_running,
@@ -466,7 +466,7 @@ fn status_ai_segment(
 ) -> impl IntoElement {
     let index_count_label = status_text(language, "ai.status.index_count", "Index");
     let index_color = if error.is_some() {
-        0xF47C7C
+        theme::RED
     } else if index_count > 0 {
         theme::ORANGE
     } else {
@@ -567,7 +567,7 @@ fn status_memory_segment(
             this.child(
                 div()
                     .mt(px(1.0))
-                    .text_color(color(0xF47C7C))
+                    .text_color(color(theme::RED))
                     .child(format!("{failed} {failed_label}")),
             )
         })
@@ -678,7 +678,7 @@ fn status_git_segment(
         .child(
             div()
                 .mt(px(1.0))
-                .text_color(color(0xF47C7C))
+                .text_color(color(theme::RED))
                 .child(format!("-{}", deletions.max(0))),
         )
 }

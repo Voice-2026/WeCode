@@ -19,6 +19,7 @@ pub const TEXT_DIM: u32 = 0x687286;
 pub const ACCENT: u32 = 0x2F80ED;
 pub const ORANGE: u32 = 0xE6A35C;
 pub const GREEN: u32 = 0x78D891;
+pub const RED: u32 = 0xF87171;
 pub const STATUS_BAR: u32 = 0x1C1F25;
 
 static DYNAMIC_BG: AtomicU32 = AtomicU32::new(BG);
@@ -35,6 +36,9 @@ static DYNAMIC_TEXT: AtomicU32 = AtomicU32::new(TEXT);
 static DYNAMIC_TEXT_MUTED: AtomicU32 = AtomicU32::new(TEXT_MUTED);
 static DYNAMIC_TEXT_DIM: AtomicU32 = AtomicU32::new(TEXT_DIM);
 static DYNAMIC_ACCENT: AtomicU32 = AtomicU32::new(ACCENT);
+static DYNAMIC_ORANGE: AtomicU32 = AtomicU32::new(ORANGE);
+static DYNAMIC_GREEN: AtomicU32 = AtomicU32::new(GREEN);
+static DYNAMIC_RED: AtomicU32 = AtomicU32::new(RED);
 static DYNAMIC_STATUS_BAR: AtomicU32 = AtomicU32::new(STATUS_BAR);
 
 pub fn color(hex: u32) -> Hsla {
@@ -65,6 +69,9 @@ fn dynamic_color(hex: u32) -> u32 {
         TEXT_MUTED => DYNAMIC_TEXT_MUTED.load(Ordering::Relaxed),
         TEXT_DIM => DYNAMIC_TEXT_DIM.load(Ordering::Relaxed),
         ACCENT => DYNAMIC_ACCENT.load(Ordering::Relaxed),
+        ORANGE => DYNAMIC_ORANGE.load(Ordering::Relaxed),
+        GREEN => DYNAMIC_GREEN.load(Ordering::Relaxed),
+        RED => DYNAMIC_RED.load(Ordering::Relaxed),
         STATUS_BAR => DYNAMIC_STATUS_BAR.load(Ordering::Relaxed),
         _ => hex,
     }
@@ -215,11 +222,13 @@ pub fn elevate(base: Hsla, amount: f32) -> Hsla {
 /// elevation over the panel behind it, then inherits the panel opacity so it
 /// still frosts. Opaque in solid mode.
 pub fn vibrancy_raised(base: Hsla) -> Hsla {
-    let raised = elevate(base, if surface_is_dark() { 0.09 } else { 0.06 });
+    let raised = elevate(base, if surface_is_dark() { 0.07 } else { 0.06 });
     if window_is_solid() {
         raised
     } else {
-        raised.opacity((vibrancy_alpha() + PANEL_ALPHA_BOOST).min(1.0))
+        // Cards keep a high opacity floor so they stay legible even when the
+        // user dials the window frost far down.
+        raised.opacity((vibrancy_alpha() + PANEL_ALPHA_BOOST).max(0.85).min(1.0))
     }
 }
 
@@ -636,7 +645,6 @@ fn configure_component_theme(cx: &mut App, terminal: TerminalThemePalette, accen
         title_bar,
         tab,
         tab_bar,
-        tab_segmented,
         scrollbar_thumb,
         overlay,
         danger,
@@ -650,13 +658,10 @@ fn configure_component_theme(cx: &mut App, terminal: TerminalThemePalette, accen
         let terminal_black = raw_color(terminal.black);
         let app_surface = mix_towards(terminal_background, terminal_black, 0.36);
         let column_surface = mix_towards(app_surface, terminal_background, 0.48);
-        // Header / chrome surfaces stay NEUTRAL — derived from the theme
-        // background and blended only toward white, never toward `selection`
-        // (which is blue in most palettes and tinted the whole frame cool).
-        let header_surface = mix_towards(app_surface, raw_color(0xFFFFFF), 0.04);
-        // Chrome (title bars, main header, status bar) sits a blended step
-        // lighter than the app background so the frame reads as raised, not flat.
-        let chrome_surface = mix_towards(app_surface, raw_color(0xFFFFFF), 0.05);
+        // Header / chrome match the sidebar surface exactly so the top frame,
+        // rail, and panels read as one continuous plane (no seams).
+        let header_surface = app_surface;
+        let chrome_surface = app_surface;
         (
             app_surface,
             raw_color(terminal.foreground),
@@ -682,22 +687,23 @@ fn configure_component_theme(cx: &mut App, terminal: TerminalThemePalette, accen
             chrome_surface,
             terminal_background,
             header_surface,
-            mix_towards(column_surface, raw_color(0xFFFFFF), 0.05),
             mix_towards(terminal_background, current_line, 0.42),
             raw_color(0x000000).opacity(0.42),
-            raw_color(0xF87171),
-            color(ORANGE),
-            color(GREEN),
+            raw_color(RED),
+            raw_color(ORANGE),
+            raw_color(GREEN),
             raw_color(0x60A5FA),
             column_surface,
         )
     } else {
+        // Light surfaces: ground 6.5% > chrome/panels 2% (one plane), cards
+        // raised via `elevate` — levels separate instead of stacking grays.
         (
-            mix_towards(terminal_background, raw_color(0x000000), 0.035),
+            mix_towards(terminal_background, raw_color(0x000000), 0.065),
             raw_color(terminal.foreground),
             mix_towards(terminal_background, raw_color(0x000000), 0.035),
             raw_color(terminal.muted_foreground),
-            mix_towards(terminal_background, raw_color(0x000000), 0.12),
+            mix_towards(terminal_background, raw_color(0x000000), 0.10),
             raw_color(0x000000).opacity(0.055),
             raw_color(0x000000).opacity(0.085),
             raw_color(0x000000).opacity(0.075),
@@ -707,20 +713,19 @@ fn configure_component_theme(cx: &mut App, terminal: TerminalThemePalette, accen
             mix_towards(accent_color, raw_color(0x000000), 0.22),
             raw_color(0xFFFFFF),
             mix_towards(terminal_background, raw_color(0xFFFFFF), 0.82),
-            mix_towards(terminal_background, raw_color(0x000000), 0.070),
-            mix_towards(terminal_background, raw_color(0x000000), 0.055),
-            mix_towards(terminal_background, raw_color(0x000000), 0.075),
-            mix_towards(terminal_background, raw_color(0x000000), 0.055),
+            mix_towards(terminal_background, raw_color(0x000000), 0.020),
+            mix_towards(terminal_background, raw_color(0x000000), 0.020),
+            mix_towards(terminal_background, raw_color(0x000000), 0.085),
+            mix_towards(terminal_background, raw_color(0x000000), 0.020),
             terminal_background,
             mix_towards(terminal_background, raw_color(0x000000), 0.045),
-            raw_color(0x000000).opacity(0.055),
             mix_towards(terminal_background, raw_color(0x000000), 0.26),
             raw_color(0x000000).opacity(0.28),
             raw_color(0xDC2626),
             raw_color(0xD97706),
             raw_color(0x16A34A),
             raw_color(0x2563EB),
-            mix_towards(terminal_background, raw_color(0x000000), 0.045),
+            mix_towards(terminal_background, raw_color(0x000000), 0.020),
         )
     };
     let hover_surface = if is_dark {
@@ -734,7 +739,7 @@ fn configure_component_theme(cx: &mut App, terminal: TerminalThemePalette, accen
     let panel_surface = if is_dark {
         mix_towards(terminal_background, raw_color(0xFFFFFF), 0.055)
     } else {
-        mix_towards(terminal_background, raw_color(0x000000), 0.035)
+        mix_towards(terminal_background, raw_color(0x000000), 0.020)
     };
     set_dynamic_color(&DYNAMIC_BG_PANEL, rgba_to_u32(panel_surface));
     set_dynamic_color(&DYNAMIC_BG_TERMINAL, terminal.background);
@@ -748,6 +753,11 @@ fn configure_component_theme(cx: &mut App, terminal: TerminalThemePalette, accen
     set_dynamic_color(&DYNAMIC_TEXT_MUTED, terminal.muted_foreground);
     set_dynamic_color(&DYNAMIC_TEXT_DIM, rgba_to_u32(muted_foreground));
     set_dynamic_color(&DYNAMIC_ACCENT, accent_hex);
+    // Keep the semantic triad mode-aware so `color(GREEN/ORANGE/RED)` callers
+    // (incl. cx-less helpers) follow light/dark automatically.
+    set_dynamic_color(&DYNAMIC_ORANGE, rgba_to_u32(warning));
+    set_dynamic_color(&DYNAMIC_GREEN, rgba_to_u32(success));
+    set_dynamic_color(&DYNAMIC_RED, rgba_to_u32(danger));
     set_dynamic_color(&DYNAMIC_STATUS_BAR, rgba_to_u32(title_bar));
 
     theme.shadow = false;
@@ -766,11 +776,14 @@ fn configure_component_theme(cx: &mut App, terminal: TerminalThemePalette, accen
     theme.button_primary_hover = theme.primary_hover;
     theme.button_primary_active = theme.primary_active;
     theme.button_primary_foreground = theme.primary_foreground;
-    theme.secondary = control_bg;
+    // One raised-card tone for every rest-state control surface — sidebar and
+    // settings cards, secondary buttons/pills, and the segmented tab track.
+    let card_surface = elevate(sidebar, if is_dark { 0.07 } else { 0.06 });
+    theme.secondary = card_surface;
     theme.secondary_hover = hover_surface;
     theme.secondary_foreground = foreground;
     theme.secondary_active = control_hover;
-    theme.group_box = control_bg;
+    theme.group_box = card_surface;
     theme.group_box_foreground = foreground;
     theme.accent = accent_bg;
     theme.accent_foreground = foreground;
@@ -837,7 +850,7 @@ fn configure_component_theme(cx: &mut App, terminal: TerminalThemePalette, accen
     theme.tab_active = accent;
     theme.tab_active_foreground = primary_foreground;
     theme.tab_bar = tab_bar;
-    theme.tab_bar_segmented = tab_segmented;
+    theme.tab_bar_segmented = card_surface;
     theme.tab_foreground = muted_foreground;
     theme.colors.list = background;
     theme.list_hover = hover_surface;

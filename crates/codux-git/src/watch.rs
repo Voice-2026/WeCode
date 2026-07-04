@@ -154,14 +154,23 @@ fn run_git_watch_debounce(
     on_changed: Arc<impl Fn(GitRepositoryChangeEvent) + Send + Sync + 'static>,
 ) {
     while let Ok(paths) = rx.recv() {
-        let mut changed_paths = paths;
+        let mut changed = HashSet::new();
+        push_unique_strings(&mut changed, paths);
+        let flush_deadline =
+            std::time::Instant::now() + Duration::from_millis(GIT_WATCH_MAX_ACCUMULATE_MS);
         loop {
-            match rx.recv_timeout(Duration::from_millis(GIT_WATCH_DEBOUNCE_MS)) {
-                Ok(next_paths) => push_unique_strings(&mut changed_paths, next_paths),
+            let now = std::time::Instant::now();
+            if now >= flush_deadline {
+                break;
+            }
+            let quiet = Duration::from_millis(GIT_WATCH_DEBOUNCE_MS).min(flush_deadline - now);
+            match rx.recv_timeout(quiet) {
+                Ok(next_paths) => push_unique_strings(&mut changed, next_paths),
                 Err(RecvTimeoutError::Timeout) => break,
                 Err(RecvTimeoutError::Disconnected) => return,
             }
         }
+        let changed_paths = changed.into_iter().collect::<Vec<_>>();
         let project_paths = watched_project_paths
             .lock()
             .map(|paths| paths.iter().cloned().collect::<Vec<_>>())
@@ -176,11 +185,12 @@ fn run_git_watch_debounce(
     }
 }
 
-fn push_unique_strings(target: &mut Vec<String>, values: Vec<String>) {
+fn push_unique_strings(target: &mut HashSet<String>, values: Vec<String>) {
     for value in values {
-        if !target.iter().any(|existing| existing == &value) {
-            target.push(value);
+        if target.len() >= GIT_WATCH_MAX_CHANGED_PATHS {
+            return;
         }
+        target.insert(value);
     }
 }
 

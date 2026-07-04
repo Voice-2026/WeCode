@@ -87,7 +87,7 @@ impl SettingsPane {
             Self::General => HeroIconName::Cog6Tooth,
             Self::Appearance => HeroIconName::Swatch,
             Self::Pet => HeroIconName::Heart,
-            Self::AI => HeroIconName::Sparkles,
+            Self::AI => HeroIconName::CpuChip,
             Self::Git => HeroIconName::ArrowPathRoundedSquare,
             Self::Memory => HeroIconName::BookOpen,
             Self::Notifications => HeroIconName::Bell,
@@ -306,7 +306,7 @@ fn settings_nav_row(
         .h(px(32.0))
         .px(px(10.0))
         .mb(px(6.0))
-        .rounded(px(7.0))
+        .rounded(px(6.0))
         .flex()
         .items_center()
         .gap(px(10.0))
@@ -1285,7 +1285,7 @@ fn remote_connect_overlay(
 fn remote_pairing_placeholder(cx: &mut Context<CoduxApp>) -> AnyElement {
     div()
         .size(px(242.0))
-        .rounded(px(14.0))
+        .rounded(px(12.0))
         .border_1()
         .border_color(cx.theme().border)
         .bg(color(0xFFFFFF))
@@ -1323,7 +1323,7 @@ fn remote_pairing_detail(
             .text_align(gpui::TextAlign::Center)
             .text_size(rems(0.8125))
             .line_height(rems(1.125))
-            .text_color(color(0xFF5C68))
+            .text_color(color(theme::RED))
             .child(error.to_string())
             .into_any_element();
     }
@@ -1440,7 +1440,7 @@ fn remote_pending_pairing_overlay(
             div()
                 .w(px(400.0))
                 .max_w(relative(1.0))
-                .rounded(px(14.0))
+                .rounded(px(12.0))
                 .border_1()
                 .border_color(cx.theme().border)
                 .bg(cx.theme().background)
@@ -1634,7 +1634,7 @@ fn remote_pairing_qr(payload: &str) -> AnyElement {
     let Ok(code) = QrCode::with_error_correction_level(payload.as_bytes(), EcLevel::L) else {
         return div()
             .size(px(OUTER_SIZE))
-            .rounded(px(14.0))
+            .rounded(px(12.0))
             .bg(color(0xFFFFFF))
             .into_any_element();
     };
@@ -1645,7 +1645,7 @@ fn remote_pairing_qr(payload: &str) -> AnyElement {
         .relative()
         .flex_none()
         .size(px(OUTER_SIZE))
-        .rounded(px(14.0))
+        .rounded(px(12.0))
         .border_1()
         .border_color(color(theme::BORDER_SOFT))
         .bg(color(0xFFFFFF))
@@ -4038,12 +4038,6 @@ fn shortcut_definitions() -> Vec<ShortcutDefinition> {
             fallback: "Create Split",
             default_value: primary_static(primary, "T"),
         },
-        ShortcutDefinition {
-            id: "terminal.tab.create",
-            label_key: "settings.shortcut.create_tab",
-            fallback: "Create Tab",
-            default_value: primary_static(primary, "Shift+T"),
-        },
     ]
 }
 
@@ -5493,7 +5487,7 @@ fn remote_status_color(remote: &RemoteSummary) -> u32 {
     match remote.status.as_str() {
         "connected" => theme::GREEN,
         "connecting" => theme::ORANGE,
-        "failed" => 0xFF5C68,
+        "failed" => theme::RED,
         _ => theme::TEXT_DIM,
     }
 }

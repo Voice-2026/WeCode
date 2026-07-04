@@ -320,9 +320,16 @@ impl TerminalPane {
     }
 
     /// Rebind a remote pane to a reconnected controller (same host session).
-    /// Returns `true` if this was a remote pane. No-op for local panes.
+    /// Returns `true` only when the pane was bound to a DIFFERENT controller
+    /// (an actual rebind); `false` for local panes or an already-current
+    /// binding, so reconciling on a timer is cheap and idempotent.
     pub fn rebind_remote_controller(&self, controller: Arc<RemoteController>) -> bool {
         self.session.rebind_remote(controller)
+    }
+
+    /// Device id of the remote host this pane is bound to; `None` for local panes.
+    pub fn remote_device_id(&self) -> Option<String> {
+        self.session.remote_device_id()
     }
 
     /// Reap the host PTY for a remote pane on a user-initiated close. Returns
@@ -531,20 +538,24 @@ impl TerminalSessionBinding {
     /// Rebind a remote terminal to a freshly reconnected controller, keeping the
     /// same host session: re-register the output forwarder on the new controller
     /// and route input/resize through it. The host kept the PTY (and its running
-    /// shell/AI) alive and auto-resumes streaming to the reconnected device, so
-    /// the model's scrollback is preserved and live output continues. Returns
-    /// `true` if this binding was a remote one (and was rebound).
+    /// shell/AI) alive, keeps this device in its viewer registry, and resumes
+    /// streaming by itself — we must NOT re-request `terminal_buffer_tail` here
+    /// (same contract as `attach_pending_session_remote`): replaying the history
+    /// tail into the live emulator, which has no seq-dedup, paints the prompt
+    /// twice. Returns `true` only when an actual rebind happened (bound to a
+    /// different controller), so callers can reconcile cheaply on a timer.
     fn rebind_remote(&self, controller: Arc<RemoteController>) -> bool {
-        let last_resize = {
+        let (controller, session_id, last_resize) = {
             let mut inner = self.inner.lock();
             let Some(remote) = inner.remote.as_mut() else {
                 return false;
             };
-            if !Arc::ptr_eq(&remote.controller, &controller) {
-                remote
-                    .controller
-                    .unregister_terminal_output(&remote.session_id);
+            if Arc::ptr_eq(&remote.controller, &controller) {
+                return false;
             }
+            remote
+                .controller
+                .unregister_terminal_output(&remote.session_id);
             register_remote_output(&controller, &remote.session_id, &remote.output_tx);
             remote.controller = controller.clone();
             (
@@ -553,12 +564,20 @@ impl TerminalSessionBinding {
                 inner.last_resize,
             )
         };
-        let (controller, session_id, last_resize) = last_resize;
         if let Some((cols, rows)) = last_resize {
             controller.terminal_resize(&session_id, cols, rows);
         }
-        controller.terminal_buffer_tail(&session_id);
         true
+    }
+
+    /// Device id of the host this binding's remote session is bound to (via its
+    /// current controller). `None` for local bindings.
+    fn remote_device_id(&self) -> Option<String> {
+        self.inner
+            .lock()
+            .remote
+            .as_ref()
+            .map(|remote| remote.controller.device_id().to_string())
     }
 
     /// Fire the host-PTY close for a remote binding (best-effort, non-blocking).

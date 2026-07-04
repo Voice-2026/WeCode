@@ -23,6 +23,11 @@ use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 const MAX_DIFF_BYTES: usize = 96 * 1024;
 const REVIEW_UNTRACKED_LINE_COUNT_LIMIT_BYTES: u64 = 2 * 1024 * 1024;
 const GIT_WATCH_DEBOUNCE_MS: u64 = 900;
+// A build can emit fs events continuously for minutes; without a flush
+// deadline the debounce loop never settles and the channel backlog grows
+// unbounded (observed: one core pegged on dedup + multi-GB heap).
+const GIT_WATCH_MAX_ACCUMULATE_MS: u64 = 3_000;
+const GIT_WATCH_MAX_CHANGED_PATHS: usize = 4_096;
 const COMMIT_CONTEXT_MAX_CHARS: usize = 24_000;
 const COMMIT_CONTEXT_MAX_FILES: usize = 80;
 const COMMIT_CONTEXT_MAX_LINES_PER_FILE: usize = 80;

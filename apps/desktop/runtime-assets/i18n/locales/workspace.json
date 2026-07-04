@@ -1,10 +1,7 @@
 {
   "strings": {
     "de": {
-      "workspace.bottom_terminal.title": "Terminal",
       "workspace.bottom_split.created": "Created the bottom split area.",
-      "workspace.bottom_tab.additional": "Added a tab to the bottom split area.",
-      "workspace.bottom_tab.created": "Added a new bottom tab.",
       "workspace.close_current_split.message": "Mochtest du den aktuellen Split oder Tab wirklich schliessen?",
       "workspace.close_current_split.title": "Aktuellen Split schliessen",
       "workspace.restart_current_terminal.message": "Dies ist das letzte Terminal fuer das Projekt. Schliessen und ein neues Terminal starten?",
@@ -18,7 +15,6 @@
       "workspace.files.empty.open_files": "Dateien öffnen",
       "workspace.files.empty.title": "Keine Datei geöffnet",
       "workspace.top_pane.created": "Created a new terminal pane.",
-      "workspace.top_pane.full_added_bottom_tab": "Top row is full, added a bottom tab instead.",
       "workspace.create_split.message": "Wähle einen Terminal-Split oder einen strukturierten Agent-Chat-Split.",
       "workspace.create_split.terminal": "Terminal",
       "workspace.create_split.title": "Split erstellen",
@@ -28,10 +24,7 @@
       "workspace.web_tunnel.open_failed": "Web-Tunnel konnte nicht geöffnet werden"
     },
     "en": {
-      "workspace.bottom_terminal.title": "Terminal",
       "workspace.bottom_split.created": "Created the bottom split area.",
-      "workspace.bottom_tab.additional": "Added a tab to the bottom split area.",
-      "workspace.bottom_tab.created": "Added a new bottom tab.",
       "workspace.close_current_split.message": "Are you sure you want to close the current split or tab?",
       "workspace.close_current_split.title": "Close Current Split",
       "workspace.restart_current_terminal.message": "This is the last terminal for the project. Close it and start a fresh terminal?",
@@ -45,7 +38,6 @@
       "workspace.files.empty.open_files": "Open Files",
       "workspace.files.empty.title": "No File Open",
       "workspace.top_pane.created": "Created a new terminal pane.",
-      "workspace.top_pane.full_added_bottom_tab": "Top row is full, added a bottom tab instead.",
       "workspace.create_split.message": "Choose a terminal split or a structured agent chat split.",
       "workspace.create_split.terminal": "Terminal",
       "workspace.create_split.title": "Create Split",
@@ -55,10 +47,7 @@
       "workspace.web_tunnel.open_failed": "Open Web Tunnel Failed"
     },
     "es": {
-      "workspace.bottom_terminal.title": "Terminal",
       "workspace.bottom_split.created": "Created the bottom split area.",
-      "workspace.bottom_tab.additional": "Added a tab to the bottom split area.",
-      "workspace.bottom_tab.created": "Added a new bottom tab.",
       "workspace.close_current_split.message": "¿Seguro que quieres cerrar la division o pestana actual?",
       "workspace.close_current_split.title": "Cerrar division actual",
       "workspace.restart_current_terminal.message": "Este es el ultimo terminal del proyecto. ¿Quieres cerrarlo e iniciar uno nuevo?",
@@ -72,7 +61,6 @@
       "workspace.files.empty.open_files": "Abrir archivos",
       "workspace.files.empty.title": "No hay archivos abiertos",
       "workspace.top_pane.created": "Created a new terminal pane.",
-      "workspace.top_pane.full_added_bottom_tab": "Top row is full, added a bottom tab instead.",
       "workspace.create_split.message": "Elige una división de terminal o una división de chat de agente estructurado.",
       "workspace.create_split.terminal": "Terminal",
       "workspace.create_split.title": "Crear división",
@@ -82,10 +70,7 @@
       "workspace.web_tunnel.open_failed": "No se pudo abrir el túnel web"
     },
     "fr": {
-      "workspace.bottom_terminal.title": "Terminal",
       "workspace.bottom_split.created": "Created the bottom split area.",
-      "workspace.bottom_tab.additional": "Added a tab to the bottom split area.",
-      "workspace.bottom_tab.created": "Added a new bottom tab.",
       "workspace.close_current_split.message": "Voulez-vous vraiment fermer le fractionnement ou l'onglet actuel ?",
       "workspace.close_current_split.title": "Fermer le fractionnement actuel",
       "workspace.restart_current_terminal.message": "C'est le dernier terminal du projet. Voulez-vous le fermer et lancer un nouveau terminal ?",
@@ -99,7 +84,6 @@
       "workspace.files.empty.open_files": "Ouvrir les fichiers",
       "workspace.files.empty.title": "Aucun fichier ouvert",
       "workspace.top_pane.created": "Created a new terminal pane.",
-      "workspace.top_pane.full_added_bottom_tab": "Top row is full, added a bottom tab instead.",
       "workspace.create_split.message": "Choisissez un split de terminal ou un split de chat agent structuré.",
       "workspace.create_split.terminal": "Terminal",
       "workspace.create_split.title": "Créer un split",
@@ -109,10 +93,7 @@
       "workspace.web_tunnel.open_failed": "Échec de l’ouverture du tunnel web"
     },
     "ja": {
-      "workspace.bottom_terminal.title": "ターミナル",
       "workspace.bottom_split.created": "Created the bottom split area.",
-      "workspace.bottom_tab.additional": "Added a tab to the bottom split area.",
-      "workspace.bottom_tab.created": "Added a new bottom tab.",
       "workspace.close_current_split.message": "現在の分割またはタブを閉じてもよろしいですか？",
       "workspace.close_current_split.title": "現在の分割を閉じる",
       "workspace.restart_current_terminal.message": "これはこのプロジェクト最後のターミナルです。閉じて新しいターミナルを開始しますか？",
@@ -126,7 +107,6 @@
       "workspace.files.empty.open_files": "ファイルを開く",
       "workspace.files.empty.title": "開いているファイルはありません",
       "workspace.top_pane.created": "新しいターミナルペインを作成しました。",
-      "workspace.top_pane.full_added_bottom_tab": "上段がいっぱいのため、下部タブに追加しました。",
       "workspace.create_split.message": "ターミナル分割または構造化エージェントチャット分割を選択します。",
       "workspace.create_split.terminal": "ターミナル",
       "workspace.create_split.title": "分割を作成",
@@ -136,10 +116,7 @@
       "workspace.web_tunnel.open_failed": "Web トンネルを開けませんでした"
     },
     "ko": {
-      "workspace.bottom_terminal.title": "터미널",
       "workspace.bottom_split.created": "Created the bottom split area.",
-      "workspace.bottom_tab.additional": "Added a tab to the bottom split area.",
-      "workspace.bottom_tab.created": "Added a new bottom tab.",
       "workspace.close_current_split.message": "현재 분할 또는 탭을 닫을까요?",
       "workspace.close_current_split.title": "현재 분할 닫기",
       "workspace.restart_current_terminal.message": "이 프로젝트의 마지막 터미널입니다. 닫고 새 터미널을 시작할까요?",
@@ -153,7 +130,6 @@
       "workspace.files.empty.open_files": "파일 열기",
       "workspace.files.empty.title": "열린 파일 없음",
       "workspace.top_pane.created": "새 터미널 패널을 만들었습니다.",
-      "workspace.top_pane.full_added_bottom_tab": "상단 영역이 가득 차 하단 탭으로 추가했습니다.",
       "workspace.create_split.message": "터미널 분할 또는 구조화된 에이전트 채팅 분할을 선택합니다.",
       "workspace.create_split.terminal": "터미널",
       "workspace.create_split.title": "분할 만들기",
@@ -163,10 +139,7 @@
       "workspace.web_tunnel.open_failed": "웹 터널 열기 실패"
     },
     "pt-BR": {
-      "workspace.bottom_terminal.title": "Terminal",
       "workspace.bottom_split.created": "Created the bottom split area.",
-      "workspace.bottom_tab.additional": "Added a tab to the bottom split area.",
-      "workspace.bottom_tab.created": "Added a new bottom tab.",
       "workspace.close_current_split.message": "Tem certeza de que deseja fechar a divisao ou aba atual?",
       "workspace.close_current_split.title": "Fechar divisao atual",
       "workspace.restart_current_terminal.message": "Este e o ultimo terminal do projeto. Fechar e iniciar um novo terminal?",
@@ -180,7 +153,6 @@
       "workspace.files.empty.open_files": "Abrir arquivos",
       "workspace.files.empty.title": "Nenhum arquivo aberto",
       "workspace.top_pane.created": "Created a new terminal pane.",
-      "workspace.top_pane.full_added_bottom_tab": "Top row is full, added a bottom tab instead.",
       "workspace.create_split.message": "Escolha uma divisão de terminal ou uma divisão de chat de agente estruturado.",
       "workspace.create_split.terminal": "Terminal",
       "workspace.create_split.title": "Criar divisão",
@@ -190,10 +162,7 @@
       "workspace.web_tunnel.open_failed": "Falha ao abrir o túnel web"
     },
     "ru": {
-      "workspace.bottom_terminal.title": "Терминал",
       "workspace.bottom_split.created": "Created the bottom split area.",
-      "workspace.bottom_tab.additional": "Added a tab to the bottom split area.",
-      "workspace.bottom_tab.created": "Added a new bottom tab.",
       "workspace.close_current_split.message": "Закрыть текущее разделение или вкладку?",
       "workspace.close_current_split.title": "Закрыть текущее разделение",
       "workspace.restart_current_terminal.message": "Это последний терминал проекта. Закрыть его и запустить новый терминал?",
@@ -207,7 +176,6 @@
       "workspace.files.empty.open_files": "Открыть файлы",
       "workspace.files.empty.title": "Нет открытого файла",
       "workspace.top_pane.created": "Created a new terminal pane.",
-      "workspace.top_pane.full_added_bottom_tab": "Top row is full, added a bottom tab instead.",
       "workspace.create_split.message": "Выберите разделение терминала или структурированный чат агента.",
       "workspace.create_split.terminal": "Терминал",
       "workspace.create_split.title": "Создать разделение",
@@ -217,10 +185,7 @@
       "workspace.web_tunnel.open_failed": "Не удалось открыть веб-туннель"
     },
     "zh-Hans": {
-      "workspace.bottom_terminal.title": "终端",
       "workspace.bottom_split.created": "已创建底部分屏区域。",
-      "workspace.bottom_tab.additional": "已在底部分屏区域添加标签页。",
-      "workspace.bottom_tab.created": "已新增底部标签页。",
       "workspace.close_current_split.message": "确定要关闭当前分屏或标签页吗？",
       "workspace.close_current_split.title": "关闭当前分屏",
       "workspace.restart_current_terminal.message": "这是该项目最后一个终端。要关闭它并启动一个新的终端吗？",
@@ -234,7 +199,6 @@
       "workspace.files.empty.open_files": "打开文件",
       "workspace.files.empty.title": "未打开文件",
       "workspace.top_pane.created": "已创建新的终端分屏。",
-      "workspace.top_pane.full_added_bottom_tab": "顶部区域已满，已改为添加到底部标签页。",
       "workspace.create_split.message": "选择终端分屏或结构化 Agent 聊天分屏。",
       "workspace.create_split.terminal": "终端",
       "workspace.create_split.title": "创建分屏",
@@ -244,10 +208,7 @@
       "workspace.web_tunnel.open_failed": "打开 Web 隧道失败"
     },
     "zh-Hant": {
-      "workspace.bottom_terminal.title": "終端",
       "workspace.bottom_split.created": "已建立底部分割區域。",
-      "workspace.bottom_tab.additional": "已在底部分割區域新增分頁。",
-      "workspace.bottom_tab.created": "已新增底部分頁。",
       "workspace.close_current_split.message": "確定要關閉目前分割或分頁嗎？",
       "workspace.close_current_split.title": "關閉目前分割",
       "workspace.restart_current_terminal.message": "這是該專案最後一個終端機。要關閉它並啟動新的終端機嗎？",
@@ -261,7 +222,6 @@
       "workspace.files.empty.open_files": "打開文件",
       "workspace.files.empty.title": "未打開文件",
       "workspace.top_pane.created": "已建立新的終端機分割。",
-      "workspace.top_pane.full_added_bottom_tab": "頂部區域已滿，已改為新增到底部分頁。",
       "workspace.create_split.message": "選擇終端分屏或結構化 Agent 聊天分屏。",
       "workspace.create_split.terminal": "終端",
       "workspace.create_split.title": "建立分屏",

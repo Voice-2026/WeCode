@@ -9,11 +9,7 @@ use crate::app::{
 };
 use codux_runtime::{i18n::translate, settings::locale_from_language_setting};
 use gpui::Rems;
-use gpui_component::{
-    Size,
-    menu::{DropdownMenu, PopupMenuItem},
-    tab::{Tab, TabBar},
-};
+use gpui_component::menu::{DropdownMenu, PopupMenuItem};
 
 const WORKSPACE_TAB_TEXT_SIZE: Rems = Rems(0.75);
 const WORKSPACE_TAB_LINE_HEIGHT: Rems = Rems(1.0);
@@ -37,7 +33,6 @@ impl CoduxApp {
             .selected_project
             .as_ref()
             .and_then(|project| project.host_device_id.clone());
-        let is_remote_project = remote_project_device_id.is_some();
         let pet_sprite_frame = self.visible_pet_sprite_frame(PET_IDLE_FRAME_COUNT);
         let pet_button = if self.state.settings.pet_enabled {
             if has_project_context {
@@ -103,6 +98,7 @@ impl CoduxApp {
                         .gap_2()
                         .child(pet_button)
                         .child(level_button)
+                        .child(workspace_toolbar_separator(cx))
                         .child(workspace_open_button(
                             &self.project_open_applications,
                             has_project_context,
@@ -110,12 +106,21 @@ impl CoduxApp {
                             cx,
                         ))
                         .when_some(remote_project_device_id, |this, device_id| {
-                            this.child(workspace_remote_browser_button(
-                                device_id,
-                                &self.state.settings.language,
-                                cx,
-                            ))
+                            this.child(workspace_toolbar_separator(cx))
+                                .child(workspace_remote_browser_button(
+                                    device_id,
+                                    &self.state.settings.language,
+                                    cx,
+                                ))
+                                .child(workspace_assistant_button(
+                                    "Server",
+                                    AssistantPanel::ServerInfo,
+                                    self.assistant_panel,
+                                    true,
+                                    cx,
+                                ))
                         })
+                        .child(workspace_toolbar_separator(cx))
                         .child(workspace_assistant_button(
                             "AI",
                             AssistantPanel::AIStats,
@@ -123,15 +128,6 @@ impl CoduxApp {
                             has_project_context,
                             cx,
                         ))
-                        .when(is_remote_project, |this| {
-                            this.child(workspace_assistant_button(
-                                "Server",
-                                AssistantPanel::ServerInfo,
-                                self.assistant_panel,
-                                true,
-                                cx,
-                            ))
-                        })
                         .child(workspace_assistant_button(
                             "SSH",
                             AssistantPanel::SSH,
@@ -184,11 +180,11 @@ fn workspace_remote_browser_button(
 
     let button = Button::new("workspace-open-remote-browser")
         .compact()
-        .secondary()
+        .ghost()
         .h(px(28.0))
         .w(px(38.0))
         .cursor_pointer()
-        .text_color(cx.theme().foreground)
+        .text_color(cx.theme().secondary_foreground)
         .on_click(move |_, _window, cx| {
             cx.update_entity(&app_entity, |app, cx| {
                 app.open_remote_project_browser_session(device_id.clone(), cx);
@@ -363,7 +359,10 @@ fn workspace_assistant_button(
         cx,
     );
     let button = if active {
-        button.secondary().text_color(cx.theme().foreground)
+        button
+            .ghost()
+            .bg(cx.theme().accent)
+            .text_color(cx.theme().primary)
     } else {
         button.ghost().text_color(cx.theme().secondary_foreground)
     };
@@ -385,7 +384,7 @@ fn workspace_assistant_button(
                 .justify_center()
                 .child(
                     Icon::new(match panel {
-                        AssistantPanel::AIStats => HeroIconName::Sparkles,
+                        AssistantPanel::AIStats => HeroIconName::CpuChip,
                         AssistantPanel::ServerInfo => HeroIconName::ServerStack,
                         AssistantPanel::SSH => HeroIconName::CommandLine,
                         AssistantPanel::DB => HeroIconName::CircleStack,
@@ -394,7 +393,7 @@ fn workspace_assistant_button(
                     })
                     .size_3p5()
                     .text_color(if active {
-                        cx.theme().foreground
+                        cx.theme().primary
                     } else {
                         cx.theme().secondary_foreground
                     }),
@@ -427,57 +426,69 @@ fn workspace_segmented_tabs(
     let files_label = translate(&locale, "titlebar.files", "Files");
     let review_label = translate(&locale, "titlebar.review", "Review");
     let stats_label = translate(&locale, "titlebar.stats", "Stats");
+    let tabs = [
+        (HeroIconName::CommandLine, terminal_label),
+        (HeroIconName::Document, files_label),
+        (HeroIconName::ArrowPathRoundedSquare, review_label),
+        (HeroIconName::ChartBar, stats_label),
+    ];
     div()
-        .rounded_full()
+        .rounded(px(8.0))
         .bg(cx.theme().tab_bar_segmented)
         .p(px(2.0))
-        .child(
-            TabBar::new("workspace-view-tabs")
-                .pill()
-                .with_size(Size::Small)
-                .selected_index(active_index)
-                .when(!enabled, |this| this.opacity(0.45))
-                .child(workspace_segmented_tab(
-                    HeroIconName::CommandLine,
-                    terminal_label,
-                ))
-                .child(workspace_segmented_tab(HeroIconName::Document, files_label))
-                .child(workspace_segmented_tab(
-                    HeroIconName::ArrowPathRoundedSquare,
-                    review_label,
-                ))
-                .child(workspace_segmented_tab(HeroIconName::ChartBar, stats_label))
-                .on_click(move |index, window, cx| {
-                    if !enabled {
-                        return;
+        .flex()
+        .items_center()
+        .gap(px(2.0))
+        .when(!enabled, |this| this.opacity(0.45))
+        .children(tabs.into_iter().enumerate().map(|(index, (icon, label))| {
+            let active = index == active_index;
+            let click_entity = app_entity.clone();
+            div()
+                .id(SharedString::from(format!("workspace-view-tab-{index}")))
+                .flex()
+                .items_center()
+                .gap(px(6.0))
+                .h(px(24.0))
+                .px(px(12.0))
+                .rounded(px(6.0))
+                .text_size(WORKSPACE_TAB_TEXT_SIZE)
+                .line_height(WORKSPACE_TAB_LINE_HEIGHT)
+                .map(|this| {
+                    if active {
+                        this.bg(cx.theme().primary)
+                            .text_color(cx.theme().primary_foreground)
+                    } else {
+                        this.text_color(cx.theme().tab_foreground)
+                            .hover(|style| style.bg(cx.theme().secondary_hover))
                     }
-                    cx.update_entity(&app_entity, |app, cx| {
-                        if *index == 3 {
-                            app.show_stats_workspace_view(window, cx);
-                        } else {
-                            let view = match *index {
-                                0 => WorkspaceView::Terminal,
-                                1 => WorkspaceView::Files,
-                                _ => WorkspaceView::Review,
-                            };
-                            app.set_workspace_view(view, window, cx);
-                        }
-                    });
-                }),
-        )
+                })
+                .when(enabled, |this| {
+                    this.cursor_pointer().on_click(move |_, window, cx| {
+                        cx.update_entity(&click_entity, |app, cx| {
+                            if index == 3 {
+                                app.show_stats_workspace_view(window, cx);
+                            } else {
+                                let view = match index {
+                                    0 => WorkspaceView::Terminal,
+                                    1 => WorkspaceView::Files,
+                                    _ => WorkspaceView::Review,
+                                };
+                                app.set_workspace_view(view, window, cx);
+                            }
+                        });
+                    })
+                })
+                .child(Icon::new(icon).size_3p5())
+                .child(div().child(label))
+        }))
 }
 
-fn workspace_segmented_tab(icon: HeroIconName, label: String) -> Tab {
-    Tab::new().child(
-        div()
-            .flex()
-            .items_center()
-            .gap(px(6.0))
-            .text_size(WORKSPACE_TAB_TEXT_SIZE)
-            .line_height(WORKSPACE_TAB_LINE_HEIGHT)
-            .child(Icon::new(icon).size_3p5())
-            .child(div().child(label)),
-    )
+fn workspace_toolbar_separator(cx: &mut Context<CoduxApp>) -> impl IntoElement {
+    div()
+        .w(px(1.0))
+        .h(px(16.0))
+        .flex_none()
+        .bg(theme::divider_for_surface(cx.theme().title_bar))
 }
 
 fn disabled_pet_button(state: &RuntimeState, cx: &mut Context<CoduxApp>) -> impl IntoElement {
@@ -494,7 +505,7 @@ fn disabled_pet_button(state: &RuntimeState, cx: &mut Context<CoduxApp>) -> impl
         .text_color(cx.theme().foreground)
         .child(workspace_header_badge_button_content(
             HeroIconName::Heart,
-            color(0x7C4DFF),
+            color(theme::ACCENT),
             label,
             cx,
         ))
@@ -510,7 +521,7 @@ fn disabled_level_button(language: &str, cx: &mut Context<CoduxApp>) -> impl Int
         .text_color(cx.theme().foreground)
         .child(workspace_header_badge_button_content(
             HeroIconName::Minus,
-            color(0x5B616D),
+            color(theme::TEXT_MUTED),
             label,
             cx,
         ))

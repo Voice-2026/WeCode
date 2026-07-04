@@ -907,7 +907,7 @@ fn stats_card(cx: &mut Context<workspace_views::StatsWorkspaceView>) -> gpui::Di
     // Match the AI stats sidebar tiles: a raised tone over the panel that
     // inherits its vibrancy/opacity, no border.
     div()
-        .rounded(px(14.0))
+        .rounded(px(12.0))
         .bg(theme::vibrancy_raised(cx.theme().sidebar))
         .p(px(14.0))
 }

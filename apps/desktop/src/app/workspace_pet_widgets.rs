@@ -47,7 +47,7 @@ pub(in crate::app) fn workspace_pet_button(
         .text_color(cx.theme().foreground)
         .child(workspace_header_badge_button_content(
             HeroIconName::Heart,
-            color(0x7C4DFF),
+            color(theme::ACCENT),
             label,
             cx,
         ));

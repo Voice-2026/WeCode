@@ -509,6 +509,10 @@ impl RemoteController {
         self.transport.shutdown().await;
     }
 
+    pub fn device_id(&self) -> &str {
+        &self.device_id
+    }
+
     pub fn web_tunnel_tcp_connect(
         &self,
         request: WebTunnelTcpConnectRequest,

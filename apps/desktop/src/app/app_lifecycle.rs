@@ -57,7 +57,6 @@ impl CoduxApp {
             &state.terminal_runtime,
             &state.settings.language,
             None,
-            None,
         );
         prepare_memory_launch_artifacts(&runtime_service, &state);
         let launch_context = terminal_launch_context(&state, &runtime, &tool_permissions);
@@ -153,7 +152,6 @@ impl CoduxApp {
             terminal_layout_loading: false,
             active_terminal_id,
             active_terminal_runtime_ids: HashMap::new(),
-            active_bottom_terminal_ids: HashMap::new(),
             terminal_layout_cache: HashMap::new(),
             file_panel_cache: HashMap::new(),
             next_terminal_index,
@@ -170,7 +168,7 @@ impl CoduxApp {
             last_quit_request_at: None,
             pending_terminal_close: None,
             status_message: format!(
-                "runtime preparing · {} project{} · restored {} terminal tab{}",
+                "runtime preparing · {} project{} · restored {} terminal group{}",
                 ready_snapshot.projects.projects.len(),
                 if ready_snapshot.projects.projects.len() == 1 {
                     ""
@@ -206,7 +204,6 @@ impl CoduxApp {
             file_picker_selected: None,
             file_picker_active_path: None,
             project_editor_window: None,
-            terminal_tab_editor_window: None,
             worktree_creator_window: None,
             child_windows: Vec::new(),
             parent_main_window: None,
@@ -227,6 +224,8 @@ impl CoduxApp {
             desktop_pet_line_hold_until: 0.0,
             pet_sprite_frame: 0,
             pet_sprite_animation_active: false,
+            pet_level_up: None,
+            pet_level_up_ticking: false,
             file_preview: "select a file to preview it".to_string(),
             file_preview_window_path: None,
             file_preview_window_content: String::new(),
@@ -454,8 +453,6 @@ impl CoduxApp {
             project_editor_browse_generation: 0,
             file_picker_rename_draft: None,
             file_picker_new_folder_active: false,
-            terminal_tab_editor_id: None,
-            terminal_tab_editor_label: String::new(),
             worktree_creator_project_id: None,
             worktree_creator_project_name: String::new(),
             worktree_creator_project_path: String::new(),
@@ -743,7 +740,6 @@ impl CoduxApp {
             &mut self.pet_dex_window,
             &mut self.ssh_profile_editor_window,
             &mut self.project_editor_window,
-            &mut self.terminal_tab_editor_window,
             &mut self.worktree_creator_window,
             &mut self.desktop_pet_window,
         ];

@@ -103,8 +103,10 @@ impl CoduxApp {
         // The status-bar "N/M" count derives from both the link states and the
         // saved-host registry, so refresh it whenever either changes.
         self.invalidate_status_bar(cx);
+        // Terminal rebind is NOT edge-triggered here — the slow tick reconciles
+        // every remote pane against the pooled controller identity, which also
+        // covers reconnects this 1 Hz poll never saw as a Disconnected edge.
         if !reconnected.is_empty() {
-            self.reattach_terminals_for_reconnected_hosts(&reconnected, cx);
             self.reload_selected_project_for_reconnected_hosts(&reconnected, cx);
         }
     }

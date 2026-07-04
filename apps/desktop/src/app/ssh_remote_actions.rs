@@ -1258,7 +1258,9 @@ impl CoduxApp {
             if ai_activity_changed {
                 self.runtime_service.push_remote_ai_stats_to_watchers();
             }
+            let previous_level = self.state.pet.level;
             self.state.pet = self.runtime_service.reload_pet();
+            self.note_pet_level_transition(previous_level);
             if let Ok(snapshot) = self.runtime_service.pet_snapshot() {
                 self.pet_snapshot = snapshot;
             }
@@ -1399,7 +1401,9 @@ impl CoduxApp {
         if ai_activity_changed {
             self.runtime_service.push_remote_ai_stats_to_watchers();
         }
+        let previous_level = self.state.pet.level;
         self.state.pet = self.runtime_service.reload_pet();
+        self.note_pet_level_transition(previous_level);
         if let Ok(snapshot) = self.runtime_service.pet_snapshot() {
             self.pet_snapshot = snapshot;
         }
@@ -1573,7 +1577,9 @@ impl CoduxApp {
         let Some(pet) = result.pet.clone() else {
             return false;
         };
+        let previous_level = self.state.pet.level;
         self.state.pet = pet;
+        self.note_pet_level_transition(previous_level);
         if let Some(snapshot) = result.pet_snapshot.clone() {
             self.pet_snapshot = snapshot;
         }
