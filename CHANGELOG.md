@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [2.0.0-rc.2] - 2026-07-04
+
+### Added
+
+- Added a terminal list with search and select-all support for quickly finding and managing active terminal sessions.
+- Added folder context-menu actions for creating files and folders directly inside the selected directory without switching the file view.
+
+### Fixed
+
+- Reduced idle desktop CPU usage by avoiding redundant terminal repaint and UI invalidation work while sessions are inactive or hidden.
+- Fixed remote controller cleanup so replaced or disconnected controllers shut down their stale transport tasks instead of leaving duplicate readers alive.
+- Fixed agent auto-update manifest lookup so the updater selects the latest matching channel release reliably.
+- Fixed Claude runtime probing so stale pre-launch transcript activity no longer keeps a project marked as actively responding.
+
 ## [2.0.0-rc.1] - 2026-07-04
 
 ### Added
