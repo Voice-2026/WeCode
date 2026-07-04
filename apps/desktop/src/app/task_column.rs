@@ -9,6 +9,12 @@ use super::{
 };
 use gpui::ListSizingBehavior;
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum TaskSectionKind {
+    Terminals,
+    Sessions,
+}
+
 pub(in crate::app) struct TaskColumnView {
     header_view: gpui::Entity<TaskColumnHeaderView>,
     worktree_list_view: gpui::Entity<TaskWorktreeListView>,
@@ -236,12 +242,15 @@ struct TaskTerminalRow {
     title: String,
     subtitle: Option<String>,
     active: bool,
+    collapsed: bool,
+    collapsed_index: Option<usize>,
 }
 
 #[derive(Clone, PartialEq)]
 pub(in crate::app) struct TaskTerminalListSnapshot {
     labels: TaskColumnLabels,
     terminals: Vec<TaskTerminalRow>,
+    collapsed: bool,
 }
 
 pub(in crate::app) struct TaskTerminalListView {
@@ -271,6 +280,7 @@ impl Render for TaskTerminalListView {
         terminal_list_area(
             self.snapshot.terminals.clone(),
             self.snapshot.labels.clone(),
+            self.snapshot.collapsed,
             self.scroll_handle.clone(),
             self.app_entity.clone(),
             cx,
@@ -283,6 +293,7 @@ impl Render for TaskTerminalListView {
 pub(in crate::app) struct TaskSessionListSnapshot {
     labels: TaskColumnLabels,
     sessions: Vec<TaskSessionRow>,
+    collapsed: bool,
 }
 
 pub(in crate::app) struct TaskSessionListView {
@@ -306,6 +317,7 @@ impl Render for TaskSessionListView {
         recent_session_area(
             self.snapshot.sessions.clone(),
             self.snapshot.labels.clone(),
+            self.snapshot.collapsed,
             self.scroll_handle.clone(),
             self.app_entity.clone(),
             cx,
@@ -442,7 +454,7 @@ impl CoduxApp {
         let labels = task_column_labels(&self.state.settings.language);
         let ai_titles = terminal_ai_titles_by_terminal_id(&self.state.ai_runtime_state.sessions);
         let active_terminal_id = self.active_terminal_runtime_id();
-        let terminals = self
+        let mut terminals = self
             .main_terminal()
             .map(|tab| {
                 tab.panes
@@ -465,13 +477,40 @@ impl CoduxApp {
                             subtitle,
                             active: !active_terminal_id.is_empty()
                                 && terminal_id.as_deref() == Some(active_terminal_id.as_str()),
+                            collapsed: false,
+                            collapsed_index: None,
                         }
                     })
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
 
-        TaskTerminalListSnapshot { labels, terminals }
+        for (collapsed_index, slot) in self.collapsed_terminal_panes.iter().enumerate() {
+            let osc_title = slot
+                .terminal_id
+                .as_deref()
+                .and_then(|id| self.terminal_osc_titles.get(id));
+            let (title, subtitle) = terminal_pane_display_title(
+                slot,
+                &ai_titles,
+                osc_title.map(String::as_str),
+                &labels.language,
+            );
+            terminals.push(TaskTerminalRow {
+                pane_index: 0,
+                title,
+                subtitle,
+                active: false,
+                collapsed: true,
+                collapsed_index: Some(collapsed_index),
+            });
+        }
+
+        TaskTerminalListSnapshot {
+            labels,
+            terminals,
+            collapsed: self.task_section_terminals_collapsed,
+        }
     }
 
     fn task_session_list_snapshot(&self) -> TaskSessionListSnapshot {
@@ -484,7 +523,11 @@ impl CoduxApp {
             .map(task_session_row)
             .collect::<Vec<_>>();
 
-        TaskSessionListSnapshot { labels, sessions }
+        TaskSessionListSnapshot {
+            labels,
+            sessions,
+            collapsed: self.task_section_sessions_collapsed,
+        }
     }
 }
 
@@ -744,11 +787,30 @@ fn task_empty_state(
 fn recent_session_area(
     sessions: Vec<TaskSessionRow>,
     labels: TaskColumnLabels,
+    collapsed: bool,
     scroll_handle: UniformListScrollHandle,
     app_entity: gpui::Entity<CoduxApp>,
     cx: &mut Context<TaskSessionListView>,
 ) -> impl IntoElement {
     let session_count = sessions.len();
+
+    if collapsed {
+        return div()
+            .relative()
+            .flex()
+            .flex_col()
+            .flex_none()
+            .child(session_section_heading(
+                labels.sessions.clone(),
+                session_count,
+                true,
+                app_entity,
+                TaskSectionKind::Sessions,
+                cx,
+            ))
+            .into_any_element();
+    }
+
     let sessions = Rc::new(sessions);
     let row_labels = labels.clone();
     let row_app_entity = app_entity.clone();
@@ -762,6 +824,9 @@ fn recent_session_area(
         .child(session_section_heading(
             labels.sessions.clone(),
             session_count,
+            false,
+            app_entity,
+            TaskSectionKind::Sessions,
             cx,
         ))
         .child(
@@ -800,6 +865,7 @@ fn recent_session_area(
                     .into_any_element()
                 }),
         )
+        .into_any_element()
 }
 
 const TERMINAL_LIST_ROW_HEIGHT: f32 = 34.0;
@@ -808,11 +874,31 @@ const TERMINAL_LIST_MAX_VISIBLE_ROWS: usize = 6;
 fn terminal_list_area(
     terminals: Vec<TaskTerminalRow>,
     labels: TaskColumnLabels,
+    collapsed: bool,
     scroll_handle: UniformListScrollHandle,
     app_entity: gpui::Entity<CoduxApp>,
     cx: &mut Context<TaskTerminalListView>,
 ) -> impl IntoElement {
     let count = terminals.len();
+    if count == 0 && collapsed {
+        return div().into_any_element();
+    }
+    if collapsed {
+        return div()
+            .flex()
+            .flex_col()
+            .w_full()
+            .flex_none()
+            .child(session_section_heading(
+                labels.terminals.clone(),
+                count,
+                true,
+                app_entity,
+                TaskSectionKind::Terminals,
+                cx,
+            ))
+            .into_any_element();
+    }
     if count == 0 {
         // Auto-height section: no terminals, no space.
         return div().into_any_element();
@@ -827,7 +913,14 @@ fn terminal_list_area(
         .flex_col()
         .w_full()
         .h(px(height))
-        .child(session_section_heading(labels.terminals.clone(), count, cx))
+        .child(session_section_heading(
+            labels.terminals.clone(),
+            count,
+            false,
+            app_entity.clone(),
+            TaskSectionKind::Terminals,
+            cx,
+        ))
         .child(
             div()
                 .w_full()
@@ -862,9 +955,29 @@ fn terminal_compact_row(
     app_entity: gpui::Entity<CoduxApp>,
     cx: &mut Context<TaskTerminalListView>,
 ) -> impl IntoElement {
+    let collapsed = terminal.collapsed;
+    let collapsed_index = terminal.collapsed_index;
     let pane_index = terminal.pane_index;
+    let row_id = if collapsed {
+        SharedString::from(format!(
+            "compact-terminal-collapsed-{}",
+            collapsed_index.unwrap_or(0)
+        ))
+    } else {
+        SharedString::from(format!("compact-terminal-{pane_index}"))
+    };
+    let icon_color = if collapsed {
+        color(theme::TEXT_DIM)
+    } else {
+        cx.theme().muted_foreground
+    };
+    let title_color = if collapsed {
+        color(theme::TEXT_DIM)
+    } else {
+        color(theme::TEXT)
+    };
     div()
-        .id(SharedString::from(format!("compact-terminal-{pane_index}")))
+        .id(row_id)
         .w_full()
         .min_w_0()
         .h_full()
@@ -883,14 +996,18 @@ fn terminal_compact_row(
                 if app.workspace_view != WorkspaceView::Terminal {
                     app.set_workspace_view(WorkspaceView::Terminal, window, cx);
                 }
-                app.select_terminal_pane(pane_index, window, cx);
+                if let Some(idx) = collapsed_index {
+                    app.restore_collapsed_terminal(idx, window, cx);
+                } else {
+                    app.select_terminal_pane(pane_index, window, cx);
+                }
             });
         })
         .child(
             Icon::new(HeroIconName::CommandLine)
                 .size_3p5()
                 .flex_none()
-                .text_color(cx.theme().muted_foreground),
+                .text_color(icon_color),
         )
         .child(
             div()
@@ -898,10 +1015,19 @@ fn terminal_compact_row(
                 .min_w_0()
                 .text_sm()
                 .font_weight(FontWeight::MEDIUM)
-                .text_color(color(theme::TEXT))
+                .text_color(title_color)
                 .truncate()
                 .child(terminal.title),
         )
+        .when(collapsed, |this| {
+            this.child(
+                div()
+                    .flex_none()
+                    .size(px(6.0))
+                    .rounded_full()
+                    .bg(color(theme::GREEN).opacity(0.85)),
+            )
+        })
         .when_some(terminal.subtitle, |this, subtitle| {
             this.child(
                 div()
@@ -919,22 +1045,62 @@ fn terminal_compact_row(
 fn session_section_heading(
     title: String,
     count: usize,
+    collapsed: bool,
+    app_entity: gpui::Entity<CoduxApp>,
+    section: TaskSectionKind,
     cx: &mut Context<impl Render>,
 ) -> impl IntoElement {
+    let chevron_icon = if collapsed {
+        HeroIconName::ChevronRight
+    } else {
+        HeroIconName::ChevronDown
+    };
     div()
+        .id(SharedString::from(format!(
+            "task-section-heading-{section:?}"
+        )))
         .h(px(32.0))
         .px(px(14.0))
         .flex_shrink_0()
         .flex()
         .items_center()
         .justify_between()
+        .cursor_pointer()
+        .hover(|style| style.bg(theme::elevate(color(theme::BG_COLUMN), 0.05)))
+        .on_click(move |_, _window, cx| {
+            cx.update_entity(&app_entity, |app, cx| {
+                match section {
+                    TaskSectionKind::Terminals => {
+                        app.task_section_terminals_collapsed =
+                            !app.task_section_terminals_collapsed;
+                    }
+                    TaskSectionKind::Sessions => {
+                        app.task_section_sessions_collapsed =
+                            !app.task_section_sessions_collapsed;
+                    }
+                }
+                app.update_task_column_child_views(cx);
+            });
+        })
         .child(
             div()
-                .text_size(rems(0.875))
-                .line_height(rems(1.125))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(cx.theme().muted_foreground)
-                .child(title),
+                .flex()
+                .items_center()
+                .gap_1()
+                .child(
+                    Icon::new(chevron_icon)
+                        .size_3()
+                        .flex_none()
+                        .text_color(cx.theme().muted_foreground),
+                )
+                .child(
+                    div()
+                        .text_size(rems(0.875))
+                        .line_height(rems(1.125))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(cx.theme().muted_foreground)
+                        .child(title),
+                ),
         )
         .child(Tag::secondary().rounded_full().child(count.to_string()))
 }

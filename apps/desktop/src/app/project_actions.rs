@@ -714,6 +714,7 @@ impl CoduxApp {
                 layout_snapshot.top_grid,
                 layout_snapshot.split_tree,
                 layout_snapshot.bottom_ratio,
+                layout_snapshot.collapsed_panes,
             ) {
                 codux_runtime::runtime_trace::runtime_trace(
                     "terminal-layout",
@@ -1291,6 +1292,7 @@ impl CoduxApp {
         self.terminals = terminals;
         self.active_terminal_id = active_terminal_id;
         self.next_terminal_index = next_terminal_index;
+        self.restore_collapsed_panes_for_layout(true, cx);
         let pending_terminals =
             self.mount_visible_terminal_views_for_restore(&restore_plan, &base_pty_config, cx);
         let pending_count = pending_terminals.len();
