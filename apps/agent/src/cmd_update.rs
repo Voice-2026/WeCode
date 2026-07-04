@@ -3,6 +3,7 @@
 
 use dialoguer::Confirm;
 use dialoguer::theme::ColorfulTheme;
+use semver::Version;
 use serde::Deserialize;
 use std::time::Duration;
 
@@ -10,6 +11,8 @@ use crate::{cmd_service, cmd_start, runstate};
 
 const LATEST_RELEASE_API: &str = "https://api.github.com/repos/duxweb/codux/releases/latest";
 const RELEASES_API: &str = "https://api.github.com/repos/duxweb/codux/releases";
+const STABLE_MANIFEST_URL: &str =
+    "https://raw.githubusercontent.com/duxweb/codux/main/updates/stable/latest.json";
 const BETA_MANIFEST_URL: &str =
     "https://raw.githubusercontent.com/duxweb/codux/main/updates/beta/latest.json";
 const REPO_DOWNLOAD_BASE: &str = "https://github.com/duxweb/codux/releases/download";
@@ -91,17 +94,17 @@ pub fn run(current: &str, beta: bool) -> Result<(), String> {
 
 fn fetch_release(client: &reqwest::blocking::Client, beta: bool) -> Result<Release, String> {
     if !beta {
-        return client
-            .get(LATEST_RELEASE_API)
-            .send()
-            .map_err(|error| format!("failed to reach GitHub: {error}"))?
-            .error_for_status()
-            .map_err(|error| format!("release lookup failed: {error}"))?
-            .json()
-            .map_err(|error| format!("invalid release payload: {error}"));
+        return fetch_manifest_release(client, STABLE_MANIFEST_URL, Channel::Stable).or_else(
+            |error| {
+                eprintln!(
+                    "warning: stable manifest lookup failed: {error}; falling back to GitHub releases API"
+                );
+                fetch_latest_release(client)
+            },
+        );
     }
 
-    match fetch_beta_manifest_release(client) {
+    match fetch_manifest_release(client, BETA_MANIFEST_URL, Channel::Beta) {
         Ok(release) => return Ok(release),
         Err(error) => eprintln!(
             "warning: beta manifest lookup failed: {error}; falling back to GitHub releases API"
@@ -119,22 +122,49 @@ fn fetch_release(client: &reqwest::blocking::Client, beta: bool) -> Result<Relea
     select_beta_release(releases)
 }
 
-fn fetch_beta_manifest_release(client: &reqwest::blocking::Client) -> Result<Release, String> {
-    let manifest = client
-        .get(BETA_MANIFEST_URL)
+fn fetch_latest_release(client: &reqwest::blocking::Client) -> Result<Release, String> {
+    client
+        .get(LATEST_RELEASE_API)
         .send()
-        .map_err(|error| format!("failed to reach beta manifest: {error}"))?
+        .map_err(|error| format!("failed to reach GitHub: {error}"))?
         .error_for_status()
-        .map_err(|error| format!("beta manifest lookup failed: {error}"))?
-        .json::<UpdateManifest>()
-        .map_err(|error| format!("invalid beta manifest payload: {error}"))?;
-    release_from_manifest_version(&manifest.version)
+        .map_err(|error| format!("release lookup failed: {error}"))?
+        .json()
+        .map_err(|error| format!("invalid release payload: {error}"))
 }
 
-fn release_from_manifest_version(version: &str) -> Result<Release, String> {
+#[derive(Clone, Copy)]
+enum Channel {
+    Stable,
+    Beta,
+}
+
+fn fetch_manifest_release(
+    client: &reqwest::blocking::Client,
+    manifest_url: &str,
+    channel: Channel,
+) -> Result<Release, String> {
+    let manifest = client
+        .get(manifest_url)
+        .send()
+        .map_err(|error| format!("failed to reach manifest: {error}"))?
+        .error_for_status()
+        .map_err(|error| format!("manifest lookup failed: {error}"))?
+        .json::<UpdateManifest>()
+        .map_err(|error| format!("invalid manifest payload: {error}"))?;
+    release_from_manifest_version(&manifest.version, channel)
+}
+
+fn release_from_manifest_version(version: &str, channel: Channel) -> Result<Release, String> {
     let version = version.trim().trim_start_matches('v');
-    if !version.contains("-beta") {
-        return Err(format!("manifest version is not a beta: {version}"));
+    match channel {
+        Channel::Stable if version.contains("-beta") => {
+            return Err(format!("stable manifest version is a beta: {version}"));
+        }
+        Channel::Beta if !version.contains("-beta") => {
+            return Err(format!("beta manifest version is not a beta: {version}"));
+        }
+        _ => {}
     }
     let tag_name = format!("v{version}");
     Ok(Release {
@@ -245,28 +275,17 @@ fn replace_self(bytes: &[u8]) -> Result<(), String> {
 
 /// Numeric dotted-version comparison (`a` strictly newer than `b`).
 fn is_newer(a: &str, b: &str) -> bool {
-    let parse = |value: &str| -> Vec<u64> {
-        value
-            .split(['.', '-', '+'])
-            .map(|part| part.parse::<u64>().unwrap_or(0))
-            .collect()
-    };
-    let (left, right) = (parse(a), parse(b));
-    for index in 0..left.len().max(right.len()) {
-        let l = left.get(index).copied().unwrap_or(0);
-        let r = right.get(index).copied().unwrap_or(0);
-        if l != r {
-            return l > r;
-        }
+    match (Version::parse(a), Version::parse(b)) {
+        (Ok(latest), Ok(current)) => latest > current,
+        _ => a > b,
     }
-    false
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        Asset, Release, is_newer, pick_asset, release_from_manifest_version, release_tag_is_beta,
-        select_beta_release,
+        Asset, Channel, Release, is_newer, pick_asset, release_from_manifest_version,
+        release_tag_is_beta, select_beta_release,
     };
 
     #[test]
@@ -274,6 +293,7 @@ mod tests {
         assert!(is_newer("1.10.0", "1.9.9"));
         assert!(!is_newer("1.9.0", "1.9.0"));
         assert!(!is_newer("1.8.9", "1.9.0"));
+        assert!(is_newer("2.0.0-rc.1", "2.0.0-beta.10"));
     }
 
     #[test]
@@ -298,7 +318,7 @@ mod tests {
 
     #[test]
     fn manifest_release_synthesizes_agent_assets() {
-        let release = release_from_manifest_version("2.0.0-beta.10").unwrap();
+        let release = release_from_manifest_version("2.0.0-beta.10", Channel::Beta).unwrap();
         let expected = current_agent_asset_name("2.0.0-beta.10");
 
         assert_eq!(release.tag_name, "v2.0.0-beta.10");
@@ -313,12 +333,31 @@ mod tests {
 
     #[test]
     fn manifest_release_rejects_stable_versions() {
-        let error = match release_from_manifest_version("2.0.0") {
+        let error = match release_from_manifest_version("2.0.0", Channel::Beta) {
             Ok(_) => panic!("expected stable manifest version to fail"),
             Err(error) => error,
         };
 
-        assert_eq!(error, "manifest version is not a beta: 2.0.0");
+        assert_eq!(error, "beta manifest version is not a beta: 2.0.0");
+    }
+
+    #[test]
+    fn stable_manifest_release_accepts_rc_versions() {
+        let release = release_from_manifest_version("2.0.0-rc.1", Channel::Stable).unwrap();
+        let expected = current_agent_asset_name("2.0.0-rc.1");
+
+        assert_eq!(release.tag_name, "v2.0.0-rc.1");
+        assert!(release.assets.iter().any(|asset| asset.name == expected));
+    }
+
+    #[test]
+    fn stable_manifest_release_rejects_beta_versions() {
+        let error = match release_from_manifest_version("2.0.0-beta.11", Channel::Stable) {
+            Ok(_) => panic!("expected beta manifest version to fail"),
+            Err(error) => error,
+        };
+
+        assert_eq!(error, "stable manifest version is a beta: 2.0.0-beta.11");
     }
 
     #[test]
