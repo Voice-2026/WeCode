@@ -4891,41 +4891,27 @@ fn system_theme_options() -> Vec<(&'static str, &'static str)> {
 
 fn dark_theme_options() -> Vec<(&'static str, &'static str)> {
     vec![
-        ("2017 Dark", "2017 Dark"),
-        ("GitHub Dark", "GitHub Dark"),
-        ("One Dark Pro", "One Dark Pro"),
-        ("Dracula", "Dracula"),
-        ("Atom One Dark", "Atom One Dark"),
-        ("Material Theme", "Material Theme"),
-        ("Ayu Dark", "Ayu Dark"),
-        ("Monokai Pro", "Monokai Pro"),
-        ("Winter is Coming Dark Blue", "Winter is Coming Dark Blue"),
-        ("Night Owl", "Night Owl"),
-        ("One Monokai", "One Monokai"),
-        ("Tokyo Night", "Tokyo Night"),
-        ("Palenight", "Palenight"),
-        ("SynthWave '84", "SynthWave '84"),
-        ("Shades of Purple", "Shades of Purple"),
+        ("Codux Dark", "Codux Dark"),
+        ("Deep Ocean", "Deep Ocean"),
+        ("Arctic Night", "Arctic Night"),
+        ("Forest Night", "Forest Night"),
+        ("Ember", "Ember"),
+        ("Amethyst Dusk", "Amethyst Dusk"),
+        ("Rose Noir", "Rose Noir"),
+        ("Carbon", "Carbon"),
     ]
 }
 
 fn light_theme_options() -> Vec<(&'static str, &'static str)> {
     vec![
-        ("2017 Light", "2017 Light"),
-        ("PowerShell ISE", "PowerShell ISE"),
-        ("GitHub Light", "GitHub Light"),
-        ("Material Theme Lighter", "Material Theme Lighter"),
-        ("Ayu Light", "Ayu Light"),
-        ("Monokai Pro Light", "Monokai Pro Light"),
-        ("Winter is Coming Light", "Winter is Coming Light"),
-        ("Night Owl Light", "Night Owl Light"),
-        ("Tokyo Night Light", "Tokyo Night Light"),
-        ("Atom One Light", "Atom One Light"),
-        ("Noctis Hibernus", "Noctis Hibernus"),
-        ("Catppuccin Latte", "Catppuccin Latte"),
-        ("Gruvbox Light Medium", "Gruvbox Light Medium"),
-        ("Eva Light", "Eva Light"),
-        ("Spinel Light", "Spinel Light"),
+        ("Codux Light", "Codux Light"),
+        ("Glacier", "Glacier"),
+        ("Morning Mist", "Morning Mist"),
+        ("Matcha", "Matcha"),
+        ("Ivory", "Ivory"),
+        ("Lavender", "Lavender"),
+        ("Rosewater", "Rosewater"),
+        ("Sandstone", "Sandstone"),
     ]
 }
 

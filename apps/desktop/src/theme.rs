@@ -289,26 +289,14 @@ fn codux_traffic_light_position(_kind: CoduxTitlebarKind) -> Option<gpui::Point<
 pub fn apply_component_theme(
     theme_name: &str,
     theme_color: &str,
-    mut window: Option<&mut Window>,
+    window: Option<&mut Window>,
     cx: &mut App,
 ) {
     let appearance = window
         .as_ref()
         .map(|window| window.appearance())
         .unwrap_or_else(|| cx.window_appearance());
-    let terminal = terminal_theme_palette_for_appearance(theme_name, appearance);
-    let mode = if terminal.is_light {
-        ThemeMode::Light
-    } else {
-        ThemeMode::Dark
-    };
-    Theme::change(mode, window.as_deref_mut(), cx);
-
-    configure_component_theme(cx, terminal, theme_color_value(theme_color));
-    cx.refresh_windows();
-    if let Some(window) = window {
-        window.refresh();
-    }
+    apply_component_theme_for_appearance(theme_name, theme_color, appearance, window, cx);
 }
 
 pub fn apply_component_theme_for_appearance(
@@ -319,6 +307,7 @@ pub fn apply_component_theme_for_appearance(
     cx: &mut App,
 ) {
     let terminal = terminal_theme_palette_for_appearance(theme_name, appearance);
+    let app = app_theme_palette_for_appearance(theme_name, appearance);
     let mode = if terminal.is_light {
         ThemeMode::Light
     } else {
@@ -326,7 +315,7 @@ pub fn apply_component_theme_for_appearance(
     };
     Theme::change(mode, window.as_deref_mut(), cx);
 
-    configure_component_theme(cx, terminal, theme_color_value(theme_color));
+    configure_component_theme(cx, terminal, app, theme_color_value(theme_color));
     cx.refresh_windows();
     if let Some(window) = window {
         window.refresh();
@@ -359,12 +348,33 @@ pub struct TerminalThemePalette {
     pub is_light: bool,
 }
 
+/// Designed app-chrome tokens for a Codux collection theme. Every surface,
+/// line and text tone is hand-picked instead of derived from the terminal
+/// palette, so panels/borders/hierarchy read as intentional design.
+#[derive(Clone, Copy, Debug)]
+pub struct AppThemePalette {
+    pub ground: u32,
+    pub column: u32,
+    pub panel: u32,
+    pub header: u32,
+    pub card: u32,
+    pub elevated: u32,
+    pub border: u32,
+    pub border_soft: u32,
+    pub muted: u32,
+    pub text: u32,
+    pub text_muted: u32,
+    pub text_dim: u32,
+    pub status_bar: u32,
+    pub row_hover: u32,
+}
+
 impl TerminalThemePalette {
     fn auto(is_light: bool) -> Self {
         if is_light {
-            return terminal_theme_palette("2017 Light");
+            return terminal_theme_palette("Codux Light");
         }
-        terminal_theme_palette("2017 Dark")
+        terminal_theme_palette("Codux Dark")
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -434,158 +444,372 @@ pub fn terminal_theme_palette_for_appearance(
 pub fn terminal_theme_palette(theme_name: &str) -> TerminalThemePalette {
     match normalize_theme_name(theme_name).as_str() {
         "auto" => TerminalThemePalette::auto(false),
-        "2017 dark" => TerminalThemePalette::from_colors(
-            false, 0x1E1E1E, 0xD4D4D4, 0xD4D4D4, 0x264F78, 0x000000, 0xCD3131, 0x0DBC79, 0xE5E510,
-            0x2472C8, 0xBC3FBC, 0x11A8CD, 0xE5E5E5, 0x666666, 0xF14C4C, 0x23D18B, 0xF5F543,
-            0x3B8EEA, 0xD670D6, 0x29B8DB, 0xFFFFFF,
+        "codux dark" => TerminalThemePalette::from_colors(
+            false, 0x141821, 0xD8DCE6, 0x7AB8FF, 0x2C4A75, 0x1E232E, 0xF27878, 0x82D896, 0xE8C66A,
+            0x74AEF6, 0xC793E8, 0x6CD3E0, 0xD8DCE6, 0x59647A, 0xFF9E9E, 0xA9EDB8, 0xF4D98C,
+            0x9FC9FF, 0xDDB3F5, 0x9EEAF2, 0xF5F7FA,
         ),
-        "github dark" => TerminalThemePalette::from_colors(
-            false, 0x24292E, 0xE1E4E8, 0xC8E1FF, 0x3392FF, 0x586069, 0xEA4A5A, 0x34D058, 0xFFEA7F,
-            0x2188FF, 0xB392F0, 0x39C5CF, 0xD1D5DA, 0x959DA5, 0xF97583, 0x85E89D, 0xFFEA7F,
-            0x79B8FF, 0xB392F0, 0x56D4DD, 0xFAFBFC,
+        "deep ocean" => TerminalThemePalette::from_colors(
+            false, 0x0C1626, 0xCCDCF2, 0x53C0F0, 0x1D3D66, 0x16233A, 0xF07886, 0x5FD4A2, 0xE8C170,
+            0x5AA7F0, 0xB48EF2, 0x54CBE0, 0xCCDCF2, 0x4A6284, 0xFF9DA8, 0x8CEBC2, 0xF5D694,
+            0x8CC5FF, 0xCFB0FF, 0x86E5F2, 0xF0F6FF,
         ),
-        "one dark pro" => TerminalThemePalette::from_colors(
-            false, 0x282C34, 0xABB2BF, 0x528BFF, 0x677696, 0x3F4451, 0xE05561, 0x8CC265, 0xD18F52,
-            0x4AA5F0, 0xC162DE, 0x42B3C2, 0xD7DAE0, 0x4F5666, 0xFF616E, 0xA5E075, 0xF0A45D,
-            0x4DC4FF, 0xDE73FF, 0x4CD1E0, 0xE6E6E6,
+        "arctic night" => TerminalThemePalette::from_colors(
+            false, 0x262B36, 0xD8DEE9, 0x88C0D0, 0x434C5E, 0x3B4252, 0xBF616A, 0xA3BE8C, 0xEBCB8B,
+            0x81A1C1, 0xB48EAD, 0x88C0D0, 0xE5E9F0, 0x4C566A, 0xD87B84, 0xB5D19A, 0xF2DCA2,
+            0x94B4D4, 0xC79EC4, 0x9BD3E0, 0xECEFF4,
         ),
-        "dracula" => TerminalThemePalette::from_colors(
-            false, 0x282A36, 0xF8F8F2, 0xF8F8F2, 0x44475A, 0x21222C, 0xFF5555, 0x50FA7B, 0xF1FA8C,
-            0xBD93F9, 0xFF79C6, 0x8BE9FD, 0xF8F8F2, 0x6272A4, 0xFF6E6E, 0x69FF94, 0xFFFFA5,
-            0xD6ACFF, 0xFF92DF, 0xA4FFFF, 0xFFFFFF,
+        "forest night" => TerminalThemePalette::from_colors(
+            false, 0x101915, 0xD3E2D6, 0x7FD8A0, 0x27503A, 0x1B2921, 0xEF7B7B, 0x7CD98F, 0xD9C36A,
+            0x6FB3E8, 0xC08FE0, 0x63D6C2, 0xD3E2D6, 0x50685A, 0xFFA2A2, 0xA5EDB4, 0xEDD98F,
+            0x9BCDF5, 0xD8B2F0, 0x92EBDC, 0xF0F7F1,
         ),
-        "atom one dark" => TerminalThemePalette::from_colors(
-            false, 0x282C34, 0xABB2BF, 0x528BFF, 0x3E4451, 0x000000, 0xCD3131, 0x0DBC79, 0xE5E510,
-            0x2472C8, 0xBC3FBC, 0x11A8CD, 0xE5E5E5, 0x666666, 0xF14C4C, 0x23D18B, 0xF5F543,
-            0x3B8EEA, 0xD670D6, 0x29B8DB, 0xFFFFFF,
+        "ember" => TerminalThemePalette::from_colors(
+            false, 0x1A1512, 0xE8DDD0, 0xF0A860, 0x54402C, 0x2A221B, 0xF2766B, 0x9CCE6E, 0xF0B860,
+            0x6FAEE0, 0xD892C0, 0x72CCB8, 0xE8DDD0, 0x6E5D4C, 0xFF9C8F, 0xBEE393, 0xFFD088,
+            0x9CC9F0, 0xEDB4D8, 0x9CE3D2, 0xFAF4EC,
         ),
-        "material theme" => TerminalThemePalette::from_colors(
-            false, 0x263238, 0xEEFFFF, 0xFFCC00, 0x80CBC4, 0x000000, 0xF07178, 0xC3E88D, 0xFFCB6B,
-            0x82AAFF, 0xC792EA, 0x89DDFF, 0xFFFFFF, 0x546E7A, 0xF07178, 0xC3E88D, 0xFFCB6B,
-            0x82AAFF, 0xC792EA, 0x89DDFF, 0xFFFFFF,
+        "amethyst dusk" => TerminalThemePalette::from_colors(
+            false, 0x161326, 0xDCD8EE, 0xA88BF0, 0x3A2F66, 0x232040, 0xF27A93, 0x7FD8A8, 0xE5C578,
+            0x7FA6F5, 0xB78CF2, 0x76CBE8, 0xDCD8EE, 0x5A5482, 0xFFA0B4, 0xA6EDC7, 0xF3DA9E,
+            0xA8C4FF, 0xD1AFFF, 0xA0E3F5, 0xF4F2FC,
         ),
-        "ayu dark" => TerminalThemePalette::from_colors(
-            false, 0x0D1017, 0xBFBDB6, 0xE6B450, 0x3388FF, 0x1B1F29, 0xF06B73, 0x70BF56, 0xFDB04C,
-            0x4FBFFF, 0xD0A1FF, 0x93E2C8, 0xC7C7C7, 0x686868, 0xF07178, 0xAAD94C, 0xFFB454,
-            0x59C2FF, 0xD2A6FF, 0x95E6CB, 0xFFFFFF,
+        "rose noir" => TerminalThemePalette::from_colors(
+            false, 0x1C141B, 0xEADDE5, 0xEB8FB0, 0x523248, 0x2E2130, 0xEB6F92, 0x86CFA4, 0xF6C177,
+            0x7A9BE8, 0xC4A7E7, 0x9CCFD8, 0xEADDE5, 0x6E5A6A, 0xFF94B2, 0xA9E5C4, 0xFFD69C,
+            0xA4BEFF, 0xDCC5F7, 0xBCE3EB, 0xFBF5F9,
         ),
-        "monokai pro" => TerminalThemePalette::from_colors(
-            false, 0x2D2A2E, 0xFCFCFA, 0xFCFCFA, 0xC1C0C0, 0x403E41, 0xFF6188, 0xA9DC76, 0xFFD866,
-            0xFC9867, 0xAB9DF2, 0x78DCE8, 0xFCFCFA, 0x727072, 0xFF6188, 0xA9DC76, 0xFFD866,
-            0xFC9867, 0xAB9DF2, 0x78DCE8, 0xFCFCFA,
+        "carbon" => TerminalThemePalette::from_colors(
+            false, 0x131313, 0xE6E6E6, 0xFFFFFF, 0x3A3A3A, 0x222222, 0xF07070, 0x7BD88F, 0xE6C568,
+            0x6EB2F0, 0xC490E4, 0x66D4DE, 0xE6E6E6, 0x666666, 0xFF9B9B, 0xA6EDB4, 0xF4DA90,
+            0x9CCCFF, 0xDCB4F5, 0x96EAF0, 0xFFFFFF,
         ),
-        "winter is coming dark blue" => TerminalThemePalette::from_colors(
-            false, 0x011627, 0xA7DBF7, 0x219FD5, 0x103362, 0x011627, 0xCD3131, 0x0DBC79, 0xE5E510,
-            0x2472C8, 0xBC3FBC, 0x11A8CD, 0xE5E5E5, 0x666666, 0xF14C4C, 0x23D18B, 0xF5F543,
-            0x3B8EEA, 0xD670D6, 0x29B8DB, 0xFFFFFF,
+        "codux light" => TerminalThemePalette::from_colors(
+            true, 0xFAFBFC, 0x2A3140, 0x2F6FE4, 0xCCE0FA, 0x323A48, 0xC93A46, 0x1E9E50, 0xB07D10,
+            0x2264D0, 0x9440C4, 0x0E8CA6, 0x99A2B2, 0x5C6678, 0xE45560, 0x2CBA66, 0xCC9718,
+            0x3E82EA, 0xAC62DA, 0x1AA8C4, 0xB8C0CC,
         ),
-        "night owl" => TerminalThemePalette::from_colors(
-            false, 0x011627, 0xD6DEEB, 0x80A4C2, 0x1D3B53, 0x011627, 0xEF5350, 0x22DA6E, 0xC5E478,
-            0x82AAFF, 0xC792EA, 0x21C7A8, 0xFFFFFF, 0x575656, 0xEF5350, 0x22DA6E, 0xFFEB95,
-            0x82AAFF, 0xC792EA, 0x7FDBCA, 0xFFFFFF,
+        "glacier" => TerminalThemePalette::from_colors(
+            true, 0xF7FAFD, 0x243648, 0x0E8CD0, 0xC4E0F5, 0x2C3E52, 0xC94257, 0x148A62, 0xA67C14,
+            0x1272C8, 0x8A4CC8, 0x0A8FB0, 0x94A6B8, 0x5A7086, 0xE0596E, 0x1FA878, 0xC2951C,
+            0x2E8AE0, 0xA468DE, 0x16A9CC, 0xB9C8D6,
         ),
-        "one monokai" => TerminalThemePalette::from_colors(
-            false, 0x282C34, 0xD4D4D4, 0xF8F8F0, 0x3E4451, 0x2D3139, 0xE06C75, 0x98C379, 0xE5C07B,
-            0x528BFF, 0xC678DD, 0x56B6C2, 0xD7DAE0, 0x7F848E, 0xF44747, 0x98C379, 0xE5C07B,
-            0x528BFF, 0x7E0097, 0x56B6C2, 0xD7DAE0,
+        "morning mist" => TerminalThemePalette::from_colors(
+            true, 0xFAFAFB, 0x33373E, 0x5B6472, 0xD5DAE2, 0x3A3F47, 0xC44540, 0x2E8B57, 0xA97B18,
+            0x3B6EC8, 0x8F52B8, 0x2090A0, 0x9CA1A9, 0x62676F, 0xDE5F5A, 0x3EA76D, 0xC49422,
+            0x5586DC, 0xA96ED0, 0x30AABC, 0xC0C4CB,
         ),
-        "tokyo night" => TerminalThemePalette::from_colors(
-            false, 0x1A1B26, 0xA9B1D6, 0xC0CAF5, 0x515C7E, 0x363B54, 0xF7768E, 0x73DACA, 0xE0AF68,
-            0x7AA2F7, 0xBB9AF7, 0x7DCFFF, 0x787C99, 0x363B54, 0xF7768E, 0x73DACA, 0xE0AF68,
-            0x7AA2F7, 0xBB9AF7, 0x7DCFFF, 0xACB0D0,
+        "matcha" => TerminalThemePalette::from_colors(
+            true, 0xF8FBF6, 0x2C3A2A, 0x3E9450, 0xCFE8CC, 0x33422F, 0xBE4A42, 0x2E8B3C, 0x9C801A,
+            0x2E6EB8, 0x8A54B0, 0x188E86, 0x97A692, 0x5E7059, 0xD8645C, 0x3FA850, 0xB59A24,
+            0x4886D0, 0xA670CC, 0x24A89E, 0xBCC9B7,
         ),
-        "palenight" => TerminalThemePalette::from_colors(
-            false, 0x292D3E, 0xBFC7D5, 0x7E57C2, 0x7580B8, 0x676E95, 0xFF5572, 0xA9C77D, 0xFFCB6B,
-            0x82AAFF, 0xC792EA, 0x89DDFF, 0xFFFFFF, 0x676E95, 0xFF5572, 0xC3E88D, 0xFFCB6B,
-            0x82AAFF, 0xC792EA, 0x89DDFF, 0xFFFFFF,
+        "ivory" => TerminalThemePalette::from_colors(
+            true, 0xFCF9F2, 0x3A3226, 0xC28418, 0xF0E0BC, 0x423A2C, 0xC24438, 0x4E8A28, 0xA87814,
+            0x3268B4, 0x9A4CA8, 0x1E8E7E, 0xA89B84, 0x6E624E, 0xDC5E52, 0x66A63A, 0xC4931E,
+            0x4C82CC, 0xB468C2, 0x2AA896, 0xCCC0A8,
         ),
-        "synthwave '84" => TerminalThemePalette::from_colors(
-            false, 0x262335, 0xD4D4D4, 0xF97E72, 0xFFFFFF, 0x000000, 0xFE4450, 0x72F1B8, 0xF3E70F,
-            0x03EDF9, 0xFF7EDB, 0x03EDF9, 0xE5E5E5, 0x666666, 0xFE4450, 0x72F1B8, 0xFEDE5D,
-            0x03EDF9, 0xFF7EDB, 0x03EDF9, 0xFFFFFF,
+        "lavender" => TerminalThemePalette::from_colors(
+            true, 0xFAF9FD, 0x322B44, 0x7C5CD6, 0xDCD2F5, 0x3A3350, 0xC24468, 0x2E8B5E, 0xA6791C,
+            0x4A62D8, 0x8C48C8, 0x2288A8, 0x9E97B2, 0x645C7E, 0xDC6084, 0x3FA674, 0xC29426,
+            0x667EE8, 0xA666DC, 0x30A2C2, 0xC4BED4,
         ),
-        "shades of purple" => TerminalThemePalette::from_colors(
-            false, 0x2D2B55, 0xFFFFFF, 0xFAD000, 0xB362FF, 0x000000, 0xEC3A37, 0x3AD900, 0xFAD000,
-            0x7857FE, 0xFF2C70, 0x80FCFF, 0xFFFFFF, 0x5C5C61, 0xEC3A37, 0x3AD900, 0xFAD000,
-            0x6943FF, 0xFB94FF, 0x80FCFF, 0xFFFFFF,
+        "rosewater" => TerminalThemePalette::from_colors(
+            true, 0xFCF8F9, 0x3C2B33, 0xC2426E, 0xF4D6DF, 0x443039, 0xC23A55, 0x2E8B57, 0xA87818,
+            0x3766C4, 0xA4479E, 0x1E8C96, 0xAA96A0, 0x705C66, 0xDC5674, 0x3FA76D, 0xC49322,
+            0x5380DC, 0xC062BA, 0x2AA6B2, 0xD0BEC6,
         ),
-        "2017 light" => TerminalThemePalette::from_colors(
-            true, 0xFFFFFF, 0x000000, 0x000000, 0xADD6FF, 0x000000, 0xCD3131, 0x00BC00, 0x949800,
-            0x0451A5, 0xBC05BC, 0x0598BC, 0x555555, 0x666666, 0xCD3131, 0x14CE14, 0xB5BA00,
-            0x0451A5, 0xBC05BC, 0x0598BC, 0xA5A5A5,
-        ),
-        "powershell ise" => TerminalThemePalette::from_colors(
-            true, 0xFFFFFF, 0x000000, 0x000000, 0x94C6F7, 0x000000, 0xCD3131, 0x00BC00, 0x949800,
-            0x0451A5, 0xBC05BC, 0x0598BC, 0x555555, 0x666666, 0xCD3131, 0x14CE14, 0xB5BA00,
-            0x0451A5, 0xBC05BC, 0x0598BC, 0xA5A5A5,
-        ),
-        "github light" => TerminalThemePalette::from_colors(
-            true, 0xFFFFFF, 0x24292E, 0x044289, 0x0366D6, 0x24292E, 0xD73A49, 0x28A745, 0xDBAB09,
-            0x0366D6, 0x5A32A3, 0x1B7C83, 0x6A737D, 0x959DA5, 0xCB2431, 0x22863A, 0xB08800,
-            0x005CC5, 0x5A32A3, 0x3192AA, 0xD1D5DA,
-        ),
-        "material theme lighter" => TerminalThemePalette::from_colors(
-            true, 0xFAFAFA, 0x90A4AE, 0x272727, 0x80CBC4, 0x000000, 0xE53935, 0x91B859, 0xE2931D,
-            0x6182B8, 0x9C3EDA, 0x39ADB5, 0xFFFFFF, 0x90A4AE, 0xE53935, 0x91B859, 0xE2931D,
-            0x6182B8, 0x9C3EDA, 0x39ADB5, 0xFFFFFF,
-        ),
-        "ayu light" => TerminalThemePalette::from_colors(
-            true, 0xF8F9FA, 0x5C6166, 0xF29718, 0x035BD6, 0x000000, 0xF06B6C, 0x6CBF43, 0xE7A100,
-            0x21A1E2, 0xA176CB, 0x4ABC96, 0xC7C7C7, 0x686868, 0xF07171, 0x86B300, 0xEBA400,
-            0x22A4E6, 0xA37ACC, 0x4CBF99, 0xD1D1D1,
-        ),
-        "monokai pro light" => TerminalThemePalette::from_colors(
-            true, 0xFAF4F2, 0x29242A, 0x29242A, 0x706B6E, 0xD3CDCC, 0xE14775, 0x269D69, 0xCC7A0A,
-            0xE16032, 0x7058BE, 0x1C8CA8, 0x29242A, 0xA59FA0, 0xE14775, 0x269D69, 0xCC7A0A,
-            0xE16032, 0x7058BE, 0x1C8CA8, 0x29242A,
-        ),
-        "winter is coming light" => TerminalThemePalette::from_colors(
-            true, 0xFFFFFF, 0x236EBF, 0x4FB4D8, 0xCEE1F0, 0x011627, 0xCD3131, 0x00BC00, 0x949800,
-            0x0451A5, 0xBC05BC, 0x0598BC, 0x555555, 0x666666, 0xCD3131, 0x14CE14, 0xB5BA00,
-            0x0451A5, 0xBC05BC, 0x0598BC, 0xA5A5A5,
-        ),
-        "night owl light" => TerminalThemePalette::from_colors(
-            true, 0xFBFBFB, 0x403F53, 0x90A7B2, 0xE0E0E0, 0x403F53, 0xDE3D3B, 0x08916A, 0xE0AF02,
-            0x288ED7, 0xD6438A, 0x2AA298, 0x93A1A1, 0x403F53, 0xDE3D3B, 0x08916A, 0xDAAA01,
-            0x288ED7, 0xD6438A, 0x2AA298, 0x93A1A1,
-        ),
-        "tokyo night light" => TerminalThemePalette::from_colors(
-            true, 0xE6E7ED, 0x343B59, 0x363C4D, 0xACB0BF, 0x343B58, 0x8C4351, 0x33635C, 0x8F5E15,
-            0x2959AA, 0x7B43BA, 0x006C86, 0x707280, 0x343B58, 0x8C4351, 0x33635C, 0x8F5E15,
-            0x2959AA, 0x7B43BA, 0x006C86, 0x707280,
-        ),
-        "atom one light" => TerminalThemePalette::from_colors(
-            true, 0xFAFAFA, 0x383A42, 0x526FFF, 0xE5E5E6, 0x000000, 0xCD3131, 0x00BC00, 0x949800,
-            0x0451A5, 0xBC05BC, 0x0598BC, 0x555555, 0x666666, 0xCD3131, 0x14CE14, 0xB5BA00,
-            0x0451A5, 0xBC05BC, 0x0598BC, 0xA5A5A5,
-        ),
-        "noctis hibernus" => TerminalThemePalette::from_colors(
-            true, 0xF4F6F6, 0x005661, 0x0092A8, 0xADE2EB, 0x003B42, 0xE34E1C, 0x00B368, 0xF49725,
-            0x0094F0, 0xFF5792, 0x00BDD6, 0x8CA6A6, 0x004D57, 0xFF4000, 0x00D17A, 0xFF8C00,
-            0x0FA3FF, 0xFF6B9F, 0x00CBE6, 0xBBC3C4,
-        ),
-        "catppuccin latte" => TerminalThemePalette::from_colors(
-            true, 0xEFF1F5, 0x4C4F69, 0xDC8A78, 0x7C7F93, 0x5C5F77, 0xD20F39, 0x40A02B, 0xDF8E1D,
-            0x1E66F5, 0xEA76CB, 0x179299, 0xACB0BE, 0x6C6F85, 0xDE293E, 0x49AF3D, 0xEEA02D,
-            0x456EFF, 0xFE85D8, 0x2D9FA8, 0xBCC0CC,
-        ),
-        "gruvbox light medium" => TerminalThemePalette::from_colors(
-            true, 0xFBF1C7, 0x3C3836, 0x3C3836, 0x689D6A, 0xEBDBB2, 0xCC241D, 0x98971A, 0xD79921,
-            0x458588, 0xB16286, 0x689D6A, 0x7C6F64, 0x928374, 0x9D0006, 0x79740E, 0xB57614,
-            0x076678, 0x8F3F71, 0x427B58, 0x3C3836,
-        ),
-        "eva light" => TerminalThemePalette::from_colors(
-            true, 0xEBEEF5, 0x5D5D5F, 0xFC8357, 0x0065FF, 0xEBEEF5, 0xEC0000, 0x44C145, 0xF0AA0B,
-            0x4480F4, 0xC838C6, 0x00BEC4, 0x5D5D5F, 0xAAADB4, 0xF14C4C, 0x44C145, 0xFF6D12,
-            0x4D91F8, 0xEF8ED8, 0x00BEC4, 0x888888,
-        ),
-        "spinel light" => TerminalThemePalette::from_colors(
-            true, 0xE3E2EC, 0x595959, 0x595959, 0xD8D8DB, 0x000000, 0xCD3131, 0x00BC00, 0x949800,
-            0x0451A5, 0xBC05BC, 0x0598BC, 0x555555, 0x666666, 0xCD3131, 0x14CE14, 0xB5BA00,
-            0x0451A5, 0xBC05BC, 0x0598BC, 0xA5A5A5,
+        "sandstone" => TerminalThemePalette::from_colors(
+            true, 0xFBF7EA, 0x413F30, 0x1E8E8E, 0xEBE0BC, 0x45422F, 0xBE4632, 0x5D8A16, 0xA88410,
+            0x2E74B8, 0xA0489C, 0x1A9090, 0xA49E86, 0x6E6852, 0xD8604C, 0x76A626, 0xC49E1A,
+            0x488CCE, 0xBA64B4, 0x28AAAA, 0xC9C2A8,
         ),
         _ => TerminalThemePalette::auto(false),
     }
+}
+
+pub fn app_theme_palette_for_appearance(
+    theme_name: &str,
+    appearance: WindowAppearance,
+) -> AppThemePalette {
+    let name = normalize_theme_name(theme_name);
+    let name = if name == "auto" {
+        let is_light = matches!(
+            appearance,
+            WindowAppearance::Light | WindowAppearance::VibrantLight
+        );
+        if is_light { "codux light" } else { "codux dark" }.to_string()
+    } else {
+        name
+    };
+    // Unknown / legacy persisted names fall back with the terminal palette.
+    app_theme_palette(&name)
+        .or_else(|| app_theme_palette("codux dark"))
+        .expect("flagship app palette")
+}
+
+/// Designed chrome palettes for the Codux theme collection.
+pub fn app_theme_palette(normalized_name: &str) -> Option<AppThemePalette> {
+    let palette = match normalized_name {
+        "codux dark" => AppThemePalette {
+            ground: 0x12151C,
+            column: 0x151922,
+            panel: 0x191E28,
+            header: 0x1B2029,
+            card: 0x222835,
+            elevated: 0x262D3B,
+            border: 0x323A4A,
+            border_soft: 0x2A3140,
+            muted: 0x1F2530,
+            text: 0xE8EBF2,
+            text_muted: 0xA3ACBE,
+            text_dim: 0x707A8E,
+            status_bar: 0x161A22,
+            row_hover: 0x232A38,
+        },
+        "deep ocean" => AppThemePalette {
+            ground: 0x0A1220,
+            column: 0x0C1526,
+            panel: 0x0F1A2E,
+            header: 0x101C32,
+            card: 0x16253F,
+            elevated: 0x1A2B48,
+            border: 0x264066,
+            border_soft: 0x1E3352,
+            muted: 0x142138,
+            text: 0xD9E4F5,
+            text_muted: 0x8FA5C6,
+            text_dim: 0x5F7699,
+            status_bar: 0x0C1523,
+            row_hover: 0x182A45,
+        },
+        "arctic night" => AppThemePalette {
+            ground: 0x232833,
+            column: 0x262B37,
+            panel: 0x2B313E,
+            header: 0x2D3341,
+            card: 0x353C4C,
+            elevated: 0x3A4254,
+            border: 0x465064,
+            border_soft: 0x3C4556,
+            muted: 0x313847,
+            text: 0xE5E9F0,
+            text_muted: 0xAAB4C5,
+            text_dim: 0x7B879B,
+            status_bar: 0x262B36,
+            row_hover: 0x333A4A,
+        },
+        "forest night" => AppThemePalette {
+            ground: 0x0E1512,
+            column: 0x111915,
+            panel: 0x152019,
+            header: 0x17231C,
+            card: 0x1D2C23,
+            elevated: 0x213228,
+            border: 0x2F4638,
+            border_soft: 0x27392E,
+            muted: 0x1A2820,
+            text: 0xE2EBE4,
+            text_muted: 0x9DB3A4,
+            text_dim: 0x6B8172,
+            status_bar: 0x101813,
+            row_hover: 0x1E2E24,
+        },
+        "ember" => AppThemePalette {
+            ground: 0x171310,
+            column: 0x1B1613,
+            panel: 0x211B16,
+            header: 0x241D18,
+            card: 0x2C241D,
+            elevated: 0x322921,
+            border: 0x453930,
+            border_soft: 0x392F27,
+            muted: 0x282019,
+            text: 0xF0E8E0,
+            text_muted: 0xBCA997,
+            text_dim: 0x8A7A6A,
+            status_bar: 0x1A1512,
+            row_hover: 0x2E251D,
+        },
+        "amethyst dusk" => AppThemePalette {
+            ground: 0x141220,
+            column: 0x171527,
+            panel: 0x1C1930,
+            header: 0x1F1B35,
+            card: 0x272242,
+            elevated: 0x2C264B,
+            border: 0x3D3563,
+            border_soft: 0x332C52,
+            muted: 0x231F3B,
+            text: 0xE9E6F5,
+            text_muted: 0xAAA3C8,
+            text_dim: 0x776F9B,
+            status_bar: 0x161428,
+            row_hover: 0x292345,
+        },
+        "rose noir" => AppThemePalette {
+            ground: 0x1A1219,
+            column: 0x1E151D,
+            panel: 0x241A23,
+            header: 0x271C26,
+            card: 0x30232E,
+            elevated: 0x372834,
+            border: 0x4A3746,
+            border_soft: 0x3D2E3A,
+            muted: 0x2B1F29,
+            text: 0xF2E7EE,
+            text_muted: 0xC0A6B8,
+            text_dim: 0x8D7386,
+            status_bar: 0x1C141B,
+            row_hover: 0x322430,
+        },
+        "carbon" => AppThemePalette {
+            ground: 0x111111,
+            column: 0x141414,
+            panel: 0x191919,
+            header: 0x1C1C1C,
+            card: 0x232323,
+            elevated: 0x282828,
+            border: 0x393939,
+            border_soft: 0x2E2E2E,
+            muted: 0x202020,
+            text: 0xF2F2F2,
+            text_muted: 0xABABAB,
+            text_dim: 0x777777,
+            status_bar: 0x151515,
+            row_hover: 0x252525,
+        },
+        "codux light" => AppThemePalette {
+            ground: 0xEEF0F4,
+            column: 0xF2F4F7,
+            panel: 0xF8F9FB,
+            header: 0xF4F6F9,
+            card: 0xFFFFFF,
+            elevated: 0xFFFFFF,
+            border: 0xD5DAE3,
+            border_soft: 0xE1E5EC,
+            muted: 0xE7EAF0,
+            text: 0x1D2430,
+            text_muted: 0x4E5A6E,
+            text_dim: 0x7A8496,
+            status_bar: 0xF2F4F7,
+            row_hover: 0xE6EAF1,
+        },
+        "glacier" => AppThemePalette {
+            ground: 0xE9F0F6,
+            column: 0xEDF3F8,
+            panel: 0xF5F9FC,
+            header: 0xF0F5FA,
+            card: 0xFFFFFF,
+            elevated: 0xFFFFFF,
+            border: 0xCBD9E6,
+            border_soft: 0xDAE5EE,
+            muted: 0xE2EBF2,
+            text: 0x16283A,
+            text_muted: 0x47607A,
+            text_dim: 0x7288A0,
+            status_bar: 0xEDF3F8,
+            row_hover: 0xDFEAF3,
+        },
+        "morning mist" => AppThemePalette {
+            ground: 0xEDEEF1,
+            column: 0xF1F2F4,
+            panel: 0xF7F8F9,
+            header: 0xF3F4F6,
+            card: 0xFDFDFE,
+            elevated: 0xFFFFFF,
+            border: 0xD6D8DE,
+            border_soft: 0xE2E4E9,
+            muted: 0xE8E9ED,
+            text: 0x26292F,
+            text_muted: 0x555A64,
+            text_dim: 0x82878F,
+            status_bar: 0xF1F2F4,
+            row_hover: 0xE5E7EB,
+        },
+        "matcha" => AppThemePalette {
+            ground: 0xEAF0E8,
+            column: 0xEEF3EC,
+            panel: 0xF6F9F4,
+            header: 0xF1F5EF,
+            card: 0xFDFEFC,
+            elevated: 0xFFFFFF,
+            border: 0xCFDCCB,
+            border_soft: 0xDDE6D9,
+            muted: 0xE3EBE0,
+            text: 0x1F2B1E,
+            text_muted: 0x4D5F4A,
+            text_dim: 0x788B74,
+            status_bar: 0xEEF3EC,
+            row_hover: 0xE0E9DC,
+        },
+        "ivory" => AppThemePalette {
+            ground: 0xF2EDE3,
+            column: 0xF5F0E7,
+            panel: 0xFAF6EE,
+            header: 0xF6F2E9,
+            card: 0xFFFDF8,
+            elevated: 0xFFFEFA,
+            border: 0xDED4C2,
+            border_soft: 0xE8E0D1,
+            muted: 0xEDE6D8,
+            text: 0x322A1E,
+            text_muted: 0x655A47,
+            text_dim: 0x91856F,
+            status_bar: 0xF5F0E7,
+            row_hover: 0xEAE2D2,
+        },
+        "lavender" => AppThemePalette {
+            ground: 0xEEECF5,
+            column: 0xF1F0F8,
+            panel: 0xF8F7FC,
+            header: 0xF3F2FA,
+            card: 0xFEFEFF,
+            elevated: 0xFFFFFF,
+            border: 0xD8D3E8,
+            border_soft: 0xE3DFF0,
+            muted: 0xE9E6F3,
+            text: 0x272138,
+            text_muted: 0x585070,
+            text_dim: 0x847C9C,
+            status_bar: 0xF1F0F8,
+            row_hover: 0xE4E0F0,
+        },
+        "rosewater" => AppThemePalette {
+            ground: 0xF4ECEE,
+            column: 0xF6F0F1,
+            panel: 0xFBF6F7,
+            header: 0xF7F1F3,
+            card: 0xFFFDFD,
+            elevated: 0xFFFFFF,
+            border: 0xE2D2D7,
+            border_soft: 0xEBDFE2,
+            muted: 0xEFE4E7,
+            text: 0x33222A,
+            text_muted: 0x685260,
+            text_dim: 0x957E8A,
+            status_bar: 0xF6F0F1,
+            row_hover: 0xECDFE3,
+        },
+        "sandstone" => AppThemePalette {
+            ground: 0xEFE9DA,
+            column: 0xF2ECDE,
+            panel: 0xF8F3E7,
+            header: 0xF4EEE1,
+            card: 0xFDFAF1,
+            elevated: 0xFFFCF4,
+            border: 0xDACFB4,
+            border_soft: 0xE5DCC6,
+            muted: 0xEAE2CE,
+            text: 0x322E24,
+            text_muted: 0x635E4E,
+            text_dim: 0x8F8873,
+            status_bar: 0xF2ECDE,
+            row_hover: 0xE7DEC8,
+        },
+        _ => return None,
+    };
+    Some(palette)
 }
 
 fn normalize_theme_name(value: &str) -> String {
@@ -619,113 +843,59 @@ pub fn theme_color_value(theme_color: &str) -> u32 {
     }
 }
 
-fn configure_component_theme(cx: &mut App, terminal: TerminalThemePalette, accent_hex: u32) {
+fn configure_component_theme(
+    cx: &mut App,
+    terminal: TerminalThemePalette,
+    app: AppThemePalette,
+    accent_hex: u32,
+) {
     let is_dark = !terminal.is_light;
     let theme = Theme::global_mut(cx);
-    let terminal_background = raw_color(terminal.background);
     let accent_color = raw_color(accent_hex);
-    let (
-        background,
-        foreground,
-        muted,
-        muted_foreground,
-        border,
-        control_bg,
-        control_hover,
-        input,
-        accent_bg,
-        accent,
-        primary_hover,
-        primary_active,
-        primary_foreground,
-        popover,
-        sidebar,
-        header,
-        row_hover,
-        title_bar,
-        tab,
-        tab_bar,
-        scrollbar_thumb,
-        overlay,
-        danger,
-        warning,
-        success,
-        info,
-        task_column,
-    ) = if is_dark {
-        let selection = raw_color(terminal.selection);
-        let current_line = raw_color(terminal.bright_black);
-        let terminal_black = raw_color(terminal.black);
-        let app_surface = mix_towards(terminal_background, terminal_black, 0.36);
-        let column_surface = mix_towards(app_surface, terminal_background, 0.48);
-        // Header / chrome match the sidebar surface exactly so the top frame,
-        // rail, and panels read as one continuous plane (no seams).
-        let header_surface = app_surface;
-        let chrome_surface = app_surface;
+
+    // Mode-scoped values, independent of the surface palette.
+    let (control_bg, control_hover, input) = if is_dark {
         (
-            app_surface,
-            raw_color(terminal.foreground),
-            mix_towards(terminal_background, selection, 0.34),
-            mix_towards(
-                raw_color(terminal.muted_foreground),
-                terminal_background,
-                0.28,
-            ),
-            mix_towards(terminal_background, current_line, 0.30),
             raw_color(0xFFFFFF).opacity(0.09),
             raw_color(0xFFFFFF).opacity(0.14),
             raw_color(0xFFFFFF).opacity(0.075),
-            accent_color.opacity(0.17),
-            accent_color,
+        )
+    } else {
+        (
+            raw_color(0x000000).opacity(0.055),
+            raw_color(0x000000).opacity(0.085),
+            raw_color(0x000000).opacity(0.075),
+        )
+    };
+    let accent = accent_color;
+    let accent_bg = accent_color.opacity(if is_dark { 0.17 } else { 0.12 });
+    let (primary_hover, primary_active, primary_foreground) = if is_dark {
+        (
             mix_towards(accent_color, raw_color(0xFFFFFF), 0.18),
             mix_towards(accent_color, raw_color(0x000000), 0.16),
             raw_color(0xF6FAFF),
-            mix_towards(app_surface, terminal_black, 0.18),
-            app_surface,
-            header_surface,
-            mix_towards(terminal_background, selection, 0.58),
-            chrome_surface,
-            terminal_background,
-            header_surface,
-            mix_towards(terminal_background, current_line, 0.42),
-            raw_color(0x000000).opacity(0.42),
+        )
+    } else {
+        (
+            mix_towards(accent_color, raw_color(0x000000), 0.12),
+            mix_towards(accent_color, raw_color(0x000000), 0.22),
+            raw_color(0xFFFFFF),
+        )
+    };
+    let overlay = raw_color(0x000000).opacity(if is_dark { 0.42 } else { 0.28 });
+    let (danger, warning, success, info) = if is_dark {
+        (
             raw_color(RED),
             raw_color(ORANGE),
             raw_color(GREEN),
             raw_color(0x60A5FA),
-            column_surface,
         )
     } else {
-        // Light surfaces: ground 6.5% > chrome/panels 2% (one plane), cards
-        // raised via `elevate` — levels separate instead of stacking grays.
         (
-            mix_towards(terminal_background, raw_color(0x000000), 0.065),
-            raw_color(terminal.foreground),
-            mix_towards(terminal_background, raw_color(0x000000), 0.035),
-            raw_color(terminal.muted_foreground),
-            mix_towards(terminal_background, raw_color(0x000000), 0.10),
-            raw_color(0x000000).opacity(0.055),
-            raw_color(0x000000).opacity(0.085),
-            raw_color(0x000000).opacity(0.075),
-            accent_color.opacity(0.12),
-            accent_color,
-            mix_towards(accent_color, raw_color(0x000000), 0.12),
-            mix_towards(accent_color, raw_color(0x000000), 0.22),
-            raw_color(0xFFFFFF),
-            mix_towards(terminal_background, raw_color(0xFFFFFF), 0.82),
-            mix_towards(terminal_background, raw_color(0x000000), 0.020),
-            mix_towards(terminal_background, raw_color(0x000000), 0.020),
-            mix_towards(terminal_background, raw_color(0x000000), 0.085),
-            mix_towards(terminal_background, raw_color(0x000000), 0.020),
-            terminal_background,
-            mix_towards(terminal_background, raw_color(0x000000), 0.045),
-            mix_towards(terminal_background, raw_color(0x000000), 0.26),
-            raw_color(0x000000).opacity(0.28),
             raw_color(0xDC2626),
             raw_color(0xD97706),
             raw_color(0x16A34A),
             raw_color(0x2563EB),
-            mix_towards(terminal_background, raw_color(0x000000), 0.020),
         )
     };
     let hover_surface = if is_dark {
@@ -734,13 +904,29 @@ fn configure_component_theme(cx: &mut App, terminal: TerminalThemePalette, accen
         raw_color(0x000000).opacity(0.07)
     };
 
+    // Surfaces: every tone comes from the designed app palette.
+    let background = raw_color(app.ground);
+    let foreground = raw_color(app.text);
+    let muted = raw_color(app.muted);
+    let muted_foreground = raw_color(app.text_dim);
+    let border = raw_color(app.border);
+    let border_soft = raw_color(app.border_soft);
+    let popover = raw_color(app.elevated);
+    let sidebar = raw_color(app.panel);
+    let header = raw_color(app.header);
+    let row_hover = raw_color(app.row_hover);
+    let title_bar = raw_color(app.status_bar);
+    let tab = raw_color(app.ground);
+    let tab_bar = raw_color(app.header);
+    let scrollbar_thumb = mix_towards(border, muted_foreground, 0.45);
+    let task_column = raw_color(app.column);
+    let panel_surface = raw_color(app.panel);
+    let card_surface = raw_color(app.card);
+    let text = raw_color(app.text);
+    let text_muted = raw_color(app.text_muted);
+
     set_dynamic_color(&DYNAMIC_BG, rgba_to_u32(background));
     set_dynamic_color(&DYNAMIC_BG_ELEVATED, rgba_to_u32(popover));
-    let panel_surface = if is_dark {
-        mix_towards(terminal_background, raw_color(0xFFFFFF), 0.055)
-    } else {
-        mix_towards(terminal_background, raw_color(0x000000), 0.020)
-    };
     set_dynamic_color(&DYNAMIC_BG_PANEL, rgba_to_u32(panel_surface));
     set_dynamic_color(&DYNAMIC_BG_TERMINAL, terminal.background);
     set_dynamic_color(&DYNAMIC_BG_COLUMN, rgba_to_u32(task_column));
@@ -748,9 +934,9 @@ fn configure_component_theme(cx: &mut App, terminal: TerminalThemePalette, accen
     set_dynamic_color(&DYNAMIC_BG_ROW_HOVER, rgba_to_u32(row_hover));
     set_dynamic_color(&DYNAMIC_BG_ROW_ACTIVE, rgba_to_u32(accent_bg));
     set_dynamic_color(&DYNAMIC_BORDER, rgba_to_u32(border));
-    set_dynamic_color(&DYNAMIC_BORDER_SOFT, rgba_to_u32(border));
-    set_dynamic_color(&DYNAMIC_TEXT, terminal.foreground);
-    set_dynamic_color(&DYNAMIC_TEXT_MUTED, terminal.muted_foreground);
+    set_dynamic_color(&DYNAMIC_BORDER_SOFT, rgba_to_u32(border_soft));
+    set_dynamic_color(&DYNAMIC_TEXT, rgba_to_u32(text));
+    set_dynamic_color(&DYNAMIC_TEXT_MUTED, rgba_to_u32(text_muted));
     set_dynamic_color(&DYNAMIC_TEXT_DIM, rgba_to_u32(muted_foreground));
     set_dynamic_color(&DYNAMIC_ACCENT, accent_hex);
     // Keep the semantic triad mode-aware so `color(GREEN/ORANGE/RED)` callers
@@ -778,7 +964,6 @@ fn configure_component_theme(cx: &mut App, terminal: TerminalThemePalette, accen
     theme.button_primary_foreground = theme.primary_foreground;
     // One raised-card tone for every rest-state control surface — sidebar and
     // settings cards, secondary buttons/pills, and the segmented tab track.
-    let card_surface = elevate(sidebar, if is_dark { 0.07 } else { 0.06 });
     theme.secondary = card_surface;
     theme.secondary_hover = hover_surface;
     theme.secondary_foreground = foreground;
@@ -885,4 +1070,66 @@ fn configure_component_theme(cx: &mut App, terminal: TerminalThemePalette, accen
     theme.accordion_hover = hover_surface;
     theme.overlay = overlay;
     theme.window_border = border;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const CODUX_DARK_THEMES: [&str; 8] = [
+        "Codux Dark",
+        "Deep Ocean",
+        "Arctic Night",
+        "Forest Night",
+        "Ember",
+        "Amethyst Dusk",
+        "Rose Noir",
+        "Carbon",
+    ];
+    const CODUX_LIGHT_THEMES: [&str; 8] = [
+        "Codux Light",
+        "Glacier",
+        "Morning Mist",
+        "Matcha",
+        "Ivory",
+        "Lavender",
+        "Rosewater",
+        "Sandstone",
+    ];
+
+    #[test]
+    fn codux_collection_has_app_and_terminal_palettes() {
+        for (names, expect_light) in [(CODUX_DARK_THEMES, false), (CODUX_LIGHT_THEMES, true)] {
+            for name in names {
+                let terminal = terminal_theme_palette(name);
+                assert_eq!(terminal.is_light, expect_light, "{name}");
+                assert_ne!(terminal.background, terminal.foreground, "{name}");
+                let app = app_theme_palette(&normalize_theme_name(name))
+                    .unwrap_or_else(|| panic!("{name} missing app palette"));
+                // Text must contrast its ground in the designed direction.
+                let luma = |hex: u32| {
+                    0.2126 * ((hex >> 16) & 0xFF) as f32
+                        + 0.7152 * ((hex >> 8) & 0xFF) as f32
+                        + 0.0722 * (hex & 0xFF) as f32
+                };
+                let ground = luma(app.ground);
+                assert_eq!(ground > 128.0, expect_light, "{name} ground");
+                assert!((luma(app.text) - ground).abs() > 90.0, "{name} contrast");
+            }
+        }
+    }
+
+    #[test]
+    fn auto_theme_resolves_codux_flagships() {
+        let dark = terminal_theme_palette_for_appearance("Auto", WindowAppearance::Dark);
+        assert_eq!(dark.background, terminal_theme_palette("Codux Dark").background);
+        let light = terminal_theme_palette_for_appearance("Auto", WindowAppearance::Light);
+        assert!(light.is_light);
+        // Legacy persisted names fall back to the flagship dark palette.
+        let fallback = app_theme_palette_for_appearance("Dracula", WindowAppearance::Dark);
+        assert_eq!(
+            fallback.ground,
+            app_theme_palette("codux dark").expect("flagship").ground
+        );
+    }
 }
