@@ -1250,6 +1250,7 @@ impl CoduxApp {
             self.state.ai_runtime_state = self
                 .runtime_service
                 .summarize_ai_runtime_state_snapshot(&live_ai_snapshot);
+            self.sync_pane_agent_lifecycle();
             self.state.refresh_ai_history_stats();
             ai_activity_changed = super::ai_runtime_status::ai_activity_project_states_changed(
                 &previous_project_states,
@@ -1393,6 +1394,7 @@ impl CoduxApp {
         self.state.ai_runtime_state = self
             .runtime_service
             .summarize_ai_runtime_state_snapshot(&live_ai_snapshot);
+        self.sync_pane_agent_lifecycle();
         self.state.refresh_ai_history_stats();
         let ai_activity_changed = super::ai_runtime_status::ai_activity_project_states_changed(
             &previous_project_states,
@@ -1856,6 +1858,7 @@ impl CoduxApp {
         self.state.ai_runtime_state = self
             .runtime_service
             .summarize_ai_runtime_state_snapshot(&snapshot);
+        self.sync_pane_agent_lifecycle();
         self.state.refresh_ai_history_stats();
         self.refresh_dock_badge_now(cx);
         self.sync_project_activity_state(cx);
