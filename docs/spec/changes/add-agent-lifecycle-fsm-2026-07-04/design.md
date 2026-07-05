@@ -46,6 +46,10 @@ Sibling projects solve this differently:
 ### Decision: No `Exited` state
 - **Rationale**: When an agent session unbinds (CLI exits, session pruned from inventory), the pane's lifecycle entry is removed and the chip hides — a dedicated `Exited` state would never render because the chip requires a bound session.
 
+### Decision: Pane lifecycle changes drive task-column invalidation directly
+- **Rationale**: The task column was previously invalidated only when the project-level activity summary changed (`ai_activity_project_states_changed` compares project phases/totals, not per-pane session states), so a pane's state change often never re-rendered the rows — the v2 indicator never lit up in practice. `sync_pane_agent_lifecycle` now returns whether any pane's state changed, and both runtime tick paths invalidate the task column on it. The fast tick's no-events early return also ticks the lifecycle map so timer transitions (Completed decay) render on time.
+- **Alternative considered**: Widening `ai_activity_project_states_changed` to compare session states. Rejected — it feeds project-level consumers (pet, project column) that don't care about pane states and would re-render more than needed.
+
 ## Risks / Trade-offs
 
 - **Poll-interval latency**: The FSM updates on each runtime inventory refresh, not on every screen change. Sub-second responsiveness would require tapping `ScreenSignal` directly (runtime change). Acceptable for v1 — the existing poll is already fast enough for `AIActivityState`.

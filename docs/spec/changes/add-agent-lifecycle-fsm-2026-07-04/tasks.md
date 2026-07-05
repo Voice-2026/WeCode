@@ -1,6 +1,6 @@
 ---
 created_at: 2026-07-04T00:00:00Z
-updated_at: 2026-07-04T23:45:00Z
+updated_at: 2026-07-05T00:30:00Z
 completed_at:
 ---
 
@@ -82,3 +82,13 @@ completed_at:
 - [x] 8.4 Add `lifecycle: Option<AgentLifecycleState>` to `TaskTerminalRow`, built in `task_terminal_list_snapshot()` from `pane_agent_lifecycle` (None for collapsed rows / no session)
 - [x] 8.5 Render the status dot in `terminal_compact_row()` (spinning blue `Working` with reduce-motion fallback, static amber `Waiting`, green check `Completed`, nothing for `Idle`/None), placed before the subtitle
 - [ ] 8.6 Re-run `cargo check` + `cargo test -p codux`; manual test replaces 7.2: row dot spins while agent works, turns amber on prompt, brief green check on completion
+
+## 9. Fix: rows never refresh on lifecycle change (v2 field report: indicator never lights up)
+
+- [x] 9.1 Make `sync_pane_agent_lifecycle` return `bool` — true when any pane's `state` changed during the tick or a non-`Idle` entry was pruned (`agent_lifecycle.rs`)
+- [x] 9.2 In `apply_runtime_activity_tick` (`ssh_remote_actions.rs`): always tick the lifecycle map when it is non-empty (even when `should_refresh_ai_state` is false), invalidate the task column when the sync reports a change, and include that change in the tick result's `changed`
+- [x] 9.3 In `apply_ai_runtime_activity_tick` (`ssh_remote_actions.rs`): on the no-events early return, still tick lifecycle timers when the map is non-empty; when the sync reports a change, invalidate the task column and return `changed: true`; same capture + invalidate on the main path
+- [x] 9.4 Adjust remaining `sync_pane_agent_lifecycle` call sites (`runtime_actions.rs`, `pet_actions.rs`, other `ssh_remote_actions.rs` sites) for the new return type
+- [x] 9.5 Tint the row's `CommandLine` icon with the lifecycle color when non-idle (`task_column.rs` `terminal_compact_row`): `Working` → `theme::ACCENT`, `Waiting` → `theme::ORANGE`, `Completed` → `theme::GREEN`; default muted color when `Idle`/no session (add an `agent_lifecycle_color` helper in `agent_display.rs`)
+- [x] 9.6 Unit test: sync change detection (state change → true, steady state → false, prune of non-idle entry → true)
+- [ ] 9.7 Re-run `cargo check -p codux` + `cargo test -p codux`; manual test: row icon + dot light up while agent works, amber on prompt, green check decays after ~3s without further events

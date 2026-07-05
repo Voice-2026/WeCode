@@ -97,7 +97,7 @@ impl CoduxApp {
         self.state.ai_runtime_state = self
             .runtime_service
             .summarize_ai_runtime_state_snapshot(&snapshot);
-        self.sync_pane_agent_lifecycle();
+        let _ = self.sync_pane_agent_lifecycle();
         self.state.refresh_ai_history_stats();
     }
 

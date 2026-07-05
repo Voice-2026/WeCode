@@ -108,23 +108,56 @@ impl PaneAgentLifecycle {
     }
 }
 
+fn pane_lifecycle_sync_entry_changed(
+    existed_before: bool,
+    state_before_tick: AgentLifecycleState,
+    state_after_tick: AgentLifecycleState,
+) -> bool {
+    if existed_before {
+        state_before_tick != state_after_tick
+    } else {
+        state_after_tick != AgentLifecycleState::Idle
+    }
+}
+
+fn pane_lifecycle_prune_changed(state: AgentLifecycleState) -> bool {
+    state != AgentLifecycleState::Idle
+}
+
 impl CoduxApp {
-    pub(in crate::app) fn sync_pane_agent_lifecycle(&mut self) {
+    pub(in crate::app) fn sync_pane_agent_lifecycle(&mut self) -> bool {
         let now = Instant::now();
         let sessions = &self.state.ai_runtime_state.sessions;
+        let mut changed = false;
 
         for session in sessions {
             let input = AgentLifecycleState::from_session_state(&session.state);
-            self.pane_agent_lifecycle
-                .entry(session.terminal_id.clone())
-                .or_insert_with(|| PaneAgentLifecycle::new(now))
-                .tick(input, now);
+            let terminal_id = session.terminal_id.clone();
+            let existed_before = self.pane_agent_lifecycle.contains_key(&terminal_id);
+            let entry = self
+                .pane_agent_lifecycle
+                .entry(terminal_id)
+                .or_insert_with(|| PaneAgentLifecycle::new(now));
+            let state_before_tick = entry.state;
+            entry.tick(input, now);
+            if pane_lifecycle_sync_entry_changed(existed_before, state_before_tick, entry.state) {
+                changed = true;
+            }
         }
 
         let active_terminal_ids: HashSet<&str> =
             sessions.iter().map(|session| session.terminal_id.as_str()).collect();
-        self.pane_agent_lifecycle
-            .retain(|terminal_id, _| active_terminal_ids.contains(terminal_id.as_str()));
+        self.pane_agent_lifecycle.retain(|terminal_id, entry| {
+            if active_terminal_ids.contains(terminal_id.as_str()) {
+                true
+            } else {
+                if pane_lifecycle_prune_changed(entry.state) {
+                    changed = true;
+                }
+                false
+            }
+        });
+        changed
     }
 }
 
@@ -272,5 +305,38 @@ mod tests {
         let t4 = t3 + Duration::from_millis(3000);
         lifecycle.tick(AgentLifecycleState::from_session_state("idle"), t4);
         assert_eq!(lifecycle.state, AgentLifecycleState::Idle);
+    }
+
+    #[test]
+    fn sync_entry_changed_on_session_state_transition() {
+        let base = base_instant();
+        let mut lifecycle = PaneAgentLifecycle::new(base);
+        let before = lifecycle.state;
+        lifecycle.tick(Some(AgentLifecycleInput::Busy), base);
+        assert!(pane_lifecycle_sync_entry_changed(
+            false,
+            before,
+            lifecycle.state,
+        ));
+    }
+
+    #[test]
+    fn sync_entry_unchanged_on_steady_state() {
+        let base = base_instant();
+        let mut lifecycle = PaneAgentLifecycle::new(base);
+        lifecycle.tick(Some(AgentLifecycleInput::Busy), base);
+        let before = lifecycle.state;
+        lifecycle.tick(AgentLifecycleState::from_session_state("responding"), base);
+        assert!(!pane_lifecycle_sync_entry_changed(
+            true,
+            before,
+            lifecycle.state,
+        ));
+    }
+
+    #[test]
+    fn sync_prune_changed_for_non_idle() {
+        assert!(pane_lifecycle_prune_changed(AgentLifecycleState::Working));
+        assert!(!pane_lifecycle_prune_changed(AgentLifecycleState::Idle));
     }
 }

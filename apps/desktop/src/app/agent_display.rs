@@ -6,6 +6,15 @@ use gpui::{Animation, AnimationExt as _, Transformation, ease_in_out, percentage
 use super::ai_runtime_status::AgentLifecycleState;
 use super::*;
 
+pub(in crate::app) fn agent_lifecycle_color(state: AgentLifecycleState) -> gpui::Hsla {
+    match state {
+        AgentLifecycleState::Working => color(theme::ACCENT),
+        AgentLifecycleState::Waiting => color(theme::ORANGE),
+        AgentLifecycleState::Completed => color(theme::GREEN),
+        AgentLifecycleState::Idle => color(theme::TEXT_DIM),
+    }
+}
+
 pub(in crate::app) fn reduce_motion_enabled() -> bool {
     static ENABLED: OnceLock<bool> = OnceLock::new();
     *ENABLED.get_or_init(detect_reduce_motion)

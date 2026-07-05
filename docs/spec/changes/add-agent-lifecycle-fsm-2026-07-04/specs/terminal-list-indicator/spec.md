@@ -34,6 +34,28 @@ The system SHALL render the row status dot according to the terminal's current `
 - **THEN** a green checkmark SHALL appear on the row
 - **AND** when the state decays to `Idle` after 3 seconds the checkmark SHALL disappear
 
+### Requirement: Terminal Row Icon Tint
+The system SHALL tint the terminal row's leading terminal icon (`HeroIconName::CommandLine`) with the lifecycle state color while the agent is not `Idle`: blue (`theme::ACCENT`) for `Working`, amber (`theme::ORANGE`) for `Waiting`, green (`theme::GREEN`) for `Completed`. When the state is `Idle` or no session is bound, the icon keeps its default muted color. This makes the row "light up" so the state is visible even at a glance from the icon alone.
+
+#### Scenario: Icon lights up while agent works
+- **WHEN** the row's `AgentLifecycleState` is `Working`
+- **THEN** the row's terminal icon SHALL be tinted blue (`theme::ACCENT`)
+
+#### Scenario: Icon returns to default when idle
+- **WHEN** the row's lifecycle state is `Idle` or the session unbinds
+- **THEN** the row's terminal icon SHALL render in its default muted color
+
+### Requirement: Lifecycle-Driven Row Refresh
+The system SHALL re-render the task column terminal rows whenever any pane's `AgentLifecycleState` changes — independent of whether the project-level activity summary (`ai_activity_project_states_changed`) changed. Lifecycle timer transitions (Completed decay, idle debounce) SHALL also be ticked and rendered on the periodic runtime tick even when no runtime supervisor events were drained.
+
+#### Scenario: Row updates on pane-only state change
+- **WHEN** a session's state changes (e.g. `responding` → `needsInput`) without changing the project-level activity summary
+- **THEN** the task column SHALL be invalidated and the row indicator SHALL reflect the new state on the next render
+
+#### Scenario: Completed checkmark decays without new events
+- **WHEN** a pane is in `Completed` and no runtime events arrive for 3 seconds
+- **THEN** the decay timer SHALL fire on a periodic tick and the checkmark SHALL disappear
+
 ### Requirement: Motion Reduction Support
 The system SHALL disable the spinning/pulsing animation on the status dot when the operating system's "reduce motion" accessibility setting is enabled, showing a static dot instead.
 

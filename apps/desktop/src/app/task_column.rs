@@ -1,6 +1,6 @@
 use gpui_component::{InteractiveElementExt as _, menu::ContextMenuExt as _};
 
-use super::agent_display::agent_lifecycle_status_dot;
+use super::agent_display::{agent_lifecycle_color, agent_lifecycle_status_dot};
 use super::ai_runtime_status::{AIActivityState, AgentLifecycleState};
 use super::scroll_compat::codux_uniform_list_with_sizing;
 use super::ui_helpers::{codux_tooltip_container, titlebar_drag_area};
@@ -978,6 +978,10 @@ fn terminal_compact_row(
     } else {
         cx.theme().muted_foreground
     };
+    let terminal_icon_color = match terminal.lifecycle {
+        Some(state) if state != AgentLifecycleState::Idle => agent_lifecycle_color(state),
+        _ => icon_color,
+    };
     let title_color = if collapsed {
         color(theme::TEXT_DIM)
     } else {
@@ -1014,7 +1018,7 @@ fn terminal_compact_row(
             Icon::new(HeroIconName::CommandLine)
                 .size_3p5()
                 .flex_none()
-                .text_color(icon_color),
+                .text_color(terminal_icon_color),
         )
         .child(
             div()
