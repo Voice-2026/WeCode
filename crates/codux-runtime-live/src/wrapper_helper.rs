@@ -51,6 +51,7 @@ pub fn handle_args(args: &[String]) -> Result<bool, String> {
         "claude-memory-context" => print_claude_memory_context(),
         "ssh-list-profiles" => print_ssh_profiles(),
         "ssh-profile-shell" => print_ssh_profile_shell(),
+        "scp-profile-shell" => print_scp_profile_shell(),
         "db-list-profiles" => print_db_profiles(),
         "db-query" => print_db_query(),
         _ => return Err(format!("unknown wrapper helper subcommand: {subcommand}")),
@@ -268,7 +269,17 @@ fn print_ssh_profiles() -> Result<(), String> {
     Ok(())
 }
 
-fn print_ssh_profile_shell() -> Result<(), String> {
+struct ResolvedSshProfile {
+    host: String,
+    username: String,
+    port: u16,
+    credential_kind: String,
+    private_key_path: String,
+    password: String,
+    key_passphrase: String,
+}
+
+fn resolve_ssh_profile() -> Result<(String, ResolvedSshProfile), String> {
     let profile_id = env_value("CODUX_SSH_PROFILE_ID").to_ascii_lowercase();
     let path = env_value("CODUX_SSH_PROFILES_FILE");
     let root = read_json_file(&path)
@@ -284,9 +295,7 @@ fn print_ssh_profile_shell() -> Result<(), String> {
     if host.is_empty() || username.is_empty() {
         return Err("codux-ssh: SSH profile is missing host or username".to_string());
     }
-    let port = port_field(profile);
     let credential_kind = string_field(profile, "credentialKind");
-    let private_key_path = string_field(profile, "privateKeyPath");
     let password = if credential_kind == "password" {
         string_field(profile, "password")
     } else {
@@ -297,7 +306,34 @@ fn print_ssh_profile_shell() -> Result<(), String> {
     } else {
         String::new()
     };
-    let mut ssh_args = vec!["ssh".to_string(), "-p".to_string(), port.to_string()];
+    Ok((
+        profile_id,
+        ResolvedSshProfile {
+            host,
+            username,
+            port: port_field(profile),
+            credential_kind,
+            private_key_path: string_field(profile, "privateKeyPath"),
+            password,
+            key_passphrase,
+        },
+    ))
+}
+
+// Accept a new host key without the first-connect yes/no prompt (still rejects a CHANGED key), and bound the dial — a headless caller has no TTY to answer either.
+fn ssh_hardening_options() -> [String; 4] {
+    [
+        "-o".to_string(),
+        "StrictHostKeyChecking=accept-new".to_string(),
+        "-o".to_string(),
+        "ConnectTimeout=15".to_string(),
+    ]
+}
+
+fn print_ssh_profile_shell() -> Result<(), String> {
+    let (profile_id, profile) = resolve_ssh_profile()?;
+    let mut ssh_args = vec!["ssh".to_string(), "-p".to_string(), profile.port.to_string()];
+    ssh_args.extend(ssh_hardening_options());
     if let Some(control_path) = ssh_control_path(&profile_id) {
         ssh_args.extend([
             "-o".to_string(),
@@ -308,16 +344,42 @@ fn print_ssh_profile_shell() -> Result<(), String> {
             "ControlPersist=300".to_string(),
         ]);
     }
-    if credential_kind == "privateKey" && !private_key_path.is_empty() {
+    if profile.credential_kind == "privateKey" && !profile.private_key_path.is_empty() {
         ssh_args.push("-i".to_string());
-        ssh_args.push(expand_home(&private_key_path));
+        ssh_args.push(expand_home(&profile.private_key_path));
     }
-    ssh_args.push(format!("{username}@{host}"));
-    println!("ssh_password={}", shell_quote(&password));
-    println!("ssh_key_passphrase={}", shell_quote(&key_passphrase));
+    ssh_args.push(format!("{}@{}", profile.username, profile.host));
+    println!("ssh_password={}", shell_quote(&profile.password));
+    println!("ssh_key_passphrase={}", shell_quote(&profile.key_passphrase));
     println!(
         "ssh_args=({})",
         ssh_args
+            .iter()
+            .map(|value| shell_quote(value))
+            .collect::<Vec<_>>()
+            .join(" ")
+    );
+    Ok(())
+}
+
+fn print_scp_profile_shell() -> Result<(), String> {
+    let (_profile_id, profile) = resolve_ssh_profile()?;
+    // scp takes the port as -P (uppercase); the host is a path prefix, not a trailing arg.
+    let mut scp_args = vec!["scp".to_string(), "-P".to_string(), profile.port.to_string()];
+    scp_args.extend(ssh_hardening_options());
+    if profile.credential_kind == "privateKey" && !profile.private_key_path.is_empty() {
+        scp_args.push("-i".to_string());
+        scp_args.push(expand_home(&profile.private_key_path));
+    }
+    println!("ssh_password={}", shell_quote(&profile.password));
+    println!("ssh_key_passphrase={}", shell_quote(&profile.key_passphrase));
+    println!(
+        "ssh_remote={}",
+        shell_quote(&format!("{}@{}", profile.username, profile.host))
+    );
+    println!(
+        "scp_args=({})",
+        scp_args
             .iter()
             .map(|value| shell_quote(value))
             .collect::<Vec<_>>()

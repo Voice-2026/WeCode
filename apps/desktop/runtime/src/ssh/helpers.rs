@@ -43,6 +43,9 @@ pub(super) fn render_ssh_launch_context_for_profiles(
             "When a matching saved profile exists, run `{codux_ssh_command} <profile-id> -- '<remote-command>'` for one-off remote commands."
         ),
         format!(
+            "Transfer files with `{codux_ssh_command} scp <profile-id> <src> <dst>`, marking the remote side with a leading ':' (e.g. `:/etc/hosts`)."
+        ),
+        format!(
             "Use `{codux_ssh_command} <profile-id>` only when the user explicitly asks to open an interactive SSH session."
         ),
         "Do not grep the repository or inspect Codux config files to discover saved SSH hosts; use the wrapper list command.".to_string(),

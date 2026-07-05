@@ -342,3 +342,109 @@ fn codux_ssh_without_control_path_uses_expect_fallback_for_password_auth() {
 
     fs::remove_dir_all(dir).ok();
 }
+
+#[cfg(not(windows))]
+#[test]
+fn codux_ssh_scp_expands_remote_colon_path_and_invokes_scp() {
+    use std::os::unix::fs::PermissionsExt;
+    use std::process::Command;
+
+    let dir = std::env::temp_dir().join(format!("codux-ssh-scp-{}", Uuid::new_v4()));
+    let bin = dir.join("bin");
+    fs::create_dir_all(&bin).unwrap();
+    let args_file = dir.join("scp-args.txt");
+
+    // Key auth (no password) → the wrapper exec's scp directly; the fake records argv.
+    let fake_scp = bin.join("scp");
+    fs::write(
+        &fake_scp,
+        format!(
+            "#!/bin/sh\n\
+             : > '{args}'\n\
+             for arg in \"$@\"; do printf '%s\\n' \"$arg\" >> '{args}'; done\n\
+             exit 0\n",
+            args = args_file.display()
+        ),
+    )
+    .unwrap();
+
+    let key = dir.join("id_key");
+    fs::write(&key, "KEY").unwrap();
+    let profiles = dir.join("ssh_profiles.json");
+    fs::write(
+        &profiles,
+        serde_json::json!([{
+            "id": "profile-1",
+            "name": "Test",
+            "host": "example.com",
+            "port": 2222,
+            "username": "root",
+            "credentialKind": "privateKey",
+            "privateKeyPath": key.to_string_lossy(),
+            "keyPassphrase": "",
+            "updatedAt": 1
+        }])
+        .to_string(),
+    )
+    .unwrap();
+
+    let source_wrappers = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("runtime-assets/scripts/wrappers");
+    let staged_wrappers = dir.join("runtime-assets/scripts/wrappers");
+    let staged_bin = staged_wrappers.join("bin");
+    fs::create_dir_all(&staged_bin).unwrap();
+    let wrapper = staged_bin.join("codux-ssh");
+    fs::copy(source_wrappers.join("bin/codux-ssh"), &wrapper).unwrap();
+    let helper = staged_wrappers.join("codux-wrapper-helper");
+    fs::write(
+        &helper,
+        format!(
+            "#!/bin/sh\n\
+             if [ \"$1\" != \"--codux-wrapper-helper\" ]; then exit 64; fi\n\
+             case \"$2\" in\n\
+               scp-profile-shell)\n\
+                 printf '%s\\n' \"ssh_password=''\" \"ssh_key_passphrase=''\" \"ssh_remote='root@example.com'\" 'scp_args=(scp -P 2222 -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -i {key})'\n\
+                 ;;\n\
+               *) exit 64 ;;\n\
+             esac\n",
+            key = key.display()
+        ),
+    )
+    .unwrap();
+
+    for executable in [&fake_scp, &wrapper, &helper] {
+        let mut permissions = fs::metadata(executable).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(executable, permissions).unwrap();
+    }
+
+    let output = Command::new("zsh")
+        .arg(&wrapper)
+        .arg("scp")
+        .arg("profile-1")
+        .arg(":/remote/file.log")
+        .arg("./local.log")
+        .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+        .env("CODUX_SSH_PROFILES_FILE", &profiles)
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "codux-ssh scp should succeed, stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let recorded = fs::read_to_string(&args_file).unwrap_or_default();
+    // Remote side expanded to user@host:path; local side untouched; key + hardening carried through.
+    assert!(
+        recorded.contains("root@example.com:/remote/file.log"),
+        "{recorded}"
+    );
+    assert!(recorded.contains("./local.log"), "{recorded}");
+    assert!(recorded.contains("StrictHostKeyChecking=accept-new"), "{recorded}");
+    assert!(recorded.lines().any(|line| line == "-i"), "{recorded}");
+
+    fs::remove_dir_all(dir).ok();
+}

@@ -59,6 +59,8 @@ expect {
 }
 
 if {$noninteractive} {
+    # Wait out the whole command (handoff_timeout is only for the interactive handoff) so slow/large output isn't truncated or deadlocked.
+    set timeout -1
     expect eof
     catch wait wait_result
     if {[info exists wait_result] && [llength $wait_result] >= 4} {
