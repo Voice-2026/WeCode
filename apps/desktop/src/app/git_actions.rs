@@ -2051,61 +2051,6 @@ impl CoduxApp {
         );
     }
 
-    pub(super) fn push_project_git_remote_branch(
-        &mut self,
-        remote_branch: String,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(project) = &self.state.selected_project else {
-            self.status_message = "no selected project for Git remote branch push".to_string();
-            self.invalidate_git_panel(cx);
-            return;
-        };
-        if self.git_running_operation.is_some() {
-            self.status_message = "Git remote operation is already running".to_string();
-            self.invalidate_git_panel(cx);
-            return;
-        }
-
-        let project_id = project.id.clone();
-        let project_path = project.path.clone();
-        let local_branch = self.state.git.branch.trim().to_string();
-        let local_branch = if local_branch.is_empty() || local_branch == "HEAD" {
-            None
-        } else {
-            Some(local_branch)
-        };
-        let action = format!("push-branch:{remote_branch}");
-        let service = self.runtime_service.clone();
-        self.git_running_operation = Some(GitRunningOperation {
-            label: action.clone(),
-            cancellable: true,
-        });
-        self.status_message = format!("Git push to {remote_branch} started");
-        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let worker_project_path = project_path.clone();
-            let worker_remote_branch = remote_branch.clone();
-            let worker_local_branch = local_branch.clone();
-            let result = codux_runtime::async_runtime::spawn_blocking(move || {
-                service.push_project_git_remote_branch(
-                    &worker_project_path,
-                    &worker_remote_branch,
-                    worker_local_branch.as_deref(),
-                )
-            })
-            .await
-            .map_err(|error| error.to_string())
-            .and_then(|result| result);
-
-            let _ = this.update(cx, |app, cx| {
-                app.apply_project_git_remote_result(project_id, project_path, action, result, cx);
-            });
-        })
-        .detach();
-        self.invalidate_git_panel(cx);
-    }
-
     pub(super) fn checkout_git_commit(
         &mut self,
         commit: String,

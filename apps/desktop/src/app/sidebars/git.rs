@@ -1,5 +1,6 @@
 use super::*;
 use crate::app::ui_helpers::codux_tooltip_container;
+use crate::app::quick_pick::{QuickPickItem, show_quick_pick};
 use codux_runtime::git::GitReviewFile;
 use gpui::{ClickEvent, Div, ListSizingBehavior, Pixels, Stateful};
 use gpui_component::{
@@ -583,349 +584,114 @@ fn git_branch_dropdown_menu(
     app_entity: gpui::Entity<CoduxApp>,
 ) -> PopupMenu {
     let labels = Rc::new(GitBranchMenuLabels::load(&language));
-    let create_entity = app_entity.clone();
-    let menu = menu
-        .item(
-            PopupMenuItem::new(labels.new_branch.clone())
-                .icon(HeroIconName::Plus)
-                .on_click(move |_, window, cx| {
-                    cx.update_entity(&create_entity, |app, cx| {
-                        app.create_git_branch(window, cx);
-                    });
-                }),
-        )
-        .separator();
-
-    let local_branches = branches.clone();
-    let local_entity = app_entity.clone();
-    let local_labels = labels.clone();
-    let menu = menu.submenu_with_icon(
-        Some(Icon::new(HeroIconName::ArrowPathRoundedSquare)),
-        labels.local_branches.clone(),
-        window,
-        cx,
-        move |menu, window, cx| {
-            if local_branches.is_empty() {
-                return menu.item(
-                    PopupMenuItem::new(local_labels.local_empty.clone())
-                        .icon(HeroIconName::ArrowPathRoundedSquare)
-                        .disabled(true),
-                );
-            }
-
-            local_branches.iter().take(40).fold(menu, |menu, branch| {
-                let branch_name = branch.name.clone();
-                let is_current = branch.is_current;
-                let submenu_entity = local_entity.clone();
-                let submenu_labels = local_labels.clone();
-                menu.submenu_with_icon(
-                    Some(Icon::new(if is_current {
-                        HeroIconName::Check
-                    } else {
-                        HeroIconName::ArrowPathRoundedSquare
-                    })),
-                    branch.name.clone(),
-                    window,
-                    cx,
-                    move |menu, _window, _cx| {
-                        let switch_branch = branch_name.clone();
-                        let switch_entity = submenu_entity.clone();
-                        let merge_branch = branch_name.clone();
-                        let merge_entity = submenu_entity.clone();
-                        let squash_branch = branch_name.clone();
-                        let squash_entity = submenu_entity.clone();
-                        let delete_branch = branch_name.clone();
-                        let delete_entity = submenu_entity.clone();
-
-                        menu.item(
-                            PopupMenuItem::new(submenu_labels.switch_branch.clone())
-                                .icon(HeroIconName::Check)
-                                .disabled(is_current)
-                                .on_click(move |_, window, cx| {
-                                    cx.update_entity(&switch_entity, |app, cx| {
-                                        app.select_git_branch(switch_branch.clone(), window, cx);
-                                        app.checkout_selected_git_branch(window, cx);
-                                    });
-                                }),
-                        )
-                        .separator()
-                        .item(
-                            PopupMenuItem::new(submenu_labels.merge_current.clone())
-                                .icon(HeroIconName::ArrowUturnRight)
-                                .disabled(is_current)
-                                .on_click(move |_, window, cx| {
-                                    cx.update_entity(&merge_entity, |app, cx| {
-                                        app.merge_git_branch(merge_branch.clone(), window, cx);
-                                    });
-                                }),
-                        )
-                        .item(
-                            PopupMenuItem::new(submenu_labels.squash_merge.clone())
-                                .icon(HeroIconName::ArrowPath)
-                                .disabled(is_current)
-                                .on_click(move |_, window, cx| {
-                                    cx.update_entity(&squash_entity, |app, cx| {
-                                        app.squash_merge_git_branch(
-                                            squash_branch.clone(),
-                                            window,
-                                            cx,
-                                        );
-                                    });
-                                }),
-                        )
-                        .separator()
-                        .item(
-                            PopupMenuItem::new(submenu_labels.delete_local.clone())
-                                .icon(HeroIconName::Trash)
-                                .disabled(is_current)
-                                .on_click(move |_, window, cx| {
-                                    cx.update_entity(&delete_entity, |app, cx| {
-                                        app.select_git_branch(delete_branch.clone(), window, cx);
-                                        app.delete_selected_git_branch(window, cx);
-                                    });
-                                }),
-                        )
-                    },
-                )
-            })
-        },
-    );
-
-    let merge_branches = branches.clone();
-    let merge_entity = app_entity.clone();
-    let merge_labels = labels.clone();
-    let menu = menu.submenu(
-        labels.merge_current.clone(),
-        window,
-        cx,
-        move |menu, _window, _cx| {
-            let candidates = merge_branches
-                .iter()
-                .filter(|branch| !branch.is_current)
-                .take(40)
-                .collect::<Vec<_>>();
-            if candidates.is_empty() {
-                return menu.item(
-                    PopupMenuItem::new(merge_labels.merge_empty.clone())
-                        .icon(HeroIconName::ArrowUturnRight)
-                        .disabled(true),
-                );
-            }
-
-            candidates.into_iter().fold(menu, |menu, branch| {
-                let branch_name = branch.name.clone();
-                let app_entity = merge_entity.clone();
-                menu.item(
-                    PopupMenuItem::new(branch.name.clone())
-                        .icon(HeroIconName::ArrowUturnRight)
-                        .on_click(move |_, window, cx| {
-                            cx.update_entity(&app_entity, |app, cx| {
-                                app.merge_git_branch(branch_name.clone(), window, cx);
-                            });
-                        }),
-                )
-            })
-        },
-    );
-
-    let remote_items = remotes.clone();
-    let remote_entity = app_entity.clone();
-    let default_remote = default_push_remote.clone();
-    let push_to_default_remote = default_push_remote.clone();
-    let remote_labels = labels.clone();
-    let menu = menu.submenu(
-        labels.remotes.clone(),
-        window,
-        cx,
-        move |menu, window, cx| {
-            let add_entity = remote_entity.clone();
-            let menu = menu.item(
-                PopupMenuItem::new(remote_labels.add_remote.clone())
-                    .icon(HeroIconName::Plus)
-                    .on_click(move |_, window, cx| {
-                        cx.update_entity(&add_entity, |app, cx| {
-                            app.open_git_remote_editor(window, cx);
-                        });
-                    }),
-            );
-
-            if remote_items.is_empty() {
-                return menu.separator().item(
-                    PopupMenuItem::new(remote_labels.no_remotes.clone())
-                        .icon(HeroIconName::GlobeAlt)
-                        .disabled(true),
-                );
-            }
-
-            remote_items.iter().fold(menu, |menu, remote| {
-                let is_default = push_to_default_remote
-                    .as_deref()
-                    .map(|name| name == remote.name)
-                    .unwrap_or(false);
-                let remote_name = remote.name.clone();
-                let remote_url = remote.url.clone();
-                let set_entity = remote_entity.clone();
-                let remove_entity = remote_entity.clone();
-                let item_labels = remote_labels.clone();
-                menu.submenu_with_icon(
-                    Some(Icon::new(if is_default {
-                        HeroIconName::Check
-                    } else {
-                        HeroIconName::GlobeAlt
-                    })),
-                    remote.name.clone(),
-                    window,
-                    cx,
-                    move |menu, _window, _cx| {
-                        let set_remote = remote_name.clone();
-                        let set_entity = set_entity.clone();
-                        let remove_remote = remote_name.clone();
-                        let remove_entity = remove_entity.clone();
-                        let copy_url = remote_url.clone();
-
-                        menu.item(
-                            PopupMenuItem::new(item_labels.set_default.clone())
-                                .icon(HeroIconName::Check)
-                                .checked(is_default)
-                                .on_click(move |_, window, cx| {
-                                    let next_remote = if is_default {
-                                        None
-                                    } else {
-                                        Some(set_remote.clone())
-                                    };
-                                    cx.update_entity(&set_entity, |app, cx| {
-                                        app.set_project_default_push_remote(
-                                            next_remote,
-                                            window,
-                                            cx,
-                                        );
-                                    });
-                                }),
-                        )
-                        .separator()
-                        .item(
-                            PopupMenuItem::new(item_labels.copy_url.clone())
-                                .icon(HeroIconName::DocumentDuplicate)
-                                .on_click(move |_, _window, cx| {
-                                    cx.write_to_clipboard(ClipboardItem::new_string(
-                                        copy_url.clone(),
-                                    ));
-                                }),
-                        )
-                        .item(
-                            PopupMenuItem::new(item_labels.remove_remote.clone())
-                                .icon(HeroIconName::Trash)
-                                .on_click(move |_, window, cx| {
-                                    cx.update_entity(&remove_entity, |app, cx| {
-                                        app.remove_project_git_remote(
-                                            remove_remote.clone(),
-                                            window,
-                                            cx,
-                                        );
-                                    });
-                                }),
-                        )
-                    },
-                )
-            })
-        },
-    );
-
-    let remote_branch_items = remote_branches.clone();
-    let remote_branch_groups = group_remote_branches(&remote_branch_items, upstream.as_deref());
-    let remote_branch_entity = app_entity.clone();
     let has_remotes = !remotes.is_empty();
     let can_use_current_branch_remote = upstream.is_some()
         && current_branch != "HEAD"
         && current_branch != "uninitialized"
         && !current_branch.trim().is_empty();
-    let remote_branch_labels = labels.clone();
-    let menu = menu.submenu(
-        labels.remote_branches.clone(),
-        window,
-        cx,
-        move |menu, window, cx| {
-            let fetch_entity = remote_branch_entity.clone();
-            let menu = menu.item(
-                PopupMenuItem::new(remote_branch_labels.refresh_remote_branches.clone())
-                    .icon(HeroIconName::ArrowPath)
-                    .disabled(!has_remotes)
-                    .on_click(move |_, window, cx| {
-                        cx.update_entity(&fetch_entity, |app, cx| {
-                            app.fetch_project_git(window, cx);
-                        });
-                    }),
-            );
 
-            if remote_branch_groups.is_empty() {
-                return menu.separator().item(
-                    PopupMenuItem::new(remote_branch_labels.remote_branches_empty.clone())
-                        .icon(HeroIconName::ArrowDown)
-                        .disabled(true),
-                );
-            }
+    // Non-current local branches — candidates for merge / squash / delete.
+    let other_local: Vec<GitBranchSummary> =
+        branches.iter().filter(|branch| !branch.is_current).cloned().collect();
 
-            remote_branch_groups
-                .iter()
-                .fold(menu.separator(), |menu, group| {
-                    let group = group.clone();
-                    let group_entity = remote_branch_entity.clone();
-                    let group_labels = remote_branch_labels.clone();
-                    menu.submenu(group.remote.clone(), window, cx, move |menu, window, cx| {
-                        group.branches.iter().fold(menu, |menu, branch| {
-                            let remote_branch = format!("{}/{}", group.remote, branch.name);
-                            let checkout_branch = remote_branch.clone();
-                            let checkout_entity = group_entity.clone();
-                            let push_branch = remote_branch.clone();
-                            let push_entity = group_entity.clone();
-                            let branch_labels = group_labels.clone();
-                            menu.submenu(
-                                branch.name.clone(),
-                                window,
-                                cx,
-                                move |menu, _window, _cx| {
-                                    let checkout_branch = checkout_branch.clone();
-                                    let checkout_entity = checkout_entity.clone();
-                                    let push_branch = push_branch.clone();
-                                    let push_entity = push_entity.clone();
-                                    menu.item(
-                                        PopupMenuItem::new(
-                                            branch_labels.checkout_remote_branch.clone(),
-                                        )
-                                        .icon(HeroIconName::ArrowDown)
-                                        .on_click(
-                                            move |_, window, cx| {
-                                                cx.update_entity(&checkout_entity, |app, cx| {
-                                                    app.checkout_git_remote_branch(
-                                                        checkout_branch.clone(),
-                                                        window,
-                                                        cx,
-                                                    );
-                                                });
-                                            },
-                                        ),
-                                    )
-                                    .item(
-                                        PopupMenuItem::new(branch_labels.push_here.clone())
-                                            .icon(HeroIconName::ArrowUp)
-                                            .on_click(move |_, window, cx| {
-                                                cx.update_entity(&push_entity, |app, cx| {
-                                                    app.push_project_git_remote_branch(
-                                                        push_branch.clone(),
-                                                        window,
-                                                        cx,
-                                                    );
-                                                });
-                                            }),
-                                    )
-                                },
-                            )
-                        })
-                    })
-                })
-        },
+    // + New branch
+    let create_entity = app_entity.clone();
+    let menu = menu.item(
+        PopupMenuItem::new(labels.new_branch.clone())
+            .icon(HeroIconName::Plus)
+            .on_click(move |_, window, cx| {
+                cx.update_entity(&create_entity, |app, cx| app.create_git_branch(window, cx));
+            }),
     );
 
+    // Switch branch — searchable picker over local + remote branches.
+    let checkout_branches = branches.clone();
+    let checkout_remote_refs = remote_branches.clone();
+    let checkout_entity = app_entity.clone();
+    let checkout_placeholder = labels.switch_branch.clone();
+    let menu = menu.separator().item(
+        PopupMenuItem::new(format!("{}…", labels.switch_branch))
+            .icon(HeroIconName::ArrowPathRoundedSquare)
+            .on_click(move |_, window, cx| {
+                let mut items = Vec::new();
+                for branch in &checkout_branches {
+                    let icon = if branch.is_current {
+                        HeroIconName::Check
+                    } else {
+                        HeroIconName::ArrowPathRoundedSquare
+                    };
+                    items.push(
+                        QuickPickItem::new(branch.name.clone(), branch.name.clone())
+                            .icon(Icon::new(icon)),
+                    );
+                }
+                let mut remote_refs = HashSet::new();
+                for reference in &checkout_remote_refs {
+                    let Some((remote, branch)) = reference.split_once('/') else {
+                        continue;
+                    };
+                    if remote.is_empty() || branch.is_empty() || branch == "HEAD" {
+                        continue;
+                    }
+                    if remote_refs.insert(reference.clone()) {
+                        items.push(
+                            QuickPickItem::new(reference.clone(), reference.clone())
+                                .icon(Icon::new(HeroIconName::ArrowDown)),
+                        );
+                    }
+                }
+                let entity = checkout_entity.clone();
+                show_quick_pick(
+                    checkout_placeholder.clone(),
+                    items,
+                    move |id, window, cx| {
+                        let is_remote = remote_refs.contains(id.as_ref());
+                        entity.update(cx, |app, cx| {
+                            if is_remote {
+                                app.checkout_git_remote_branch(id.to_string(), window, cx);
+                            } else {
+                                app.select_git_branch(id.to_string(), window, cx);
+                                app.checkout_selected_git_branch(window, cx);
+                            }
+                        });
+                    },
+                    window,
+                    cx,
+                );
+            }),
+    );
+
+    // Merge / Squash / Delete — each a searchable picker over non-current branches.
+    let menu = menu.separator();
+    let menu = branch_pick_item(
+        menu,
+        format!("{}…", labels.merge_current),
+        HeroIconName::ArrowUturnRight,
+        labels.merge_current.clone(),
+        other_local.clone(),
+        app_entity.clone(),
+        BranchPickAction::Merge,
+    );
+    let menu = branch_pick_item(
+        menu,
+        format!("{}…", labels.squash_merge),
+        HeroIconName::ArrowPath,
+        labels.squash_merge.clone(),
+        other_local.clone(),
+        app_entity.clone(),
+        BranchPickAction::Squash,
+    );
+    let menu = branch_pick_item(
+        menu,
+        format!("{}…", labels.delete_local),
+        HeroIconName::Trash,
+        labels.delete_local.clone(),
+        other_local.clone(),
+        app_entity.clone(),
+        BranchPickAction::Delete,
+    );
+
+    // Fetch / Pull / Push (flat), Push to… (picker over remotes), Force push.
     let fetch_entity = app_entity.clone();
     let pull_entity = app_entity.clone();
     let push_entity = app_entity.clone();
@@ -936,9 +702,7 @@ fn git_branch_dropdown_menu(
                 .icon(HeroIconName::ArrowDown)
                 .disabled(!has_remotes)
                 .on_click(move |_, window, cx| {
-                    cx.update_entity(&fetch_entity, |app, cx| {
-                        app.fetch_project_git(window, cx);
-                    });
+                    cx.update_entity(&fetch_entity, |app, cx| app.fetch_project_git(window, cx));
                 }),
         )
         .item(
@@ -946,90 +710,177 @@ fn git_branch_dropdown_menu(
                 .icon(HeroIconName::ArrowDown)
                 .disabled(!can_use_current_branch_remote)
                 .on_click(move |_, window, cx| {
-                    cx.update_entity(&pull_entity, |app, cx| {
-                        app.pull_project_git(window, cx);
-                    });
+                    cx.update_entity(&pull_entity, |app, cx| app.pull_project_git(window, cx));
                 }),
         )
         .item(
             PopupMenuItem::new(labels.push.clone())
                 .icon(HeroIconName::ArrowUp)
+                .disabled(!can_use_current_branch_remote)
                 .on_click(move |_, window, cx| {
-                    cx.update_entity(&push_entity, |app, cx| {
-                        app.push_project_git(window, cx);
-                    });
-                })
-                .disabled(!can_use_current_branch_remote),
+                    cx.update_entity(&push_entity, |app, cx| app.push_project_git(window, cx));
+                }),
         );
 
-    let push_remotes = remotes.clone();
-    let push_remote_entity = app_entity.clone();
-    let push_to_labels = labels.clone();
-    let menu = menu.submenu(
-        labels.push_to.clone(),
-        window,
-        cx,
-        move |menu, _window, _cx| {
-            if push_remotes.is_empty() {
-                return menu.item(
-                    PopupMenuItem::new(push_to_labels.no_remotes.clone())
-                        .icon(HeroIconName::GlobeAlt)
-                        .disabled(true),
+    // Push to… — searchable picker over remotes.
+    let push_to_remotes = remotes.clone();
+    let push_to_default = default_push_remote.clone();
+    let push_to_entity = app_entity.clone();
+    let push_to_placeholder = labels.push_to.clone();
+    let menu = menu.item(
+        PopupMenuItem::new(format!("{}…", labels.push_to))
+            .icon(HeroIconName::ArrowUp)
+            .disabled(!has_remotes)
+            .on_click(move |_, window, cx| {
+                let items = remote_pick_items(&push_to_remotes, push_to_default.as_deref(), false);
+                let entity = push_to_entity.clone();
+                show_quick_pick(
+                    push_to_placeholder.clone(),
+                    items,
+                    move |id, window, cx| {
+                        entity.update(cx, |app, cx| {
+                            app.push_project_git_remote(id.to_string(), window, cx);
+                        });
+                    },
+                    window,
+                    cx,
                 );
-            }
-
-            push_remotes.iter().fold(menu, |menu, remote| {
-                let is_default = default_remote
-                    .as_deref()
-                    .map(|name| name == remote.name)
-                    .unwrap_or(false);
-                let remote_name = remote.name.clone();
-                let label = if remote.url.trim().is_empty() {
-                    remote.name.clone()
-                } else {
-                    format!("{}\n{}", remote.name, remote.url)
-                };
-                let app_entity = push_remote_entity.clone();
-                menu.item(
-                    PopupMenuItem::new(label)
-                        .icon(if is_default {
-                            HeroIconName::Check
-                        } else {
-                            HeroIconName::ArrowUp
-                        })
-                        .on_click(move |_, window, cx| {
-                            cx.update_entity(&app_entity, |app, cx| {
-                                app.push_project_git_remote(remote_name.clone(), window, cx);
-                            });
-                        }),
-                )
-            })
-        },
+            }),
     );
 
     let force_push_entity = app_entity.clone();
+    let menu = menu.item(
+        PopupMenuItem::new(labels.force_push.clone())
+            .icon(HeroIconName::ExclamationTriangle)
+            .disabled(!can_use_current_branch_remote)
+            .on_click(move |_, window, cx| {
+                cx.update_entity(&force_push_entity, |app, cx| {
+                    app.force_push_project_git(window, cx)
+                });
+            }),
+    );
+
+    // Remotes ▸ — shallow (2-level) submenu of remote management actions.
+    let remote_menu_remotes = remotes.clone();
+    let remote_menu_default = default_push_remote.clone();
+    let remote_menu_entity = app_entity.clone();
+    let remote_menu_labels = labels.clone();
+    let menu = menu.separator().submenu_with_icon(
+        Some(Icon::new(HeroIconName::GlobeAlt)),
+        labels.remotes.clone(),
+        window,
+        cx,
+        move |menu, _window, _cx| {
+            let add_entity = remote_menu_entity.clone();
+            let menu = menu.item(
+                PopupMenuItem::new(remote_menu_labels.add_remote.clone())
+                    .icon(HeroIconName::Plus)
+                    .on_click(move |_, window, cx| {
+                        cx.update_entity(&add_entity, |app, cx| {
+                            app.open_git_remote_editor(window, cx)
+                        });
+                    }),
+            );
+
+            // Set default push remote — picker over remotes.
+            let set_remotes = remote_menu_remotes.clone();
+            let set_default = remote_menu_default.clone();
+            let set_entity = remote_menu_entity.clone();
+            let set_placeholder = remote_menu_labels.set_default.clone();
+            let menu = menu.item(
+                PopupMenuItem::new(format!("{}…", remote_menu_labels.set_default))
+                    .icon(HeroIconName::Check)
+                    .disabled(set_remotes.is_empty())
+                    .on_click(move |_, window, cx| {
+                        let items = remote_pick_items(&set_remotes, set_default.as_deref(), true);
+                        let entity = set_entity.clone();
+                        show_quick_pick(
+                            set_placeholder.clone(),
+                            items,
+                            move |id, window, cx| {
+                                entity.update(cx, |app, cx| {
+                                    app.set_project_default_push_remote(
+                                        Some(id.to_string()),
+                                        window,
+                                        cx,
+                                    );
+                                });
+                            },
+                            window,
+                            cx,
+                        );
+                    }),
+            );
+
+            // Copy remote URL — picker over remotes (id carries the URL).
+            let copy_remotes = remote_menu_remotes.clone();
+            let copy_placeholder = remote_menu_labels.copy_url.clone();
+            let menu = menu.item(
+                PopupMenuItem::new(format!("{}…", remote_menu_labels.copy_url))
+                    .icon(HeroIconName::DocumentDuplicate)
+                    .disabled(copy_remotes.is_empty())
+                    .on_click(move |_, window, cx| {
+                        let items: Vec<QuickPickItem> = copy_remotes
+                            .iter()
+                            .filter(|remote| !remote.url.trim().is_empty())
+                            .map(|remote| {
+                                QuickPickItem::new(
+                                    remote.url.clone(),
+                                    format!("{} — {}", remote.name, remote.url),
+                                )
+                                .icon(Icon::new(HeroIconName::GlobeAlt))
+                            })
+                            .collect();
+                        show_quick_pick(
+                            copy_placeholder.clone(),
+                            items,
+                            move |id, _window, cx| {
+                                cx.write_to_clipboard(ClipboardItem::new_string(id.to_string()));
+                            },
+                            window,
+                            cx,
+                        );
+                    }),
+            );
+
+            // Remove remote — picker over remotes.
+            let remove_remotes = remote_menu_remotes.clone();
+            let remove_entity = remote_menu_entity.clone();
+            let remove_placeholder = remote_menu_labels.remove_remote.clone();
+            menu.item(
+                PopupMenuItem::new(format!("{}…", remote_menu_labels.remove_remote))
+                    .icon(HeroIconName::Trash)
+                    .disabled(remove_remotes.is_empty())
+                    .on_click(move |_, window, cx| {
+                        let items = remote_pick_items(&remove_remotes, None, false);
+                        let entity = remove_entity.clone();
+                        show_quick_pick(
+                            remove_placeholder.clone(),
+                            items,
+                            move |id, window, cx| {
+                                entity.update(cx, |app, cx| {
+                                    app.remove_project_git_remote(id.to_string(), window, cx);
+                                });
+                            },
+                            window,
+                            cx,
+                        );
+                    }),
+            )
+        },
+    );
+
+    // History / repository actions.
     let undo_entity = app_entity.clone();
     let edit_entity = app_entity.clone();
     let reveal_entity = app_entity.clone();
     menu.separator()
         .item(
-            PopupMenuItem::new(labels.force_push.clone())
-                .icon(HeroIconName::ExclamationTriangle)
-                .disabled(!can_use_current_branch_remote)
-                .on_click(move |_, window, cx| {
-                    cx.update_entity(&force_push_entity, |app, cx| {
-                        app.force_push_project_git(window, cx);
-                    });
-                }),
-        )
-        .item(
             PopupMenuItem::new(labels.undo_last_commit.clone())
                 .icon(HeroIconName::ArrowUturnLeft)
                 .disabled(!has_commits)
                 .on_click(move |_, window, cx| {
-                    cx.update_entity(&undo_entity, |app, cx| {
-                        app.undo_last_git_commit(window, cx);
-                    });
+                    cx.update_entity(&undo_entity, |app, cx| app.undo_last_git_commit(window, cx));
                 }),
         )
         .item(
@@ -1038,7 +889,7 @@ fn git_branch_dropdown_menu(
                 .disabled(!has_commits)
                 .on_click(move |_, window, cx| {
                     cx.update_entity(&edit_entity, |app, cx| {
-                        app.load_last_git_commit_message(window, cx);
+                        app.load_last_git_commit_message(window, cx)
                     });
                 }),
         )
@@ -1047,30 +898,103 @@ fn git_branch_dropdown_menu(
                 .icon(HeroIconName::FolderOpen)
                 .on_click(move |_, window, cx| {
                     cx.update_entity(&reveal_entity, |app, cx| {
-                        app.reveal_selected_project_in_file_manager(window, cx);
+                        app.reveal_selected_project_in_file_manager(window, cx)
                     });
                 }),
         )
 }
 
+#[derive(Clone, Copy)]
+enum BranchPickAction {
+    Merge,
+    Squash,
+    Delete,
+}
+
+/// A menu item that opens a searchable Quick Pick over `candidates` and applies
+/// `action` to the chosen branch. Disabled when there are no candidates.
+fn branch_pick_item(
+    menu: PopupMenu,
+    label: String,
+    icon: HeroIconName,
+    placeholder: String,
+    candidates: Vec<GitBranchSummary>,
+    app_entity: gpui::Entity<CoduxApp>,
+    action: BranchPickAction,
+) -> PopupMenu {
+    let enabled = !candidates.is_empty();
+    menu.item(
+        PopupMenuItem::new(label)
+            .icon(icon)
+            .disabled(!enabled)
+            .on_click(move |_, window, cx| {
+                let items: Vec<QuickPickItem> = candidates
+                    .iter()
+                    .map(|branch| {
+                        QuickPickItem::new(branch.name.clone(), branch.name.clone())
+                            .icon(Icon::new(HeroIconName::ArrowPathRoundedSquare))
+                    })
+                    .collect();
+                let entity = app_entity.clone();
+                show_quick_pick(
+                    placeholder.clone(),
+                    items,
+                    move |id, window, cx| {
+                        entity.update(cx, |app, cx| match action {
+                            BranchPickAction::Merge => {
+                                app.merge_git_branch(id.to_string(), window, cx);
+                            }
+                            BranchPickAction::Squash => {
+                                app.squash_merge_git_branch(id.to_string(), window, cx);
+                            }
+                            BranchPickAction::Delete => {
+                                app.select_git_branch(id.to_string(), window, cx);
+                                app.delete_selected_git_branch(window, cx);
+                            }
+                        });
+                    },
+                    window,
+                    cx,
+                );
+            }),
+    )
+}
+
+/// Build Quick Pick items from remotes, using the remote name as the id. When
+/// `mark_default` is set the current default push remote gets a check icon.
+fn remote_pick_items(
+    remotes: &[GitRemoteSummary],
+    default_remote: Option<&str>,
+    mark_default: bool,
+) -> Vec<QuickPickItem> {
+    remotes
+        .iter()
+        .map(|remote| {
+            let is_default = default_remote == Some(remote.name.as_str());
+            let icon = if mark_default && is_default {
+                HeroIconName::Check
+            } else {
+                HeroIconName::GlobeAlt
+            };
+            let label = if remote.url.trim().is_empty() {
+                remote.name.clone()
+            } else {
+                format!("{} — {}", remote.name, remote.url)
+            };
+            QuickPickItem::new(remote.name.clone(), label).icon(Icon::new(icon))
+        })
+        .collect()
+}
+
 #[derive(Clone)]
 struct GitBranchMenuLabels {
     new_branch: String,
-    local_branches: String,
-    local_empty: String,
     switch_branch: String,
     merge_current: String,
     squash_merge: String,
     delete_local: String,
-    merge_empty: String,
-    remote_branches: String,
-    refresh_remote_branches: String,
-    remote_branches_empty: String,
-    checkout_remote_branch: String,
-    push_here: String,
     remotes: String,
     add_remote: String,
-    no_remotes: String,
     set_default: String,
     copy_url: String,
     remove_remote: String,
@@ -1090,27 +1014,12 @@ impl GitBranchMenuLabels {
         let tr = |key: &str, fallback: &str| translate(&locale, key, fallback);
         Self {
             new_branch: tr("git.branch.create_and_switch", "New Branch"),
-            local_branches: tr("git.branch.local", "Local Branches"),
-            local_empty: tr("git.branch.local.empty", "No local branches"),
             switch_branch: tr("git.branch.switch", "Switch Branch"),
             merge_current: tr("git.branch.merge_current", "Merge into Current Branch"),
-            squash_merge: tr(
-                "git.branch.squash_merge",
-                "Squash Merge into Current Branch",
-            ),
+            squash_merge: tr("git.branch.squash_merge", "Squash Merge into Current Branch"),
             delete_local: tr("git.branch.delete_local", "Delete Local Branch"),
-            merge_empty: tr("git.branch.merge.empty", "No branches to merge"),
-            remote_branches: tr("git.remote.branches", "Remote Branches"),
-            refresh_remote_branches: tr("git.remote.branches.refresh", "Refresh Remote Branches"),
-            remote_branches_empty: tr("git.remote.branches.empty", "No remote branches"),
-            checkout_remote_branch: tr(
-                "git.remote.branch.checkout_local",
-                "Checkout as Local Branch",
-            ),
-            push_here: tr("git.remote.branch.push_here", "Push to This Branch"),
             remotes: tr("git.remote.remotes", "Remotes"),
             add_remote: tr("git.remote.add", "Add Remote"),
-            no_remotes: tr("git.remote.empty", "No remotes"),
             set_default: tr("git.remote.set_default", "Set as Default"),
             copy_url: tr("git.remote.copy_url", "Copy URL"),
             remove_remote: tr("git.remote.remove", "Remove Remote"),
@@ -1124,57 +1033,9 @@ impl GitBranchMenuLabels {
                 "git.history.edit_last_commit_message",
                 "Edit Last Commit Message",
             ),
-            show_repository: tr(
-                "git.repository.show_in_finder",
-                "Show Repository in File Manager",
-            ),
+            show_repository: tr("git.repository.show_in_finder", "Show Repository in File Manager"),
         }
     }
-}
-
-#[derive(Clone)]
-struct RemoteBranchGroup {
-    remote: String,
-    branches: Vec<RemoteBranchItem>,
-}
-
-#[derive(Clone)]
-struct RemoteBranchItem {
-    name: String,
-    is_upstream: bool,
-}
-
-fn group_remote_branches(values: &[String], upstream: Option<&str>) -> Vec<RemoteBranchGroup> {
-    let mut groups: BTreeMap<String, Vec<RemoteBranchItem>> = BTreeMap::new();
-    for value in values {
-        let Some((remote, branch)) = value.split_once('/') else {
-            continue;
-        };
-        if remote.is_empty() || branch.is_empty() || branch == "HEAD" {
-            continue;
-        }
-        let branches = groups.entry(remote.to_string()).or_default();
-        if branches.iter().any(|item| item.name == branch) {
-            continue;
-        }
-        branches.push(RemoteBranchItem {
-            name: branch.to_string(),
-            is_upstream: upstream == Some(value.as_str()),
-        });
-    }
-
-    groups
-        .into_iter()
-        .map(|(remote, mut branches)| {
-            branches.sort_by(|left, right| {
-                right
-                    .is_upstream
-                    .cmp(&left.is_upstream)
-                    .then_with(|| left.name.cmp(&right.name))
-            });
-            RemoteBranchGroup { remote, branches }
-        })
-        .collect()
 }
 
 fn git_repository_panel(

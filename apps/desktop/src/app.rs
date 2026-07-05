@@ -124,6 +124,7 @@ mod project_actions;
 mod project_column;
 mod project_column_actions;
 mod project_editor;
+mod quick_pick;
 mod runtime_actions;
 mod scroll_compat;
 mod settings;

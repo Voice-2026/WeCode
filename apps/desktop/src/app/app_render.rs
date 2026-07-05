@@ -464,7 +464,10 @@ impl Render for CoduxApp {
                 )
             })
             .children(pet_level_up_overlay)
-            .child(self.codux_tooltip_layer(cx));
+            .child(self.codux_tooltip_layer(cx))
+            // Host gpui-component modal dialogs (e.g. the git Quick Pick) as a
+            // centered overlay on top of the main window.
+            .children(Root::render_dialog_layer(window, cx));
 
         self.register_native_menu_actions(root, cx)
             .into_any_element()
