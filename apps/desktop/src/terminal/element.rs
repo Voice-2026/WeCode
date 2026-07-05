@@ -697,8 +697,15 @@ impl TerminalLayoutMetrics {
     }
 
     fn last_ime_cursor_bounds(&self) -> Option<Bounds<Pixels>> {
-        self.last_ime_cursor_bounds
-            .filter(|bounds| self.contains_ime_bounds(*bounds))
+        let last = self.last_ime_cursor_bounds?;
+        // Mid-reflow the element bounds are momentarily zero-sized; the
+        // containment check would then reject every cached rect, first_cell also
+        // bails, and bounds_for_range returns None — dropping the IME candidate
+        // window to the screen corner. Keep the last good position that frame.
+        if self.bounds.size.width <= px(0.0) || self.bounds.size.height <= px(0.0) {
+            return Some(last);
+        }
+        self.contains_ime_bounds(last).then_some(last)
     }
 
     fn first_cell_ime_bounds(&self) -> Option<Bounds<Pixels>> {

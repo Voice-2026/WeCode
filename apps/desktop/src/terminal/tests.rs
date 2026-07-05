@@ -1539,6 +1539,53 @@ mod tests {
     }
 
     #[test]
+    fn ime_bounds_keep_last_cursor_through_degenerate_reflow_bounds() {
+        let mut layout = TerminalLayoutMetrics::default();
+        let valid = Bounds {
+            origin: Point {
+                x: px(10.0),
+                y: px(20.0),
+            },
+            size: Size {
+                width: px(100.0),
+                height: px(80.0),
+            },
+        };
+        layout.update(valid, Edges::all(px(0.0)), px(10.0), px(20.0), 10, 4);
+        let cursor = Bounds {
+            origin: Point {
+                x: px(30.0),
+                y: px(60.0),
+            },
+            size: Size {
+                width: px(10.0),
+                height: px(20.0),
+            },
+        };
+        layout.record_ime_cursor_bounds(Some(cursor));
+
+        // A layout sync paints one frame with zero-sized bounds; the cached
+        // cursor must survive it instead of falling back to the screen corner.
+        layout.update(
+            Bounds {
+                origin: valid.origin,
+                size: Size {
+                    width: px(0.0),
+                    height: px(0.0),
+                },
+            },
+            Edges::all(px(0.0)),
+            px(10.0),
+            px(20.0),
+            10,
+            4,
+        );
+
+        assert_eq!(layout.first_cell_ime_bounds(), None);
+        assert_eq!(layout.last_ime_cursor_bounds(), Some(cursor));
+    }
+
+    #[test]
     fn ime_bounds_ignore_cached_cursor_outside_current_terminal_bounds() {
         let mut layout = TerminalLayoutMetrics::default();
         layout.update(
