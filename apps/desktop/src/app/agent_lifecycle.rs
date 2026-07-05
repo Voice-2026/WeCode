@@ -341,15 +341,15 @@ mod tests {
         let mut lifecycle = PaneAgentLifecycle::new(base);
 
         let t0 = base;
-        lifecycle.tick(AgentLifecycleState::from_session_state("responding"), t0);
+        lifecycle.tick(AgentLifecycleState::from_session_state("running"), t0);
         assert_eq!(lifecycle.state, AgentLifecycleState::Working);
 
         let t1 = t0 + Duration::from_millis(2000);
-        lifecycle.tick(AgentLifecycleState::from_session_state("needsInput"), t1);
+        lifecycle.tick(AgentLifecycleState::from_session_state("needs-input"), t1);
         assert_eq!(lifecycle.state, AgentLifecycleState::Waiting);
 
         let t2 = t1 + Duration::from_millis(600);
-        lifecycle.tick(AgentLifecycleState::from_session_state("responding"), t2);
+        lifecycle.tick(AgentLifecycleState::from_session_state("running"), t2);
         assert_eq!(lifecycle.state, AgentLifecycleState::Working);
 
         let t3 = t2 + Duration::from_millis(2000);

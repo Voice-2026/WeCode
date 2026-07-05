@@ -43,9 +43,9 @@ impl AgentLifecycleState {
 
     pub(in crate::app) fn from_session_state(state: &str) -> Option<AgentLifecycleInput> {
         match state {
-            "responding" => Some(AgentLifecycleInput::Busy),
-            "needsInput" => Some(AgentLifecycleInput::Prompt),
-            "idle" => Some(AgentLifecycleInput::Settle),
+            "running" | "responding" => Some(AgentLifecycleInput::Busy),
+            "needs-input" | "needsInput" => Some(AgentLifecycleInput::Prompt),
+            "idle" | "completed" => Some(AgentLifecycleInput::Settle),
             _ => None,
         }
     }
@@ -450,6 +450,22 @@ mod tests {
         use AgentLifecycleInput::{Busy, Prompt, Settle};
 
         assert_eq!(
+            AgentLifecycleState::from_session_state("running"),
+            Some(Busy)
+        );
+        assert_eq!(
+            AgentLifecycleState::from_session_state("needs-input"),
+            Some(Prompt)
+        );
+        assert_eq!(
+            AgentLifecycleState::from_session_state("completed"),
+            Some(Settle)
+        );
+        assert_eq!(
+            AgentLifecycleState::from_session_state("idle"),
+            Some(Settle)
+        );
+        assert_eq!(
             AgentLifecycleState::from_session_state("responding"),
             Some(Busy)
         );
@@ -457,13 +473,8 @@ mod tests {
             AgentLifecycleState::from_session_state("needsInput"),
             Some(Prompt)
         );
-        assert_eq!(
-            AgentLifecycleState::from_session_state("idle"),
-            Some(Settle)
-        );
-        assert_eq!(AgentLifecycleState::from_session_state("running"), None);
-        assert_eq!(AgentLifecycleState::from_session_state("completed"), None);
         assert_eq!(AgentLifecycleState::from_session_state(""), None);
+        assert_eq!(AgentLifecycleState::from_session_state("unknown"), None);
     }
 
     #[test]

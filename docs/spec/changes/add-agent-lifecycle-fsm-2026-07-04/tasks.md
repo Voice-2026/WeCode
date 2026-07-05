@@ -1,6 +1,6 @@
 ---
 created_at: 2026-07-04T00:00:00Z
-updated_at: 2026-07-05T01:30:00Z
+updated_at: 2026-07-05T01:55:00Z
 completed_at:
 ---
 
@@ -107,3 +107,9 @@ completed_at:
 - [x] 11.1 Build `lifecycle` for collapsed rows in `task_terminal_list_snapshot()` from `slot.terminal_id` (`task_column.rs`), replacing the hardcoded `lifecycle: None`
 - [x] 11.2 In `terminal_compact_row()`: when the row is collapsed and lifecycle is non-`Idle`, render the lifecycle status dot instead of the static green collapsed dot; keep the green dot for idle/no-session collapsed rows; ensure the lifecycle dot is not rendered twice
 - [ ] 11.3 Re-run `cargo check -p codux` + `cargo test -p codux`; manual test with a collapsed agent pane: row icon tints and dot spins/turns amber while the agent works
+
+## 12. Fix: FSM never receives inputs — summary state domain mismatch (root cause of all "nothing lights up" reports)
+
+- [x] 12.1 Fix `AgentLifecycleState::from_session_state` (`ai_runtime_status.rs`): the desktop consumes `AIRuntimeSessionSummary.state`, which `runtime_snapshot_session_state` re-maps to `"running" | "needs-input" | "completed" | "idle"` — the raw `"responding"`/`"needsInput"` strings never reach the app. Map `"running"`/`"responding"` → `Busy`, `"needs-input"`/`"needsInput"` → `Prompt`, `"idle"`/`"completed"` → `Settle`, other → `None`
+- [x] 12.2 Update the mapping unit tests + the integration test to feed the summary domain strings (keep raw-string alias assertions)
+- [ ] 12.3 Re-run `cargo check -p codux` + `cargo test -p codux`; manual test: rebuild, relaunch, trigger agent — `agent-lifecycle` lines appear in the runtime log and the terminal row lights up

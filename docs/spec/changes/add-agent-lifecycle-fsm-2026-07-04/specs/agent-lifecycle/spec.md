@@ -49,24 +49,25 @@ All other (state, input) pairs SHALL be no-ops.
 - **THEN** the state SHALL transition to `Completed`
 
 ### Requirement: Session State Mapping
-The system SHALL map the runtime `AISessionSnapshot.state` string to an `AgentLifecycleInput` event so the FSM can consume existing runtime data without new IPC. The runtime session state domain is exactly `"idle"`, `"responding"`, `"needsInput"` (see `runtime_state_for_hook_kind` in `crates/codux-runtime-live/src/ai_runtime/state.rs`; `"running"` is a derived *status* string and `"completed"` is a project *phase kind* — neither ever appears in `session.state`). The mapping SHALL be:
-- `"responding"` → `Busy`
-- `"needsInput"` → `Prompt`
+The system SHALL map the desktop session summary `AIRuntimeSessionSummary.state` string to an `AgentLifecycleInput` event so the FSM can consume existing runtime data without new IPC. The desktop does NOT see the raw runtime states: `summary_from_runtime_snapshot` re-maps them via `runtime_snapshot_session_state` (`crates/codux-runtime-live/src/ai_runtime_state.rs`) to the summary domain `"running"`, `"needs-input"`, `"completed"`, `"idle"` (raw `"responding"` → `"running"`, raw `"needsInput"` or a pending notification → `"needs-input"`, completed turn while not running → `"completed"`). The mapping SHALL cover both domains for robustness:
+- `"running"` or raw `"responding"` → `Busy`
+- `"needs-input"` or raw `"needsInput"` → `Prompt`
 - `"idle"` → `Settle`
+- `"completed"` → `Settle` (the summary reports a finished turn; the FSM's `Working + Settle → Completed` edge derives the checkmark, and a long-completed session feeding repeated `Settle` from `Idle` stays `Idle`)
 - Any other value → no input (defensive; state unchanged)
 
 The mapping is applied on every runtime inventory refresh, not edge-triggered; the FSM's no-op rules absorb repeated inputs.
 
-#### Scenario: Responding state maps to Busy
-- **WHEN** `session.state` is `"responding"`
+#### Scenario: Running state maps to Busy
+- **WHEN** `session.state` is `"running"` (or raw `"responding"`)
 - **THEN** the mapped input SHALL be `Busy`
 
-#### Scenario: NeedsInput state maps to Prompt
-- **WHEN** `session.state` is `"needsInput"`
+#### Scenario: Needs-input state maps to Prompt
+- **WHEN** `session.state` is `"needs-input"` (or raw `"needsInput"`)
 - **THEN** the mapped input SHALL be `Prompt`
 
-#### Scenario: Idle state maps to Settle
-- **WHEN** `session.state` is `"idle"`
+#### Scenario: Idle and completed states map to Settle
+- **WHEN** `session.state` is `"idle"` or `"completed"`
 - **THEN** the mapped input SHALL be `Settle`
 
 #### Scenario: Unknown state produces no input
