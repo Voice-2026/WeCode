@@ -11,8 +11,8 @@ codux-terminal-core = { path = "../../crates/codux-terminal-core" }
 flume = "0.12"
 gpui = { git = "https://github.com/zed-industries/zed" }
 gpui_platform = { git = "https://github.com/zed-industries/zed", features = ["font-kit", "x11", "wayland", "runtime_shaders"] }
-gpui-component = { git = "https://github.com/longbridge/gpui-component", package = "gpui-component", features = ["tree-sitter-languages"] }
-gpui-component-assets = { git = "https://github.com/longbridge/gpui-component", package = "gpui-component-assets" }
+gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "da2a9ca7c112c93de20d8e4d9dfaf8d53536aa47", package = "gpui-component", features = ["tree-sitter-languages"] }
+gpui-component-assets = { git = "https://github.com/longbridge/gpui-component", rev = "da2a9ca7c112c93de20d8e4d9dfaf8d53536aa47", package = "gpui-component-assets" }
 image = "0.25.1"
 parking_lot = "0.12"
 qrcode = "0.14"
