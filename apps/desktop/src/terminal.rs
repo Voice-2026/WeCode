@@ -8,7 +8,7 @@ use codux_runtime::terminal_pty::{
 use codux_terminal_core::{
     HeadlessTerminalScreen, HeadlessTerminalSnapshotRequest, TerminalInputMode,
     TerminalScreenCellSnapshot, TerminalScreenColor, TerminalScreenCursorShape,
-    TerminalScreenCursorSnapshot, TerminalScreenSnapshot,
+    TerminalScreenCursorSnapshot, TerminalScreenSnapshot, TerminalSelectionSpanKind,
 };
 use gpui::{
     App, AppContext, Bounds, ClipboardEntry, ClipboardItem, Context, CursorStyle, Edges, Element,
@@ -28,7 +28,7 @@ use parking_lot::Mutex;
 use regex::Regex;
 use std::{
     cell::{Cell as StdCell, RefCell},
-    collections::{HashMap, VecDeque, hash_map::DefaultHasher},
+    collections::{HashMap, HashSet, VecDeque, hash_map::DefaultHasher},
     env, fs,
     hash::{Hash, Hasher},
     io::Write,

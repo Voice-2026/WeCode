@@ -5,6 +5,7 @@ use std::thread;
 
 use alacritty_terminal::event::{Event, EventListener, WindowSize};
 use alacritty_terminal::grid::{Dimensions, Scroll};
+use alacritty_terminal::index::{Column, Line, Point};
 use alacritty_terminal::term::cell::{Cell, Flags};
 use alacritty_terminal::term::{Config as AlacrittyConfig, Term, TermMode};
 use alacritty_terminal::vte::ansi::{Color, CursorShape, NamedColor, Processor};
@@ -45,6 +46,11 @@ pub struct TerminalScreenSnapshot {
     /// Window title set by the shell via OSC 0/2; None until one arrives.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+    /// Per-viewport-row soft-wrap flags: true means the row continues onto the
+    /// next without a hard line break, so copy joins them as one line. Empty
+    /// when unknown (older peers, remote overscan snapshots).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub wrapped_rows: Vec<bool>,
     pub cells: Vec<TerminalScreenCellSnapshot>,
     pub cursor: TerminalScreenCursorSnapshot,
 }
@@ -91,6 +97,24 @@ pub enum TerminalScreenColor {
     Named { name: String },
     Rgb { r: u8, g: u8, b: u8 },
     Indexed { index: u8 },
+}
+
+/// Double-click selects a word (alacritty semantic search); triple-click a
+/// whole logical line (following soft wraps).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TerminalSelectionSpanKind {
+    Word,
+    Line,
+}
+
+/// A resolved selection span in absolute buffer coordinates (line 0 = oldest
+/// scrollback), with an exclusive end column — ready to hand to the UI.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TerminalSelectionSpan {
+    pub start_line: i32,
+    pub start_col: usize,
+    pub end_line: i32,
+    pub end_col: usize,
 }
 
 pub struct HeadlessTerminalScreen {
@@ -253,6 +277,17 @@ impl HeadlessTerminalScreen {
         self.engine.snapshot(self.pending_scroll_pixels)
     }
 
+    /// Resolve the word/line selection span around a buffer cell. Blocks on the
+    /// screen worker (a rare click action), like [`Self::display_offset`].
+    pub fn selection_span(
+        &self,
+        line: i32,
+        col: usize,
+        kind: TerminalSelectionSpanKind,
+    ) -> Option<TerminalSelectionSpan> {
+        self.engine.selection_span(line, col, kind)
+    }
+
     /// Request an asynchronous snapshot. `include_data` controls whether the
     /// ANSI repaint string (`TerminalScreenSnapshot::data`) is generated;
     /// consumers that only read `cells` should pass `false` to skip that
@@ -355,6 +390,20 @@ impl TerminalScreenEngine {
         self.request(TerminalScreenCommand::InputMode)
     }
 
+    fn selection_span(
+        &self,
+        line: i32,
+        col: usize,
+        kind: TerminalSelectionSpanKind,
+    ) -> Option<TerminalSelectionSpan> {
+        self.request(|reply| TerminalScreenCommand::SelectionSpan {
+            line,
+            col,
+            kind,
+            reply,
+        })
+    }
+
     fn snapshot(&self, scroll_pixel_offset: f64) -> TerminalScreenSnapshot {
         self.request(|reply| TerminalScreenCommand::Snapshot {
             scroll_pixel_offset,
@@ -429,6 +478,12 @@ enum TerminalScreenCommand {
         overscan_rows: usize,
         max_lines: usize,
         reply: mpsc::Sender<TerminalScreenSnapshot>,
+    },
+    SelectionSpan {
+        line: i32,
+        col: usize,
+        kind: TerminalSelectionSpanKind,
+        reply: mpsc::Sender<Option<TerminalSelectionSpan>>,
     },
     Clear,
 }
@@ -640,6 +695,14 @@ impl TerminalScreenWorker {
                     self.scroll_to_offset(saved);
                     let _ = reply.send(snapshot);
                 }
+                TerminalScreenCommand::SelectionSpan {
+                    line,
+                    col,
+                    kind,
+                    reply,
+                } => {
+                    let _ = reply.send(self.selection_span(line, col, kind));
+                }
                 TerminalScreenCommand::Clear => {
                     self = Self::new(
                         self.cols,
@@ -737,6 +800,57 @@ impl TerminalScreenWorker {
         self.term.grid().total_lines().max(self.rows)
     }
 
+    // Word/line selection via alacritty's own semantic + line search (the
+    // canonical implementation, driven by its semantic_escape_chars), so we
+    // don't hand-roll word boundaries. Input/output are in absolute buffer
+    // coordinates (line 0 = oldest); the end column is exclusive.
+    fn selection_span(
+        &self,
+        line: i32,
+        col: usize,
+        kind: TerminalSelectionSpanKind,
+    ) -> Option<TerminalSelectionSpan> {
+        let grid = self.term.grid();
+        let cols = grid.columns();
+        if cols == 0 {
+            return None;
+        }
+        let history = grid.history_size() as i32;
+        let grid_line = Line(line - history);
+        if grid_line < grid.topmost_line() || grid_line > grid.bottommost_line() {
+            return None;
+        }
+        let point = Point::new(grid_line, Column(col.min(cols - 1)));
+        // Nothing to select on a blank cell (e.g. a double-click past the text).
+        if matches!(kind, TerminalSelectionSpanKind::Word)
+            && matches!(grid[point.line][point.column].c, ' ' | '\0')
+        {
+            return None;
+        }
+        let (start, end) = match kind {
+            TerminalSelectionSpanKind::Word => (
+                self.term.semantic_search_left(point),
+                self.term.semantic_search_right(point),
+            ),
+            TerminalSelectionSpanKind::Line => (
+                self.term.line_search_left(point),
+                self.term.line_search_right(point),
+            ),
+        };
+        // Alacritty's end column is inclusive; widen past a trailing wide char.
+        let end_width = if grid[end.line][end.column].flags.contains(Flags::WIDE_CHAR) {
+            2
+        } else {
+            1
+        };
+        Some(TerminalSelectionSpan {
+            start_line: start.line.0 + history,
+            start_col: start.column.0,
+            end_line: end.line.0 + history,
+            end_col: end.column.0 + end_width,
+        })
+    }
+
     fn snapshot(&mut self, scroll_pixel_offset: f64, include_data: bool) -> TerminalScreenSnapshot {
         let cols = self.term.columns();
         let rows = self.term.screen_lines();
@@ -756,6 +870,7 @@ impl TerminalScreenWorker {
             content.mode.contains(TermMode::SHOW_CURSOR) && cursor_shape != CursorShape::Hidden;
 
         let mut cells = Vec::new();
+        let mut wrapped_rows = vec![false; rows];
         for indexed in content.display_iter {
             let row = indexed.point.line.0 + display_offset as i32;
             if row < 0 || row as usize >= rows {
@@ -766,6 +881,14 @@ impl TerminalScreenWorker {
                 continue;
             }
             let cell = indexed.cell;
+            // WRAPLINE sits on the last cell of a soft-wrapped row; record it
+            // before any spacer/blank skip so copy knows this row has no hard
+            // line break (mirrors alacritty's own line_to_string).
+            if cell.flags.contains(Flags::WRAPLINE)
+                && let Some(slot) = wrapped_rows.get_mut(row as usize)
+            {
+                *slot = true;
+            }
             // Wide-char spacers carry no glyph of their own; the leading cell
             // already reports width 2.
             if cell
@@ -860,6 +983,7 @@ impl TerminalScreenWorker {
             application_cursor,
             input_mode,
             title: self.title.clone(),
+            wrapped_rows,
             cells,
             cursor,
         }
@@ -1236,6 +1360,9 @@ pub fn stack_scrolled_snapshots(
         application_cursor: viewport.application_cursor,
         input_mode: viewport.input_mode,
         title: viewport.title.clone(),
+        // Overscan stacking is the remote-scroll path, not local copy; row wrap
+        // flags aren't reconstructed across the stitched viewports.
+        wrapped_rows: Vec::new(),
         cells,
         cursor,
     }

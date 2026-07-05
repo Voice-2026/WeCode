@@ -43,6 +43,7 @@ impl PrecomputedRowHashes {
 struct TerminalContent {
     cells: Vec<TerminalIndexedCell>,
     row_hashes: PrecomputedRowHashes,
+    wrapped_lines: HashSet<i32>,
     cursor: TerminalScreenCursorSnapshot,
     display_offset: usize,
     viewport_start_line: i32,
@@ -75,9 +76,16 @@ impl TerminalContent {
             })
             .collect::<Vec<_>>();
         let row_hashes = PrecomputedRowHashes::from_cells(&cells);
+        let wrapped_lines = snapshot
+            .wrapped_rows
+            .iter()
+            .enumerate()
+            .filter_map(|(row, wrapped)| wrapped.then_some(viewport_start_line + row as i32))
+            .collect::<HashSet<i32>>();
         Self {
             cells,
             row_hashes,
+            wrapped_lines,
             cursor: snapshot.cursor,
             display_offset: snapshot.display_offset,
             viewport_start_line,
@@ -119,6 +127,12 @@ impl TerminalContent {
         let start = self.viewport_start_line;
         let end = self.last_snapshot_line().unwrap_or(start);
         start <= line && line <= end
+    }
+
+    /// True when this buffer line soft-wrapped into the next (no hard break),
+    /// so copy/line-select should treat it as one continuous logical line.
+    fn is_wrapped_line(&self, line: i32) -> bool {
+        self.wrapped_lines.contains(&line)
     }
 
     fn last_snapshot_line(&self) -> Option<i32> {

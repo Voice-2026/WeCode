@@ -717,9 +717,37 @@ impl TerminalView {
             MouseButton::Left => {
                 if let Some(point) = model_point {
                     let selection_point = self.selection_point_from_cell(point, cx);
-                    self.selection.lock().start(selection_point);
-                    self.model
-                        .update(cx, |model, _| model.start_selection(selection_point));
+                    match event.click_count {
+                        // Triple-click: whole logical line (follows soft wraps).
+                        count if count >= 3 => {
+                            if let Some(range) = self
+                                .model
+                                .update(cx, |model, _| model.select_line_at(selection_point))
+                            {
+                                self.selection.lock().set_range(range);
+                            }
+                        }
+                        // Double-click: the word under the cursor; a separator
+                        // cell falls back to a plain caret.
+                        2 => {
+                            let range = self
+                                .model
+                                .update(cx, |model, _| model.select_word_at(selection_point));
+                            match range {
+                                Some(range) => self.selection.lock().set_range(range),
+                                None => {
+                                    self.selection.lock().start(selection_point);
+                                    self.model
+                                        .update(cx, |model, _| model.start_selection(selection_point));
+                                }
+                            }
+                        }
+                        _ => {
+                            self.selection.lock().start(selection_point);
+                            self.model
+                                .update(cx, |model, _| model.start_selection(selection_point));
+                        }
+                    }
                 } else {
                     self.selection.lock().clear();
                     self.model.update(cx, |model, _| model.clear_selection());
@@ -873,7 +901,10 @@ impl TerminalView {
                 self.model.read(cx).mode(),
                 event.modifiers.shift,
             ) {
-                let sequence = if lines > 0 { b"\x1bOA" } else { b"\x1bOB" };
+                let sequence = alternate_scroll_sequence(
+                    lines > 0,
+                    self.model.read(cx).mode().application_cursor,
+                );
                 for _ in 0..lines.unsigned_abs().min(80) {
                     self.write_bytes(sequence, cx);
                 }
@@ -1149,4 +1180,17 @@ impl TerminalView {
 
 fn should_send_alternate_scroll(mode: TerminalInputMode, shift_pressed: bool) -> bool {
     !shift_pressed && mode.alternate_screen && mode.alternate_scroll
+}
+
+// Alternate-scroll (wheel over an alt-screen pager) emits cursor-key sequences,
+// and xterm honors DECCKM: SS3 (ESC O) in application-cursor mode, CSI (ESC [)
+// in normal mode. We used to always send SS3, so a normal-mode app (Claude's
+// pager) ignored the wheel while a mouse-tracking app (codex) scrolled fine.
+fn alternate_scroll_sequence(scroll_up: bool, application_cursor: bool) -> &'static [u8] {
+    match (scroll_up, application_cursor) {
+        (true, true) => b"\x1bOA",
+        (true, false) => b"\x1b[A",
+        (false, true) => b"\x1bOB",
+        (false, false) => b"\x1b[B",
+    }
 }

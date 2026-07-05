@@ -861,6 +861,43 @@ impl TerminalModel {
         range
     }
 
+    /// Double-click: select the word under the cell. None on a blank cell, so
+    /// the caller falls back to a plain caret.
+    fn select_word_at(&mut self, point: TerminalSelectionPoint) -> Option<SelectionRange> {
+        self.select_span(point, TerminalSelectionSpanKind::Word)
+    }
+
+    /// Triple-click: select the whole logical line, following soft wraps.
+    fn select_line_at(&mut self, point: TerminalSelectionPoint) -> Option<SelectionRange> {
+        self.select_span(point, TerminalSelectionSpanKind::Line)
+    }
+
+    // Word/line boundaries come from alacritty's own semantic + line search on
+    // the live grid, so we inherit its canonical rules instead of guessing.
+    fn select_span(
+        &mut self,
+        point: TerminalSelectionPoint,
+        kind: TerminalSelectionSpanKind,
+    ) -> Option<SelectionRange> {
+        let span = self
+            .handle
+            .screen
+            .lock()
+            .selection_span(point.line, point.col, kind)?;
+        let range = SelectionRange {
+            start: TerminalSelectionPoint {
+                line: span.start_line,
+                col: span.start_col,
+            },
+            end: TerminalSelectionPoint {
+                line: span.end_line,
+                col: span.end_col,
+            },
+        };
+        self.selection.set_range(range);
+        Some(range)
+    }
+
     fn selected_text(&self) -> Option<String> {
         self.selection_range()
             .map(|range| self.handle.selected_text_for_range(range))
@@ -1130,7 +1167,7 @@ fn trace_snapshot_publish_result(
 }
 
 fn selected_text_from_content(content: &TerminalContent, range: SelectionRange) -> String {
-    let mut lines = Vec::new();
+    let mut rows = Vec::new();
     for line in range.start.line..=range.end.line {
         let start_col = if line == range.start.line {
             range.start.col
@@ -1142,9 +1179,27 @@ fn selected_text_from_content(content: &TerminalContent, range: SelectionRange) 
         } else {
             content.columns
         };
-        lines.push(selected_line_text(content, line, start_col, end_col));
+        rows.push((
+            selected_line_text(content, line, start_col, end_col),
+            content.is_wrapped_line(line),
+        ));
     }
-    lines.join("\n")
+    assemble_selected_rows(rows)
+}
+
+// Join selected rows, inserting a newline only at a hard line break. A
+// soft-wrapped row continues on the next without one, so a visually single
+// (wrapped) line copies as one line instead of gaining a stray newline.
+fn assemble_selected_rows(rows: Vec<(String, bool)>) -> String {
+    let last = rows.len().saturating_sub(1);
+    let mut out = String::new();
+    for (index, (text, wrapped)) in rows.into_iter().enumerate() {
+        out.push_str(&text);
+        if index != last && !wrapped {
+            out.push('\n');
+        }
+    }
+    out
 }
 
 fn selected_text_from_screen_range(
@@ -1152,7 +1207,7 @@ fn selected_text_from_screen_range(
     fallback_content: &TerminalContent,
     range: SelectionRange,
 ) -> String {
-    let mut lines = Vec::new();
+    let mut rows = Vec::new();
     let mut line = range.start.line;
     let mut content = fallback_content.clone();
     while line <= range.end.line {
@@ -1166,7 +1221,7 @@ fn selected_text_from_screen_range(
             content = TerminalContent::from_screen_snapshot(request.snapshot());
         }
         if !content.line_in_snapshot(line) {
-            lines.push(String::new());
+            rows.push((String::new(), false));
             line = line.saturating_add(1);
             continue;
         }
@@ -1185,16 +1240,14 @@ fn selected_text_from_screen_range(
             } else {
                 content.columns
             };
-            lines.push(selected_line_text(
-                &content,
-                selected_line,
-                start_col,
-                end_col,
+            rows.push((
+                selected_line_text(&content, selected_line, start_col, end_col),
+                content.is_wrapped_line(selected_line),
             ));
         }
         line = chunk_end.saturating_add(1);
     }
-    lines.join("\n")
+    assemble_selected_rows(rows)
 }
 
 fn content_covers_selection_range(content: &TerminalContent, range: SelectionRange) -> bool {

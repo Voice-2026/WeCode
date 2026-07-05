@@ -788,6 +788,73 @@ mod tests {
     }
 
     #[test]
+    fn alternate_scroll_honors_application_cursor_mode() {
+        // Normal-cursor apps (Claude's pager) need CSI arrows; only
+        // application-cursor mode wants SS3 — sending SS3 to a normal-mode app
+        // is why its wheel scroll did nothing.
+        assert_eq!(alternate_scroll_sequence(true, false), b"\x1b[A");
+        assert_eq!(alternate_scroll_sequence(false, false), b"\x1b[B");
+        assert_eq!(alternate_scroll_sequence(true, true), b"\x1bOA");
+        assert_eq!(alternate_scroll_sequence(false, true), b"\x1bOB");
+    }
+
+    #[test]
+    fn wrapped_line_copies_without_seam_newline() {
+        // 15 chars into a 10-col grid soft-wraps onto a second row; copying the
+        // whole visual line must not inject a newline at the wrap.
+        let mut state = TerminalModel::new_for_test(10, 4, 100);
+        state.process_bytes(b"abcdefghijklmno");
+        state.handle.publish_snapshot();
+
+        assert_eq!(
+            state.handle.selected_text_for_range(SelectionRange {
+                start: TerminalSelectionPoint { line: 0, col: 0 },
+                end: TerminalSelectionPoint { line: 1, col: 5 },
+            }),
+            "abcdefghijklmno"
+        );
+    }
+
+    #[test]
+    fn double_click_selects_word_under_cell() {
+        let mut state = TerminalModel::new_for_test(20, 4, 100);
+        state.process_bytes(b"foo bar baz");
+        state.handle.publish_snapshot();
+
+        let range = state
+            .select_word_at(TerminalSelectionPoint { line: 0, col: 5 })
+            .expect("double-click resolves a word");
+        assert_eq!(range.start.col, 4);
+        assert_eq!(state.selected_text(), Some("bar".to_string()));
+    }
+
+    #[test]
+    fn double_click_on_blank_selects_nothing() {
+        let mut state = TerminalModel::new_for_test(20, 4, 100);
+        state.process_bytes(b"foo");
+        state.handle.publish_snapshot();
+
+        assert!(
+            state
+                .select_word_at(TerminalSelectionPoint { line: 0, col: 10 })
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn triple_click_selects_whole_wrapped_line() {
+        // Clicking the wrapped continuation still selects the entire logical line.
+        let mut state = TerminalModel::new_for_test(10, 4, 100);
+        state.process_bytes(b"abcdefghijklmno");
+        state.handle.publish_snapshot();
+
+        state
+            .select_line_at(TerminalSelectionPoint { line: 1, col: 2 })
+            .expect("triple-click resolves a line");
+        assert_eq!(state.selected_text(), Some("abcdefghijklmno".to_string()));
+    }
+
+    #[test]
     fn selection_autoscroll_updates_head_against_scrolled_viewport() {
         let mut state = TerminalModel::new_for_test(10, 3, 100);
         state.process_bytes(b"one\r\ntwo\r\nthree\r\nfour\r\nfive\r\nsix\r\nseven");
