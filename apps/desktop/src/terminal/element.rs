@@ -249,7 +249,7 @@ struct TerminalPreparedRow {
     background_rects: Vec<TerminalBackgroundRect>,
     graphics: Vec<TerminalGraphicCell>,
     text_runs: Vec<TerminalTextRun>,
-    line: Option<TerminalRowLine>,
+    lines: Vec<TerminalRowLine>,
 }
 
 impl TerminalPreparedRow {
@@ -264,7 +264,7 @@ impl TerminalPreparedRow {
         for text_run in &mut prepared.text_runs {
             text_run.row = row;
         }
-        if let Some(line) = &mut prepared.line {
+        for line in &mut prepared.lines {
             line.row = row;
         }
         prepared
