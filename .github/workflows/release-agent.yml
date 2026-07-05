@@ -78,14 +78,16 @@ jobs:
             os: macos-26
             target: x86_64-apple-darwin
           - id: linux-x86_64
-            os: ubuntu-latest
+            os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
-          - id: linux-aarch64
-            os: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-gnu
+            linux_docker_platform: linux/amd64
           - id: windows-x86_64
             os: windows-latest
             target: x86_64-pc-windows-msvc
+          - id: linux-aarch64
+            os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            linux_docker_platform: linux/arm64
 
     runs-on: ${{ matrix.os }}
     env:
@@ -93,6 +95,7 @@ jobs:
       RELEASE_BUILD_ID: ${{ matrix.id }}
       RELEASE_STAGE_DIR: release-artifacts
       RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
+      LINUX_DOCKER_PLATFORM: ${{ matrix.linux_docker_platform }}
 
     steps:
       - name: Checkout
@@ -106,6 +109,7 @@ jobs:
           node-version: 22
 
       - name: Install Rust
+        if: runner.os != 'Linux'
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -130,7 +134,38 @@ jobs:
           mkdir -p dist
           node apps/desktop/scripts/release/prepare-release.mjs "${{ needs.metadata.outputs.source_ref }}" "${{ needs.metadata.outputs.channel }}"
 
+      - name: Build Linux agent on Debian 10 baseline
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          docker run --rm \
+            --platform "${LINUX_DOCKER_PLATFORM}" \
+            -v "$PWD:/workspace" \
+            -w /workspace \
+            -e CARGO_BUILD_TARGET="${CARGO_BUILD_TARGET}" \
+            -e CARGO_HOME=/workspace/target/linux-release-cargo-home \
+            debian:10 \
+            bash -lc '
+              set -euo pipefail
+              if ! apt-get update; then
+                sed -i \
+                  -e "s|deb.debian.org/debian|archive.debian.org/debian|g" \
+                  -e "s|security.debian.org/debian-security|archive.debian.org/debian-security|g" \
+                  /etc/apt/sources.list
+                printf "Acquire::Check-Valid-Until \"false\";\n" >/etc/apt/apt.conf.d/99no-check-valid
+                apt-get update
+              fi
+              DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+                ca-certificates curl git build-essential cmake pkg-config perl python3 file
+              curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+              . "$CARGO_HOME/env"
+              rustup target add "$CARGO_BUILD_TARGET"
+              cargo build -p codux-agent --release --target "$CARGO_BUILD_TARGET"
+            '
+          sudo chown -R "$(id -u):$(id -g)" target
+
       - name: Build agent
+        if: runner.os != 'Linux'
         shell: bash
         run: cargo build -p codux-agent --release --target "${CARGO_BUILD_TARGET}"
 
