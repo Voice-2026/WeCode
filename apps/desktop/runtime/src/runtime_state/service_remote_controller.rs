@@ -69,6 +69,13 @@ impl RuntimeService {
         self.remote_controllers.saved_hosts()
     }
 
+    /// Eagerly connect — and keep reconnecting — every saved host, independent
+    /// of whether a project on it is open. Called on launch and from the remote
+    /// "reconnect" action so a paired host holds its link on its own.
+    pub fn ensure_saved_remote_hosts_connected(&self) {
+        self.remote_controllers.ensure_saved_hosts_connected();
+    }
+
     /// Drop a paired host and any live connection to it.
     pub fn forget_remote_host(
         &self,

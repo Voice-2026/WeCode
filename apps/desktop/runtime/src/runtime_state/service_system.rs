@@ -401,6 +401,10 @@ impl RuntimeService {
     }
 
     pub fn reconnect_remote(&self) -> Result<RemoteSummary, String> {
+        // Reconnect both directions: this machine's own relay registration AND
+        // every saved outbound host link (the device list), so the button isn't
+        // limited to re-registering the local host.
+        self.ensure_saved_remote_hosts_connected();
         Ok(self.remote_host.reconnect())
     }
 

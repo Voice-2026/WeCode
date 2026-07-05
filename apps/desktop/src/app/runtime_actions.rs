@@ -102,6 +102,11 @@ impl CoduxApp {
                         }
                         if include_runtime_refresh_tick {
                             app.spawn_runtime_scheduled_refresh(cx);
+                            // Safety-net: re-arm the reconnect loop for any saved
+                            // host that isn't connected, in case a drop's
+                            // link-state callback was ever missed. Idempotent —
+                            // skips live links, joins an in-flight retry.
+                            app.runtime_service.ensure_saved_remote_hosts_connected();
                         }
                         let today_level_changed = app.refresh_today_level_after_day_change();
                         let result = if include_slow_tick {
@@ -189,6 +194,9 @@ impl CoduxApp {
                 runtime_service
                     .runtime_trace_frontend("startup", "runtime background initialization start");
                 let tool_permissions = runtime_service.sync_tool_permissions();
+                // Bring up every paired host on launch so a saved device stays
+                // connected on its own — no project needs to be open to hold it.
+                runtime_service.ensure_saved_remote_hosts_connected();
                 let ai_runtime_status = match runtime_service.start_ai_runtime_event_processing() {
                     Ok(_) => {
                         let snapshot = runtime_service.ai_runtime_state_snapshot();

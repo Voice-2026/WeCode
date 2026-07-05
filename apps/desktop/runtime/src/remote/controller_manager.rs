@@ -331,6 +331,32 @@ impl RemoteControllerManager {
         self.shared.store.list()
     }
 
+    /// Eagerly bring up — and keep alive — the link to every saved host, so a
+    /// paired device connects on its own (on launch, on an explicit reconnect,
+    /// or on the periodic safety-net) without needing a project opened on it to
+    /// trigger the lazy first-use dial. Fully idempotent: skips hosts that
+    /// already have a live controller (never tears down a working link) and
+    /// joins an in-flight reconnect loop instead of starting a duplicate — so it
+    /// is safe to call on a timer. Returns how many saved hosts were engaged.
+    pub fn ensure_saved_hosts_connected(&self) -> usize {
+        let connected: HashSet<String> = self
+            .shared
+            .connections
+            .lock()
+            .map(|connections| connections.keys().cloned().collect())
+            .unwrap_or_default();
+        let mut engaged = 0;
+        for host in self.shared.store.list() {
+            if connected.contains(&host.device_id) {
+                continue;
+            }
+            if self.shared.ensure_reconnect_loop(&host.device_id) {
+                engaged += 1;
+            }
+        }
+        engaged
+    }
+
     /// Per-device link states for the UI (project connection badge + terminal
     /// re-attach trigger). Only devices that have been connected at least once
     /// appear; a device absent here has not been reached yet.
