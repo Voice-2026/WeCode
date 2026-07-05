@@ -508,7 +508,11 @@ impl CoduxApp {
                 pane_index: 0,
                 title,
                 subtitle,
-                lifecycle: None,
+                lifecycle: slot
+                    .terminal_id
+                    .as_deref()
+                    .and_then(|id| self.pane_agent_lifecycle.get(id))
+                    .map(|lifecycle| lifecycle.state),
                 active: false,
                 collapsed: true,
                 collapsed_index: Some(collapsed_index),
@@ -1037,19 +1041,32 @@ fn terminal_compact_row(
                 .lifecycle
                 .filter(|state| *state != AgentLifecycleState::Idle),
             |this, state| {
-                let animation_id = format!("task-terminal-dot-{pane_index}");
+                let animation_id = if collapsed {
+                    format!(
+                        "task-terminal-dot-collapsed-{}",
+                        collapsed_index.unwrap_or(0)
+                    )
+                } else {
+                    format!("task-terminal-dot-{pane_index}")
+                };
                 this.child(agent_lifecycle_status_dot(state, &animation_id))
             },
         )
-        .when(collapsed, |this| {
-            this.child(
-                div()
-                    .flex_none()
-                    .size(px(6.0))
-                    .rounded_full()
-                    .bg(color(theme::GREEN).opacity(0.85)),
-            )
-        })
+        .when(
+            collapsed
+                && terminal
+                    .lifecycle
+                    .is_none_or(|state| state == AgentLifecycleState::Idle),
+            |this| {
+                this.child(
+                    div()
+                        .flex_none()
+                        .size(px(6.0))
+                        .rounded_full()
+                        .bg(color(theme::GREEN).opacity(0.85)),
+                )
+            },
+        )
         .when_some(terminal.subtitle, |this, subtitle| {
             this.child(
                 div()

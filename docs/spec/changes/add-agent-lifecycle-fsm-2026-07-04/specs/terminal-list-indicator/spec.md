@@ -12,6 +12,13 @@ The system SHALL render an agent lifecycle status indicator on each terminal row
 - **WHEN** a terminal row's terminal has no bound AI session (plain shell)
 - **THEN** no status dot SHALL be rendered on that row
 
+#### Scenario: Collapsed pane rows show the indicator
+- **WHEN** a collapsed pane's terminal has a bound AI session with a non-`Idle` lifecycle state
+- **THEN** the row SHALL render the lifecycle status dot in place of the static green collapsed marker
+- **AND** the row's terminal icon SHALL be tinted with the lifecycle color
+- **WHEN** the collapsed pane's lifecycle is `Idle` or no session is bound
+- **THEN** the row SHALL keep the static green collapsed marker
+
 ### Requirement: Status Dot Visual States
 The system SHALL render the row status dot according to the terminal's current `AgentLifecycleState`:
 - `Working` → animated spinning dot in blue accent (`theme::ACCENT`)

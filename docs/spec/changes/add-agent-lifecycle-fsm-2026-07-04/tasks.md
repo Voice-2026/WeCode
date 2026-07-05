@@ -1,6 +1,6 @@
 ---
 created_at: 2026-07-04T00:00:00Z
-updated_at: 2026-07-05T01:10:00Z
+updated_at: 2026-07-05T01:30:00Z
 completed_at:
 ---
 
@@ -101,3 +101,9 @@ completed_at:
 - [x] 10.4 Add `quiet` variant of `refresh_git_panel_state_async` that skips the `status_message` update (`project_actions.rs`)
 - [x] 10.5 Trigger the quiet git refresh from the runtime ticks: while any pane lifecycle is `Working`, at most once per 5s (new `agent_git_refresh_after: Option<Instant>` throttle field on `CoduxApp`); plus once when a pane transitions into `Completed` (`ssh_remote_actions.rs`, `app_state.rs`, inits in `app_lifecycle.rs`/`window_actions.rs`)
 - [ ] 10.6 Re-run `cargo check -p codux` + `cargo test -p codux`; manual test: worktree row spinner while agent works, +/− counts tick up during the turn, final counts right after completion
+
+## 11. Fix: collapsed pane rows never show the indicator (field report: agent pane is collapsed, row stays static green)
+
+- [x] 11.1 Build `lifecycle` for collapsed rows in `task_terminal_list_snapshot()` from `slot.terminal_id` (`task_column.rs`), replacing the hardcoded `lifecycle: None`
+- [x] 11.2 In `terminal_compact_row()`: when the row is collapsed and lifecycle is non-`Idle`, render the lifecycle status dot instead of the static green collapsed dot; keep the green dot for idle/no-session collapsed rows; ensure the lifecycle dot is not rendered twice
+- [ ] 11.3 Re-run `cargo check -p codux` + `cargo test -p codux`; manual test with a collapsed agent pane: row icon tints and dot spins/turns amber while the agent works
