@@ -45,7 +45,10 @@ impl PaneAgentLifecycle {
         }
 
         if self.state == AgentLifecycleState::Working
-            && matches!(input, AgentLifecycleInput::Prompt | AgentLifecycleInput::Settle)
+            && matches!(
+                input,
+                AgentLifecycleInput::Prompt | AgentLifecycleInput::Settle
+            )
             && now.duration_since(self.last_transition_at) < MIN_WORKING_HOLD
         {
             return false;
@@ -220,8 +223,10 @@ impl CoduxApp {
             }
         }
 
-        let active_terminal_ids: HashSet<&str> =
-            sessions.iter().map(|session| session.terminal_id.as_str()).collect();
+        let active_terminal_ids: HashSet<&str> = sessions
+            .iter()
+            .map(|session| session.terminal_id.as_str())
+            .collect();
         self.pane_agent_lifecycle.retain(|terminal_id, entry| {
             if active_terminal_ids.contains(terminal_id.as_str()) {
                 true

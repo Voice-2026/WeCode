@@ -1001,7 +1001,10 @@ impl CoduxApp {
             let Some(terminal_id) = Self::collapsed_slot_terminal_id(slot) else {
                 continue;
             };
-            if sessions.iter().any(|session| session.terminal_id == terminal_id) {
+            if sessions
+                .iter()
+                .any(|session| session.terminal_id == terminal_id)
+            {
                 continue;
             }
             sessions.push(self.lightweight_session_summary_for_slot(
@@ -1046,7 +1049,10 @@ impl CoduxApp {
             let Some(terminal_id) = Self::collapsed_slot_terminal_id(slot) else {
                 continue;
             };
-            if sessions.iter().any(|session| session.terminal_id == terminal_id) {
+            if sessions
+                .iter()
+                .any(|session| session.terminal_id == terminal_id)
+            {
                 continue;
             }
             sessions.push(self.terminal_session_input_for_slot(

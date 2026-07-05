@@ -1115,8 +1115,7 @@ fn session_section_heading(
                             !app.task_section_terminals_collapsed;
                     }
                     TaskSectionKind::Sessions => {
-                        app.task_section_sessions_collapsed =
-                            !app.task_section_sessions_collapsed;
+                        app.task_section_sessions_collapsed = !app.task_section_sessions_collapsed;
                     }
                 }
                 // Getter (not just child refresh) syncs the collapsed flag into the view and notifies it, so the docked flex re-renders now.

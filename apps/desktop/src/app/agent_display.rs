@@ -36,12 +36,13 @@ fn detect_reduce_motion() -> bool {
 
 #[cfg(target_os = "macos")]
 fn macos_reduce_motion_enabled() -> Option<bool> {
-    use cocoa::base::{id, YES};
+    use cocoa::base::{YES, id};
     use objc::{class, msg_send, sel, sel_impl};
 
     unsafe {
         let workspace: id = msg_send![class!(NSWorkspace), sharedWorkspace];
-        let enabled: cocoa::base::BOOL = msg_send![workspace, accessibilityDisplayShouldReduceMotion];
+        let enabled: cocoa::base::BOOL =
+            msg_send![workspace, accessibilityDisplayShouldReduceMotion];
         Some(enabled == YES)
     }
 }
@@ -70,7 +71,13 @@ fn ping_phase() -> f32 {
 /// Reusable "ping" dot: a solid dot with an expanding, fading ring behind it
 /// (Tailwind animate-ping style). Reduce-motion renders just the solid dot.
 pub(in crate::app) fn ping_dot(dot_color: gpui::Hsla, size: f32) -> AnyElement {
-    let dot = || div().flex_none().size(px(size)).rounded_full().bg(dot_color);
+    let dot = || {
+        div()
+            .flex_none()
+            .size(px(size))
+            .rounded_full()
+            .bg(dot_color)
+    };
     if reduce_motion_enabled() {
         return dot().into_any_element();
     }
@@ -110,9 +117,13 @@ pub(in crate::app) fn spin_icon(icon_color: gpui::Hsla, size: f32) -> AnyElement
         .into_any_element()
 }
 
-pub(in crate::app) fn agent_lifecycle_status_dot(lifecycle_state: AgentLifecycleState) -> AnyElement {
+pub(in crate::app) fn agent_lifecycle_status_dot(
+    lifecycle_state: AgentLifecycleState,
+) -> AnyElement {
     let inner = match lifecycle_state {
-        AgentLifecycleState::Idle | AgentLifecycleState::Completed => return div().into_any_element(),
+        AgentLifecycleState::Idle | AgentLifecycleState::Completed => {
+            return div().into_any_element();
+        }
         AgentLifecycleState::Working => spin_icon(color(theme::ACCENT), 12.0),
         AgentLifecycleState::Waiting => div()
             .size(px(6.0))

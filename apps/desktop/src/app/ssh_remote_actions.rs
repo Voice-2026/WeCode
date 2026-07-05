@@ -1395,8 +1395,7 @@ impl CoduxApp {
             .any(|lifecycle| lifecycle.state == AgentLifecycleState::Working);
         if completed_now {
             self.refresh_git_panel_state_async_quiet(cx);
-            self.agent_git_refresh_after =
-                Some(Instant::now() + Duration::from_secs(5));
+            self.agent_git_refresh_after = Some(Instant::now() + Duration::from_secs(5));
             return;
         }
         if working_now
@@ -1405,8 +1404,7 @@ impl CoduxApp {
                 .is_none_or(|deadline| Instant::now() >= deadline)
         {
             self.refresh_git_panel_state_async_quiet(cx);
-            self.agent_git_refresh_after =
-                Some(Instant::now() + Duration::from_secs(5));
+            self.agent_git_refresh_after = Some(Instant::now() + Duration::from_secs(5));
         } else if !working_now {
             self.agent_git_refresh_after = None;
         }
