@@ -58,6 +58,7 @@ struct TaskWorktreeRow {
     git_changes: usize,
     git_additions: i64,
     git_deletions: i64,
+    lifecycle: Option<AgentLifecycleState>,
 }
 
 #[derive(Clone, PartialEq)]
@@ -445,6 +446,7 @@ impl CoduxApp {
                     git_changes: worktree.git_summary.changes,
                     git_additions: worktree.git_summary.additions,
                     git_deletions: worktree.git_summary.deletions,
+                    lifecycle: self.worktree_agent_lifecycle(worktree),
                 }
             })
             .collect();
@@ -1132,6 +1134,7 @@ fn worktree_compact_row(
     cx: &mut Context<TaskWorktreeListView>,
 ) -> impl IntoElement {
     let worktree_id = worktree.id.clone();
+    let dot_worktree_id = worktree.id.clone();
     let menu_worktree_id = worktree.id.clone();
     let menu_worktree_path = worktree.path.clone();
     let is_default = worktree.is_default;
@@ -1199,6 +1202,10 @@ fn worktree_compact_row(
                         ),
                 ),
         )
+        .when_some(worktree.lifecycle, |this, state| {
+            let animation_id = format!("task-worktree-dot-{dot_worktree_id}");
+            this.child(agent_lifecycle_status_dot(state, &animation_id))
+        })
         .child(
             div()
                 .flex()

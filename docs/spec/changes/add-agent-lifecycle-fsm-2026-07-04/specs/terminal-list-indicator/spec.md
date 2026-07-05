@@ -56,6 +56,29 @@ The system SHALL re-render the task column terminal rows whenever any pane's `Ag
 - **WHEN** a pane is in `Completed` and no runtime events arrive for 3 seconds
 - **THEN** the decay timer SHALL fire on a periodic tick and the checkmark SHALL disappear
 
+### Requirement: Worktree Row Agent Indicator
+The system SHALL render the same agent lifecycle status element (`agent_lifecycle_status_dot`) on each worktree row in the task column when any AI session attributed to that worktree has a non-`Idle` lifecycle state. Attribution: a session belongs to a worktree when `session.project_id == worktree.id`, or when the worktree is the default one and `session.project_id == worktree.project_id`. Aggregation across the worktree's sessions picks the highest-priority state: `Working` > `Waiting` > `Completed`. The element is separate from — and does not replace — the existing worktree activity dot (`worktree_activity_dot`), which is already used for coarse project activity and collapsed presentation.
+
+#### Scenario: Worktree row shows working spinner
+- **WHEN** any pane in a worktree has lifecycle state `Working`
+- **THEN** the worktree row SHALL render the spinning working indicator
+- **AND** the existing worktree activity dot SHALL remain unchanged
+
+#### Scenario: No indicator when all panes idle
+- **WHEN** no session attributed to the worktree has a non-`Idle` lifecycle state
+- **THEN** the worktree row SHALL NOT render the lifecycle element
+
+### Requirement: Live Git Counts While Agent Works
+The system SHALL refresh the selected worktree's git summary (changes count, additions, deletions) on a fast throttled cadence (at most once per 5 seconds) while any pane's lifecycle state is `Working`, and once immediately when a pane transitions to `Completed`, so the task column's change counts track the agent's edits without waiting for the slow scheduled scan. These agent-driven refreshes SHALL NOT overwrite the status bar message.
+
+#### Scenario: Counts update while agent edits
+- **WHEN** an agent is `Working` in the selected worktree and modifies files
+- **THEN** the worktree row's change counts SHALL update within ~5 seconds
+
+#### Scenario: Final counts on completion
+- **WHEN** a pane's lifecycle transitions to `Completed`
+- **THEN** a git summary refresh SHALL run immediately (once)
+
 ### Requirement: Motion Reduction Support
 The system SHALL disable the spinning/pulsing animation on the status dot when the operating system's "reduce motion" accessibility setting is enabled, showing a static dot instead.
 

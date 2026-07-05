@@ -1,5 +1,5 @@
 use super::ai_runtime_status::{AgentLifecycleInput, AgentLifecycleState};
-use super::CoduxApp;
+use super::{CoduxApp, WorktreeInfo};
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
@@ -124,7 +124,50 @@ fn pane_lifecycle_prune_changed(state: AgentLifecycleState) -> bool {
     state != AgentLifecycleState::Idle
 }
 
+pub(in crate::app) fn aggregate_agent_lifecycle(
+    states: impl Iterator<Item = AgentLifecycleState>,
+) -> Option<AgentLifecycleState> {
+    let mut has_waiting = false;
+    let mut has_completed = false;
+    for state in states {
+        match state {
+            AgentLifecycleState::Working => return Some(AgentLifecycleState::Working),
+            AgentLifecycleState::Waiting => has_waiting = true,
+            AgentLifecycleState::Completed => has_completed = true,
+            AgentLifecycleState::Idle => {}
+        }
+    }
+    if has_waiting {
+        Some(AgentLifecycleState::Waiting)
+    } else if has_completed {
+        Some(AgentLifecycleState::Completed)
+    } else {
+        None
+    }
+}
+
 impl CoduxApp {
+    pub(in crate::app) fn worktree_agent_lifecycle(
+        &self,
+        worktree: &WorktreeInfo,
+    ) -> Option<AgentLifecycleState> {
+        aggregate_agent_lifecycle(
+            self.state
+                .ai_runtime_state
+                .sessions
+                .iter()
+                .filter(|session| {
+                    session.project_id == worktree.id
+                        || (worktree.is_default && session.project_id == worktree.project_id)
+                })
+                .filter_map(|session| {
+                    self.pane_agent_lifecycle
+                        .get(&session.terminal_id)
+                        .map(|lifecycle| lifecycle.state)
+                }),
+        )
+    }
+
     pub(in crate::app) fn sync_pane_agent_lifecycle(&mut self) -> bool {
         let now = Instant::now();
         let sessions = &self.state.ai_runtime_state.sessions;
@@ -349,5 +392,49 @@ mod tests {
     fn sync_prune_changed_for_non_idle() {
         assert!(pane_lifecycle_prune_changed(AgentLifecycleState::Working));
         assert!(!pane_lifecycle_prune_changed(AgentLifecycleState::Idle));
+    }
+
+    #[test]
+    fn aggregate_agent_lifecycle_prefers_working() {
+        let states = [
+            AgentLifecycleState::Completed,
+            AgentLifecycleState::Waiting,
+            AgentLifecycleState::Working,
+        ];
+        assert_eq!(
+            aggregate_agent_lifecycle(states.into_iter()),
+            Some(AgentLifecycleState::Working)
+        );
+    }
+
+    #[test]
+    fn aggregate_agent_lifecycle_prefers_waiting_over_completed() {
+        let states = [
+            AgentLifecycleState::Completed,
+            AgentLifecycleState::Waiting,
+            AgentLifecycleState::Idle,
+        ];
+        assert_eq!(
+            aggregate_agent_lifecycle(states.into_iter()),
+            Some(AgentLifecycleState::Waiting)
+        );
+    }
+
+    #[test]
+    fn aggregate_agent_lifecycle_returns_completed_when_only_completed() {
+        let states = [AgentLifecycleState::Completed, AgentLifecycleState::Idle];
+        assert_eq!(
+            aggregate_agent_lifecycle(states.into_iter()),
+            Some(AgentLifecycleState::Completed)
+        );
+    }
+
+    #[test]
+    fn aggregate_agent_lifecycle_returns_none_for_empty_or_idle_only() {
+        assert_eq!(aggregate_agent_lifecycle([].into_iter()), None);
+        assert_eq!(
+            aggregate_agent_lifecycle([AgentLifecycleState::Idle].into_iter()),
+            None
+        );
     }
 }

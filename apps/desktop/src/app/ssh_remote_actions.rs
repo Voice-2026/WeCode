@@ -1,3 +1,4 @@
+use super::ai_runtime_status::AgentLifecycleState;
 use super::*;
 use crate::app::app_events::{
     ChildWindowUpdateEvent, current_memory_update_event, publish_pet_update,
@@ -1269,6 +1270,7 @@ impl CoduxApp {
         } else if !self.pane_agent_lifecycle.is_empty() {
             pane_lifecycle_changed = self.sync_pane_agent_lifecycle();
         }
+        self.maybe_refresh_git_for_agent_activity(pane_lifecycle_changed, cx);
         if include_scheduled_tick {
             self.refresh_global_today_ai_tokens();
         }
@@ -1375,6 +1377,39 @@ impl CoduxApp {
         self.state.remote_ai_current_sessions = views;
         self.state.refresh_ai_history_stats();
         true
+    }
+
+    fn maybe_refresh_git_for_agent_activity(
+        &mut self,
+        pane_lifecycle_changed: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let completed_now = pane_lifecycle_changed
+            && self
+                .pane_agent_lifecycle
+                .values()
+                .any(|lifecycle| lifecycle.state == AgentLifecycleState::Completed);
+        let working_now = self
+            .pane_agent_lifecycle
+            .values()
+            .any(|lifecycle| lifecycle.state == AgentLifecycleState::Working);
+        if completed_now {
+            self.refresh_git_panel_state_async_quiet(cx);
+            self.agent_git_refresh_after =
+                Some(Instant::now() + Duration::from_secs(5));
+            return;
+        }
+        if working_now
+            && self
+                .agent_git_refresh_after
+                .is_none_or(|deadline| Instant::now() >= deadline)
+        {
+            self.refresh_git_panel_state_async_quiet(cx);
+            self.agent_git_refresh_after =
+                Some(Instant::now() + Duration::from_secs(5));
+        } else if !working_now {
+            self.agent_git_refresh_after = None;
+        }
     }
 
     pub(super) fn apply_ai_runtime_activity_tick(

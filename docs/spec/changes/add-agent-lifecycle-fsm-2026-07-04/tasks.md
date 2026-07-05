@@ -1,6 +1,6 @@
 ---
 created_at: 2026-07-04T00:00:00Z
-updated_at: 2026-07-05T00:30:00Z
+updated_at: 2026-07-05T01:10:00Z
 completed_at:
 ---
 
@@ -92,3 +92,12 @@ completed_at:
 - [x] 9.5 Tint the row's `CommandLine` icon with the lifecycle color when non-idle (`task_column.rs` `terminal_compact_row`): `Working` → `theme::ACCENT`, `Waiting` → `theme::ORANGE`, `Completed` → `theme::GREEN`; default muted color when `Idle`/no session (add an `agent_lifecycle_color` helper in `agent_display.rs`)
 - [x] 9.6 Unit test: sync change detection (state change → true, steady state → false, prune of non-idle entry → true)
 - [ ] 9.7 Re-run `cargo check -p codux` + `cargo test -p codux`; manual test: row icon + dot light up while agent works, amber on prompt, green check decays after ~3s without further events
+
+## 10. Worktree row indicator + live git counts (user request)
+
+- [x] 10.1 Add `aggregate_agent_lifecycle` free function (priority `Working` > `Waiting` > `Completed`, `Idle`/empty → None) + `CoduxApp::worktree_agent_lifecycle(worktree)` attributing sessions by `project_id == worktree.id` or default-worktree `project_id` match (`agent_lifecycle.rs`), with unit tests
+- [x] 10.2 Add `lifecycle: Option<AgentLifecycleState>` to `TaskWorktreeRow`, built in `task_worktree_list_snapshot()` (`task_column.rs`)
+- [x] 10.3 Render `agent_lifecycle_status_dot` on the worktree row between the text column and the +/− counts; existing `worktree_activity_dot` untouched (`task_column.rs`)
+- [x] 10.4 Add `quiet` variant of `refresh_git_panel_state_async` that skips the `status_message` update (`project_actions.rs`)
+- [x] 10.5 Trigger the quiet git refresh from the runtime ticks: while any pane lifecycle is `Working`, at most once per 5s (new `agent_git_refresh_after: Option<Instant>` throttle field on `CoduxApp`); plus once when a pane transitions into `Completed` (`ssh_remote_actions.rs`, `app_state.rs`, inits in `app_lifecycle.rs`/`window_actions.rs`)
+- [ ] 10.6 Re-run `cargo check -p codux` + `cargo test -p codux`; manual test: worktree row spinner while agent works, +/− counts tick up during the turn, final counts right after completion

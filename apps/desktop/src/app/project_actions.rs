@@ -100,6 +100,14 @@ impl CoduxApp {
     }
 
     pub(super) fn refresh_git_panel_state_async(&mut self, cx: &mut Context<Self>) {
+        self.refresh_git_panel_state_async_impl(false, cx);
+    }
+
+    pub(super) fn refresh_git_panel_state_async_quiet(&mut self, cx: &mut Context<Self>) {
+        self.refresh_git_panel_state_async_impl(true, cx);
+    }
+
+    fn refresh_git_panel_state_async_impl(&mut self, quiet: bool, cx: &mut Context<Self>) {
         if self.git_review_refreshing {
             return;
         }
@@ -150,13 +158,15 @@ impl CoduxApp {
                 app.git_review_refreshing = false;
                 app.normalize_selected_git_file();
                 app.normalize_selected_git_branch();
-                app.status_message = format!(
-                    "git status reloaded: {} changed, {} staged, {} unstaged, {} untracked",
-                    app.state.git.changed_files.len(),
-                    app.state.git.staged,
-                    app.state.git.unstaged,
-                    app.state.git.untracked
-                );
+                if !quiet {
+                    app.status_message = format!(
+                        "git status reloaded: {} changed, {} staged, {} unstaged, {} untracked",
+                        app.state.git.changed_files.len(),
+                        app.state.git.staged,
+                        app.state.git.unstaged,
+                        app.state.git.untracked
+                    );
+                }
                 app.runtime_trace(
                     "git",
                     &format!(
