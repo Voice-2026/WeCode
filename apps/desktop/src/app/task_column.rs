@@ -21,6 +21,7 @@ pub(in crate::app) struct TaskColumnView {
     worktree_list_view: gpui::Entity<TaskWorktreeListView>,
     terminal_list_view: gpui::Entity<TaskTerminalListView>,
     session_list_view: gpui::Entity<TaskSessionListView>,
+    sessions_collapsed: bool,
 }
 
 #[derive(Clone)]
@@ -78,6 +79,7 @@ impl Render for TaskColumnView {
             self.worktree_list_view.clone(),
             self.terminal_list_view.clone(),
             self.session_list_view.clone(),
+            self.sessions_collapsed,
         )
         .into_any_element()
     }
@@ -88,8 +90,15 @@ impl CoduxApp {
         &mut self,
         cx: &mut Context<Self>,
     ) -> gpui::Entity<TaskColumnView> {
+        let sessions_collapsed = self.task_section_sessions_collapsed;
         if let Some(view) = self.task_column_view.clone() {
             self.update_task_column_child_views(cx);
+            view.update(cx, |view, cx| {
+                if view.sessions_collapsed != sessions_collapsed {
+                    view.sessions_collapsed = sessions_collapsed;
+                    cx.notify();
+                }
+            });
             return view;
         }
         let header_view = self.task_column_header_view(cx);
@@ -101,6 +110,7 @@ impl CoduxApp {
             worktree_list_view,
             terminal_list_view,
             session_list_view,
+            sessions_collapsed,
         });
         self.task_column_view = Some(view.clone());
         view
@@ -549,10 +559,8 @@ fn task_column_content(
     worktree_list_view: gpui::Entity<TaskWorktreeListView>,
     terminal_list_view: gpui::Entity<TaskTerminalListView>,
     session_list_view: gpui::Entity<TaskSessionListView>,
+    sessions_collapsed: bool,
 ) -> impl IntoElement {
-    // Worktrees and session history share the leftover height; the terminal
-    // list in between has a row-count-derived fixed height (max 6 rows, then
-    // scrolls) because uniform_list has no intrinsic content size.
     div()
         .flex()
         .flex_col()
@@ -584,8 +592,11 @@ fn task_column_content(
                 )
                 .child(
                     div()
-                        .flex_1()
+                        .flex()
+                        .flex_col()
                         .min_h_0()
+                        .when(sessions_collapsed, |this| this.flex_none())
+                        .when(!sessions_collapsed, |this| this.flex_1())
                         .child(gpui::AnyView::from(session_list_view)),
                 ),
         )
