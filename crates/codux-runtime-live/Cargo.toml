@@ -15,6 +15,7 @@ codux-ai-history = { path = "../codux-ai-history" }
 codux-protocol = { path = "../codux-protocol" }
 codux-terminal-core = { path = "../codux-terminal-core" }
 codux-terminal-pty = { path = "../codux-terminal-pty" }
+dunce = "1"
 flume = "0.12"
 libc = "0.2"
 md-5 = "0.10"
