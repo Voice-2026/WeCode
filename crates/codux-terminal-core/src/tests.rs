@@ -97,6 +97,30 @@ fn terminal_key_input_keeps_app_shortcuts_out_of_terminal() {
     )));
 }
 
+#[test]
+fn terminal_copy_paste_shortcuts_follow_platform_conventions() {
+    let macos = cfg!(target_os = "macos");
+    assert_eq!(
+        terminal_is_paste_shortcut(key_input("v", None, true, false, true, false, false)),
+        !macos
+    );
+    assert_eq!(
+        terminal_is_paste_shortcut(key_input("insert", None, true, false, false, false, false)),
+        !macos
+    );
+    assert_eq!(
+        terminal_is_paste_shortcut(key_input("v", None, false, false, true, false, false)),
+        cfg!(windows)
+    );
+    assert_eq!(
+        terminal_is_copy_shortcut(key_input("c", None, true, false, true, false, false)),
+        !macos
+    );
+    assert!(!terminal_is_paste_shortcut(key_input(
+        "insert", None, false, false, false, false, false
+    )));
+}
+
 fn mouse_input(
     action: TerminalMouseAction,
     button: Option<TerminalMouseButton>,

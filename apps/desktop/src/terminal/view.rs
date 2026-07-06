@@ -760,7 +760,17 @@ impl TerminalView {
                     self.paste_text(&text, cx);
                 }
             }
-            MouseButton::Right | MouseButton::Navigate(_) => {}
+            MouseButton::Right => {
+                // No selection to copy (handled above): Windows pastes on
+                // right-click, conhost/Windows Terminal parity.
+                if cfg!(windows) {
+                    if let Some(text) = self.terminal_clipboard_paste_text(cx) {
+                        self.suppress_text_input_echo(&text);
+                        self.paste_text(&text, cx);
+                    }
+                }
+            }
+            MouseButton::Navigate(_) => {}
         }
         cx.stop_propagation();
         cx.notify();

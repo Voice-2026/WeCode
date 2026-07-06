@@ -54,9 +54,14 @@ fn maps_copy_and_paste_shortcuts_as_ui_commands() {
     assert!(!is_copy_keystroke(&modified_key(
         "c", false, false, true, false
     )));
-    assert!(!is_paste_keystroke(&modified_key(
-        "v", false, false, true, false
-    )));
+    assert_eq!(
+        is_paste_keystroke(&modified_key("v", false, false, true, false)),
+        cfg!(windows)
+    );
+    assert_eq!(
+        is_paste_keystroke(&modified_key("insert", true, false, false, false)),
+        !cfg!(target_os = "macos")
+    );
 }
 #[test]
 fn shift_scroll_keeps_terminal_history_available_in_alternate_screen() {

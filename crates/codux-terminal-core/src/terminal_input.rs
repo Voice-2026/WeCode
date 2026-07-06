@@ -358,17 +358,40 @@ pub fn terminal_mouse_input_bytes(input: TerminalMouseInput) -> Option<Vec<u8>> 
 }
 
 pub fn terminal_is_copy_shortcut(input: TerminalKeyInput<'_>) -> bool {
-    terminal_normalize_key(input.key) == "c"
-        && input.modifiers.platform
-        && !input.modifiers.control
-        && !input.modifiers.alt
+    let key = terminal_normalize_key(input.key);
+    let modifiers = input.modifiers;
+    if key == "c" && modifiers.platform && !modifiers.control && !modifiers.alt {
+        return true;
+    }
+    // Ctrl+Shift+C is the copy convention outside macOS.
+    !cfg!(target_os = "macos")
+        && key == "c"
+        && modifiers.control
+        && modifiers.shift
+        && !modifiers.alt
+        && !modifiers.platform
 }
 
 pub fn terminal_is_paste_shortcut(input: TerminalKeyInput<'_>) -> bool {
-    terminal_normalize_key(input.key) == "v"
-        && input.modifiers.platform
-        && !input.modifiers.control
-        && !input.modifiers.alt
+    let key = terminal_normalize_key(input.key);
+    let modifiers = input.modifiers;
+    if key == "v" && modifiers.platform && !modifiers.control && !modifiers.alt {
+        return true;
+    }
+    if cfg!(target_os = "macos") {
+        return false;
+    }
+    match key.as_str() {
+        // Ctrl+Shift+V everywhere; plain Ctrl+V only on Windows (Windows
+        // Terminal parity — paste wins over the ^V passthrough byte).
+        "v" if modifiers.control && !modifiers.alt && !modifiers.platform => {
+            modifiers.shift || cfg!(windows)
+        }
+        "insert" => {
+            modifiers.shift && !modifiers.control && !modifiers.alt && !modifiers.platform
+        }
+        _ => false,
+    }
 }
 
 fn terminal_should_keep_platform_shortcut(input: TerminalKeyInput<'_>) -> bool {
