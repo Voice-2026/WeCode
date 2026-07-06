@@ -7,8 +7,20 @@ impl SettingsService {
     }
 
     pub fn set_terminal_font_size(&self, size: &str) -> Result<SettingsSummary, String> {
-        let size = numeric_string(size, 14, 10, 28).to_string();
+        let size = numeric_string(size, 14, 8, 28).to_string();
         self.update_string("terminalFontSize", size)
+    }
+
+    pub fn set_terminal_padding(&self, padding: &str) -> Result<SettingsSummary, String> {
+        let padding = numeric_string(padding, 10, 0, 40).to_string();
+        self.update_string("terminalPadding", padding)
+    }
+
+    pub fn set_terminal_line_height(&self, multiplier: &str) -> Result<SettingsSummary, String> {
+        self.update_string(
+            "terminalLineHeight",
+            float_string(multiplier, 1.45, 1.0, 2.0),
+        )
     }
 
     pub fn set_terminal_font_family(&self, family: &str) -> Result<SettingsSummary, String> {
@@ -39,8 +51,9 @@ impl SettingsService {
     }
 
     pub fn cycle_terminal_font_size(&self) -> Result<SettingsSummary, String> {
-        let current = numeric_string(&self.summary().terminal_font_size, 14, 10, 28);
+        let current = numeric_string(&self.summary().terminal_font_size, 14, 8, 28);
         let next = match current {
+            8 => 10,
             10 => 12,
             12 => 14,
             14 => 16,
@@ -48,7 +61,7 @@ impl SettingsService {
             18 => 20,
             20 => 24,
             24 => 28,
-            28 => 10,
+            28 => 8,
             _ => 14,
         };
         self.update_string("terminalFontSize", next.to_string())

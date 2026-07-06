@@ -179,6 +179,19 @@ fn numeric_string(value: &str, default: i64, min: i64, max: i64) -> i64 {
         .clamp(min, max)
 }
 
+/// Clamped float stored as its shortest string form ("1.45", "1.2", "1").
+fn float_string(value: &str, default: f64, min: f64, max: f64) -> String {
+    let parsed = value
+        .trim()
+        .parse::<f64>()
+        .ok()
+        .filter(|value| value.is_finite())
+        .unwrap_or(default)
+        .clamp(min, max);
+    let text = format!("{parsed:.2}");
+    text.trim_end_matches('0').trim_end_matches('.').to_string()
+}
+
 fn next_interval(current: &str, options: &[i64], default: i64) -> i64 {
     let current = numeric_string(current, default, 1, 86_400);
     options

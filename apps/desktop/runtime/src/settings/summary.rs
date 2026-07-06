@@ -46,6 +46,16 @@ fn summary_from_raw(raw: &Map<String, Value>) -> SettingsSummary {
             .and_then(Value::as_str)
             .map(|value| numeric_string(value, 14, 10, 28).to_string())
             .unwrap_or(defaults.terminal_font_size),
+        terminal_padding: raw
+            .get("terminalPadding")
+            .and_then(Value::as_str)
+            .map(|value| numeric_string(value, 10, 0, 40).to_string())
+            .unwrap_or(defaults.terminal_padding),
+        terminal_line_height: raw
+            .get("terminalLineHeight")
+            .and_then(Value::as_str)
+            .map(|value| float_string(value, 1.45, 1.0, 2.0))
+            .unwrap_or(defaults.terminal_line_height),
         terminal_scrollback_lines: raw
             .get("terminalScrollbackLines")
             .and_then(Value::as_str)

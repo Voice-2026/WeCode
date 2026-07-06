@@ -193,6 +193,34 @@ pub(super) fn settings_general_pane(
                 )
                 .into_any_element(),
                 settings_row(
+                    settings_text(language, "settings.terminal_line_height", "Terminal Line Height"),
+                    None,
+                    settings_select_impl(
+                        "settings-terminal-line-height",
+                        &settings.terminal_line_height,
+                        terminal_line_height_options(),
+                        window,
+                        cx,
+                        language,
+                        |app, value, window, cx| app.set_terminal_line_height(value, window, cx),
+                    ),
+                )
+                .into_any_element(),
+                settings_row(
+                    settings_text(language, "settings.terminal_padding", "Terminal Padding"),
+                    None,
+                    settings_select_impl(
+                        "settings-terminal-padding",
+                        &settings.terminal_padding,
+                        terminal_padding_options(),
+                        window,
+                        cx,
+                        language,
+                        |app, value, window, cx| app.set_terminal_padding(value, window, cx),
+                    ),
+                )
+                .into_any_element(),
+                settings_row(
                     settings_text(language, "settings.terminal_scrollback", "Terminal Scrollback"),
                     Some(settings_text(
                         language,

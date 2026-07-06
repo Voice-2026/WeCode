@@ -463,11 +463,28 @@ fn detected_terminal_shells() -> Vec<(String, String)> {
 }
 
 pub(super) fn terminal_font_size_options() -> Vec<(String, SharedString)> {
-    (10..=28)
+    (8..=28)
         .map(|value| {
             let value = value.to_string();
             (value.clone(), SharedString::from(value))
         })
+        .collect()
+}
+
+pub(super) fn terminal_padding_options() -> Vec<(String, SharedString)> {
+    (0..=40)
+        .step_by(2)
+        .map(|value| {
+            let value = value.to_string();
+            (value.clone(), SharedString::from(value))
+        })
+        .collect()
+}
+
+pub(super) fn terminal_line_height_options() -> Vec<(String, SharedString)> {
+    ["1", "1.1", "1.2", "1.3", "1.45", "1.6", "1.8", "2"]
+        .into_iter()
+        .map(|value| (value.to_string(), SharedString::from(value)))
         .collect()
 }
 

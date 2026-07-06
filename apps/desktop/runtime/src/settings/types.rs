@@ -10,6 +10,10 @@ pub struct SettingsSummary {
     pub shows_dock_badge: bool,
     pub terminal_font_family: String,
     pub terminal_font_size: String,
+    /// Terminal content inset in pixels (0-40).
+    pub terminal_padding: String,
+    /// Terminal line-height multiplier (1.0-2.0).
+    pub terminal_line_height: String,
     pub terminal_scrollback_lines: String,
     pub terminal_paste_images_as_paths: bool,
     /// Absolute path of the preferred terminal shell; empty = platform default.
