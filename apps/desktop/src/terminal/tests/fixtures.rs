@@ -110,6 +110,7 @@ pub(super) fn test_cell(
         italic: false,
         underline: TerminalScreenUnderline::None,
         underline_color: None,
+        link: None,
         inverse,
         hidden: false,
         strikeout: false,

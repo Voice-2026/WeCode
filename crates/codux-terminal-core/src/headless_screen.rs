@@ -18,6 +18,10 @@ use crate::TerminalInputMode;
 /// Invoked on the screen worker thread.
 pub type TerminalPtyResponder = Arc<dyn Fn(&[u8]) + Send + Sync>;
 
+/// Receives OSC 52 clipboard-store payloads (already base64-decoded by the
+/// engine). Only live output triggers it; replayed history never does.
+pub type TerminalClipboardSink = Arc<dyn Fn(&str) + Send + Sync>;
+
 const PROCESS_CHUNK_BYTES: usize = 64 * 1024;
 const TERMINAL_CELL_WIDTH_PX: u32 = 10;
 const TERMINAL_CELL_HEIGHT_PX: u32 = 20;
@@ -89,6 +93,9 @@ pub struct TerminalScreenCellSnapshot {
     /// SGR 58 underline color override; None means the text foreground.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub underline_color: Option<TerminalScreenColor>,
+    /// OSC 8 hyperlink URI attached to this cell.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub link: Option<String>,
     pub inverse: bool,
     pub hidden: bool,
     pub strikeout: bool,
@@ -167,6 +174,10 @@ impl HeadlessTerminalScreen {
             engine: TerminalScreenEngine::new(cols, rows, scrollback, responder),
             pending_scroll_pixels: 0.0,
         }
+    }
+
+    pub fn set_clipboard_sink(&mut self, sink: TerminalClipboardSink) {
+        self.engine.send(TerminalScreenCommand::SetClipboardSink(sink));
     }
 
     pub fn process(&mut self, bytes: &[u8]) {
@@ -467,6 +478,7 @@ impl TerminalScreenEngine {
 enum TerminalScreenCommand {
     Process(Vec<u8>),
     ProcessReplay(Vec<u8>),
+    SetClipboardSink(TerminalClipboardSink),
     Resize {
         cols: usize,
         rows: usize,
@@ -556,6 +568,7 @@ struct TerminalScreenWorker {
     rows: usize,
     scrollback: usize,
     responder: Option<TerminalPtyResponder>,
+    clipboard_sink: Option<TerminalClipboardSink>,
     title: Option<String>,
 }
 
@@ -589,6 +602,7 @@ impl TerminalScreenWorker {
             rows,
             scrollback,
             responder,
+            clipboard_sink: None,
             title: None,
         }
     }
@@ -608,17 +622,27 @@ impl TerminalScreenWorker {
                 _ => {}
             }
         }
-        let Some(responder) = self.responder.as_ref() else {
-            return;
-        };
         if !answer_queries {
             return;
         }
         for event in events {
             match event {
-                Event::PtyWrite(text) => responder(text.as_bytes()),
+                Event::PtyWrite(text) => {
+                    if let Some(responder) = self.responder.as_ref() {
+                        responder(text.as_bytes());
+                    }
+                }
                 Event::TextAreaSizeRequest(format) => {
-                    responder(format(self.window_size()).as_bytes())
+                    if let Some(responder) = self.responder.as_ref() {
+                        responder(format(self.window_size()).as_bytes());
+                    }
+                }
+                // OSC 52 write; loads are ignored (remote clipboard reads are
+                // a data leak, matching most terminals' default).
+                Event::ClipboardStore(_, text) => {
+                    if let Some(sink) = self.clipboard_sink.as_ref() {
+                        sink(&text);
+                    }
                 }
                 // OSC color queries are intentionally not answered here; the
                 // embedder resolves those from its own theme palette.
@@ -649,6 +673,9 @@ impl TerminalScreenWorker {
             match command {
                 TerminalScreenCommand::Process(bytes) => self.feed(&bytes, true),
                 TerminalScreenCommand::ProcessReplay(bytes) => self.feed(&bytes, false),
+                TerminalScreenCommand::SetClipboardSink(sink) => {
+                    self.clipboard_sink = Some(sink);
+                }
                 TerminalScreenCommand::Resize { mut cols, mut rows } => {
                     // Layout settling queues resizes back-to-back, and every
                     // column change reflows the whole scrollback. Collapse a
@@ -959,6 +986,7 @@ impl TerminalScreenWorker {
                     .underline_color()
                     .map(terminal_screen_color)
                     .filter(|color| *color != TerminalScreenColor::Default),
+                link: cell.hyperlink().map(|link| link.uri().to_string()),
                 inverse: cell.flags.contains(Flags::INVERSE),
                 hidden: cell.flags.contains(Flags::HIDDEN),
                 strikeout: cell.flags.contains(Flags::STRIKEOUT),
@@ -1145,6 +1173,7 @@ struct SnapshotCellStyle {
     italic: bool,
     underline: TerminalScreenUnderline,
     underline_color: Option<TerminalScreenColor>,
+    link: Option<String>,
     inverse: bool,
     hidden: bool,
     strikeout: bool,
@@ -1160,6 +1189,7 @@ impl Default for SnapshotCellStyle {
             italic: false,
             underline: TerminalScreenUnderline::None,
             underline_color: None,
+            link: None,
             inverse: false,
             hidden: false,
             strikeout: false,
@@ -1177,6 +1207,7 @@ impl From<&TerminalScreenCellSnapshot> for SnapshotCellStyle {
             italic: cell.italic,
             underline: cell.underline,
             underline_color: cell.underline_color.clone(),
+            link: cell.link.clone(),
             inverse: cell.inverse,
             hidden: cell.hidden,
             strikeout: cell.strikeout,
@@ -1228,6 +1259,9 @@ fn terminal_snapshot_data(
             match &row_cells[col] {
                 Some(cell) => {
                     if cell.style != current_style {
+                        if cell.style.link != current_style.link {
+                            output.push_str(&snapshot_link_osc(cell.style.link.as_deref()));
+                        }
                         output.push_str(&snapshot_style_sgr(cell.style.clone()));
                         current_style = cell.style.clone();
                     }
@@ -1247,6 +1281,9 @@ fn terminal_snapshot_data(
                     // Gap cells have no recorded style; reset to default so
                     // the space does not paint a lingering band background.
                     if current_style != SnapshotCellStyle::default() {
+                        if current_style.link.is_some() {
+                            output.push_str(&snapshot_link_osc(None));
+                        }
                         output.push_str("\x1b[0m");
                         current_style = SnapshotCellStyle::default();
                     }
@@ -1257,6 +1294,9 @@ fn terminal_snapshot_data(
         }
     }
     if current_style != SnapshotCellStyle::default() {
+        if current_style.link.is_some() {
+            output.push_str(&snapshot_link_osc(None));
+        }
         output.push_str("\x1b[0m");
     }
     if cursor.visible {
@@ -1264,6 +1304,12 @@ fn terminal_snapshot_data(
         output.push_str("\x1b[?25h");
     }
     output
+}
+
+/// OSC 8 open/close for keyframe re-encoding; alacritty regenerates the link
+/// id, so only the URI needs carrying.
+fn snapshot_link_osc(uri: Option<&str>) -> String {
+    format!("\x1b]8;;{}\x1b\\", uri.unwrap_or(""))
 }
 
 fn terminal_snapshot_text(text: &str) -> String {
@@ -1501,6 +1547,39 @@ mod tests {
             dst_cell.underline_color,
             Some(TerminalScreenColor::Rgb { r: 255, g: 0, b: 10 })
         );
+    }
+
+    #[test]
+    fn osc8_hyperlinks_attach_to_cells_and_survive_keyframe() {
+        let mut screen = HeadlessTerminalScreen::new(40, 4, 100);
+        screen.process(b"\x1b]8;;https://example.com\x1b\\docs\x1b]8;;\x1b\\ plain");
+        let snap = screen.snapshot();
+        let linked = snap.cells.iter().find(|cell| cell.text == "d").unwrap();
+        assert_eq!(linked.link.as_deref(), Some("https://example.com"));
+        let plain = snap.cells.iter().find(|cell| cell.text == "p").unwrap();
+        assert_eq!(plain.link, None);
+
+        let mut dst = HeadlessTerminalScreen::new(40, 4, 100);
+        dst.process_replay(snap.data.as_bytes());
+        let dst_snap = dst.snapshot();
+        let linked = dst_snap.cells.iter().find(|cell| cell.text == "d").unwrap();
+        assert_eq!(linked.link.as_deref(), Some("https://example.com"));
+        let plain = dst_snap.cells.iter().find(|cell| cell.text == "p").unwrap();
+        assert_eq!(plain.link, None);
+    }
+
+    #[test]
+    fn osc52_clipboard_store_reaches_sink_only_for_live_output() {
+        let stored = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let sink_stored = stored.clone();
+        let mut screen = HeadlessTerminalScreen::new(20, 4, 100);
+        screen.set_clipboard_sink(Arc::new(move |text: &str| {
+            sink_stored.lock().unwrap().push(text.to_string());
+        }));
+        screen.process(b"\x1b]52;c;aGVsbG8=\x07"); // "hello"
+        screen.process_replay(b"\x1b]52;c;aWdub3Jl\x07"); // replayed history: ignored
+        let _ = screen.snapshot(); // worker barrier
+        assert_eq!(*stored.lock().unwrap(), vec!["hello".to_string()]);
     }
 
     #[test]

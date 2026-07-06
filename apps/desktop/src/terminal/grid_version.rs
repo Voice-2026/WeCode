@@ -99,6 +99,7 @@ mod grid_version_tests {
                 italic: false,
                 underline: TerminalScreenUnderline::None,
                 underline_color: None,
+                link: None,
                 inverse: false,
                 hidden: false,
                 strikeout: false,

@@ -81,6 +81,27 @@ impl TerminalModel {
             config.scrollback,
             Some(responder),
         )));
+        // OSC 52: engine-decoded clipboard stores hop from the worker thread
+        // to the UI thread, where the system clipboard lives.
+        let (clipboard_tx, clipboard_rx) = flume::unbounded::<String>();
+        screen
+            .lock()
+            .set_clipboard_sink(Arc::new(move |text: &str| {
+                let _ = clipboard_tx.send(text.to_string());
+            }));
+        cx.spawn(async move |this: WeakEntity<Self>, cx| {
+            while let Ok(text) = clipboard_rx.recv_async().await {
+                if this
+                    .update(cx, |_, cx| {
+                        cx.write_to_clipboard(ClipboardItem::new_string(text));
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        })
+        .detach();
         let restored_bootstrap_active = restored_output
             .as_ref()
             .is_some_and(|restored_output| !restored_output.tail.is_empty());

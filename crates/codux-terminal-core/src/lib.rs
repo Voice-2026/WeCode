@@ -10,7 +10,8 @@ mod terminal_input;
 
 pub use buffer_assembler::{TerminalBufferAssembler, TerminalBufferAssemblyResult};
 pub use headless_screen::{
-    HeadlessTerminalScreen, HeadlessTerminalSnapshotRequest, TerminalPtyResponder,
+    HeadlessTerminalScreen, HeadlessTerminalSnapshotRequest, TerminalClipboardSink,
+    TerminalPtyResponder,
     TerminalScreenCellSnapshot, TerminalScreenColor, TerminalScreenCursorShape,
     TerminalScreenCursorSnapshot, TerminalScreenSnapshot, TerminalScreenUnderline,
     TerminalSelectionSpan, TerminalSelectionSpanKind, stack_scrolled_snapshots,

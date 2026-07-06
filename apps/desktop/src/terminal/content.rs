@@ -195,12 +195,44 @@ fn terminal_link_at_cell(
         return None;
     }
 
+    if let Some((url, range)) = terminal_osc8_link_at(&row_cells, point.col) {
+        return Some(TerminalLink { url, line, range });
+    }
     let row_text = terminal_row_text(&row_cells);
     terminal_plain_url_at(&row_text, point.col).map(|(url, range)| TerminalLink {
         url,
         line,
         range,
     })
+}
+
+/// OSC 8 hyperlink under the pointer; the range spans every cell on the row
+/// carrying the same URI so the whole label underlines together.
+fn terminal_osc8_link_at(
+    row_cells: &[&TerminalIndexedCell],
+    col: usize,
+) -> Option<(String, Range<usize>)> {
+    let uri = row_cells.iter().find_map(|indexed| {
+        let width = indexed.cell.width.max(1);
+        (indexed.col() <= col && col < indexed.col() + width)
+            .then(|| indexed.cell.link.clone())
+            .flatten()
+    })?;
+    if !is_openable_terminal_url(&uri) {
+        return None;
+    }
+    let mut range: Option<Range<usize>> = None;
+    for indexed in row_cells {
+        if indexed.cell.link.as_deref() != Some(uri.as_str()) {
+            continue;
+        }
+        let end = indexed.col() + indexed.cell.width.max(1);
+        range = Some(match range {
+            Some(range) => range.start.min(indexed.col())..range.end.max(end),
+            None => indexed.col()..end,
+        });
+    }
+    Some((uri, range?))
 }
 
 fn terminal_row_text(row_cells: &[&TerminalIndexedCell]) -> Vec<(usize, char)> {
