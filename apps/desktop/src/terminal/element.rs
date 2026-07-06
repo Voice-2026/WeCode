@@ -275,6 +275,60 @@ impl TerminalGraphicCell {
             TerminalCellGraphic::Powerline(graphic) => {
                 self.paint_powerline(graphic, bounds, window);
             }
+            TerminalCellGraphic::Underline(graphic) => {
+                self.paint_underline(graphic, bounds, window);
+            }
+        }
+    }
+
+    fn paint_underline(
+        &self,
+        graphic: TerminalUnderlineGraphic,
+        bounds: Bounds<Pixels>,
+        window: &mut Window,
+    ) {
+        let x = f32::from(bounds.origin.x);
+        let right = x + f32::from(bounds.size.width);
+        let bottom = f32::from(bounds.origin.y) + f32::from(bounds.size.height);
+        let thickness = 1.0;
+        let base = bottom - 2.0;
+        let mut line = |top: f32| {
+            self.paint_rect(x, top, right, top + thickness, window);
+        };
+        match graphic {
+            TerminalUnderlineGraphic::Double => {
+                line(base - 2.0 * thickness);
+                line(base);
+            }
+            TerminalUnderlineGraphic::Dotted => {
+                self.paint_dash_pattern(x, right, base, thickness, 2.0 * thickness, window);
+            }
+            TerminalUnderlineGraphic::Dashed => {
+                self.paint_dash_pattern(x, right, base, thickness, 6.0 * thickness, window);
+            }
+        }
+    }
+
+    // Segments snap to a global period grid so the pattern runs continuously
+    // across adjacent cells.
+    fn paint_dash_pattern(
+        &self,
+        x: f32,
+        right: f32,
+        top: f32,
+        thickness: f32,
+        segment: f32,
+        window: &mut Window,
+    ) {
+        let period = segment * 2.0;
+        let mut start = (x / period).floor() * period;
+        while start < right {
+            let seg_left = start.max(x);
+            let seg_right = (start + segment).min(right);
+            if seg_right > seg_left {
+                self.paint_rect(seg_left, top, seg_right, top + thickness, window);
+            }
+            start += period;
         }
     }
 

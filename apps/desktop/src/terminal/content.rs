@@ -288,6 +288,9 @@ fn terminal_cell_hash(cell: &TerminalScreenCellSnapshot, hasher: &mut DefaultHas
     cell.dim.hash(hasher);
     cell.italic.hash(hasher);
     cell.underline.hash(hasher);
+    if let Some(color) = &cell.underline_color {
+        terminal_screen_color_hash(color, hasher);
+    }
     cell.inverse.hash(hasher);
     cell.hidden.hash(hasher);
     cell.strikeout.hash(hasher);

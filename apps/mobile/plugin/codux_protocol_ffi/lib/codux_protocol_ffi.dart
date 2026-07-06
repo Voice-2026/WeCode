@@ -1042,6 +1042,26 @@ enum TerminalScreenCursorShape {
   }
 }
 
+enum TerminalScreenUnderline {
+  none,
+  single,
+  double,
+  curly,
+  dotted,
+  dashed;
+
+  factory TerminalScreenUnderline.fromJson(Object? value) {
+    return switch ('$value') {
+      'single' => TerminalScreenUnderline.single,
+      'double' => TerminalScreenUnderline.double,
+      'curly' => TerminalScreenUnderline.curly,
+      'dotted' => TerminalScreenUnderline.dotted,
+      'dashed' => TerminalScreenUnderline.dashed,
+      _ => TerminalScreenUnderline.none,
+    };
+  }
+}
+
 class TerminalScreenCell {
   const TerminalScreenCell({
     required this.row,
@@ -1054,6 +1074,7 @@ class TerminalScreenCell {
     required this.dim,
     required this.italic,
     required this.underline,
+    this.underlineColor,
     required this.inverse,
     required this.hidden,
     required this.strikeout,
@@ -1068,7 +1089,10 @@ class TerminalScreenCell {
   final bool bold;
   final bool dim;
   final bool italic;
-  final bool underline;
+  final TerminalScreenUnderline underline;
+
+  /// SGR 58 underline color override; null means the text foreground.
+  final Map<String, dynamic>? underlineColor;
   final bool inverse;
   final bool hidden;
   final bool strikeout;
@@ -1088,7 +1112,10 @@ class TerminalScreenCell {
       bold: json['bold'] == true,
       dim: json['dim'] == true,
       italic: json['italic'] == true,
-      underline: json['underline'] == true,
+      underline: TerminalScreenUnderline.fromJson(json['underline']),
+      underlineColor: json['underlineColor'] is Map
+          ? Map<String, dynamic>.from(json['underlineColor'] as Map)
+          : null,
       inverse: json['inverse'] == true,
       hidden: json['hidden'] == true,
       strikeout: json['strikeout'] == true,

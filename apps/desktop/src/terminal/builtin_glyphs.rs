@@ -3,6 +3,31 @@ enum TerminalCellGraphic {
     Block(TerminalBlockGraphic),
     Box(TerminalBoxGraphic),
     Powerline(TerminalPowerlineGraphic),
+    Underline(TerminalUnderlineGraphic),
+}
+
+// SGR 4:x underline shapes gpui's native run underline can't draw; painted
+// as cell-exact decorations beneath the glyphs.
+#[derive(Clone, Copy)]
+enum TerminalUnderlineGraphic {
+    Double,
+    Dotted,
+    Dashed,
+}
+
+fn terminal_underline_graphic(underline: TerminalScreenUnderline) -> Option<TerminalCellGraphic> {
+    match underline {
+        TerminalScreenUnderline::Double => {
+            Some(TerminalCellGraphic::Underline(TerminalUnderlineGraphic::Double))
+        }
+        TerminalScreenUnderline::Dotted => {
+            Some(TerminalCellGraphic::Underline(TerminalUnderlineGraphic::Dotted))
+        }
+        TerminalScreenUnderline::Dashed => {
+            Some(TerminalCellGraphic::Underline(TerminalUnderlineGraphic::Dashed))
+        }
+        _ => None,
+    }
 }
 
 // Powerline separators (U+E0B0–U+E0BF) are drawn as cell-exact vectors: font

@@ -1119,6 +1119,7 @@ class _TerminalGridPainter extends CustomPainter {
           bold: run.bold,
           italic: run.italic,
           underline: run.underline,
+          underlineColor: run.underlineColor,
           strikeout: run.strikeout,
         );
         // Anchor each run to its grid column. A run never spans wider than its
@@ -1242,7 +1243,7 @@ class _TerminalGridPainter extends CustomPainter {
             AppColors.terminalBg,
             bold: cell.bold,
             italic: cell.italic,
-            underline: false,
+            underline: TerminalScreenUnderline.none,
             strikeout: false,
           );
           canvas.drawParagraph(
@@ -1289,6 +1290,10 @@ class _TerminalGridPainter extends CustomPainter {
       // cycles glyphs of different widths the whole word jitters left/right.
       // Two cases: wide cells (CJK, width >= 2), and single-width symbols
       // (codepoint >= U+2000, which fall back to the bundled TerminalSymbols).
+      final underlineColor = TerminalTheme.resolveUnderlineColor(
+        cell.underlineColor,
+        colors.fg,
+      );
       if (span != 1 || _isFallbackSymbol(cell.text)) {
         if (current != null) {
           yield current;
@@ -1302,6 +1307,7 @@ class _TerminalGridPainter extends CustomPainter {
           bold: cell.bold,
           italic: cell.italic,
           underline: cell.underline,
+          underlineColor: underlineColor,
           strikeout: cell.strikeout,
         );
         nextCol = cell.col + span;
@@ -1309,7 +1315,12 @@ class _TerminalGridPainter extends CustomPainter {
       }
       final gap = cell.col - nextCol;
       if (current == null ||
-          !current.canAppend(cell: cell, color: colors.fg, gap: gap)) {
+          !current.canAppend(
+            cell: cell,
+            color: colors.fg,
+            underlineColor: underlineColor,
+            gap: gap,
+          )) {
         if (current != null) yield current;
         current = _TerminalRowRun.start(
           startCol: cell.col,
@@ -1319,6 +1330,7 @@ class _TerminalGridPainter extends CustomPainter {
           bold: cell.bold,
           italic: cell.italic,
           underline: cell.underline,
+          underlineColor: underlineColor,
           strikeout: cell.strikeout,
         );
       } else {
@@ -1354,15 +1366,20 @@ class _TerminalGridPainter extends CustomPainter {
     Color color, {
     required bool bold,
     required bool italic,
-    required bool underline,
+    required TerminalScreenUnderline underline,
+    Color? underlineColor,
     required bool strikeout,
   }) {
-    final key = '$text|${color.toARGB32()}|$bold|$italic|$underline|$strikeout';
+    final decorationColor = underline == TerminalScreenUnderline.none
+        ? color
+        : (underlineColor ?? color);
+    final key =
+        '$text|${color.toARGB32()}|$bold|$italic|${underline.index}|${decorationColor.toARGB32()}|$strikeout';
     final cached = glyphCache[key];
     if (cached != null) return cached;
 
     final decorations = <TextDecoration>[
-      if (underline) TextDecoration.underline,
+      if (underline != TerminalScreenUnderline.none) TextDecoration.underline,
       if (strikeout) TextDecoration.lineThrough,
     ];
     final builder =
@@ -1380,7 +1397,14 @@ class _TerminalGridPainter extends CustomPainter {
               decoration: decorations.isEmpty
                   ? null
                   : TextDecoration.combine(decorations),
-              decorationColor: color,
+              decorationColor: decorationColor,
+              decorationStyle: switch (underline) {
+                TerminalScreenUnderline.double => TextDecorationStyle.double,
+                TerminalScreenUnderline.curly => TextDecorationStyle.wavy,
+                TerminalScreenUnderline.dotted => TextDecorationStyle.dotted,
+                TerminalScreenUnderline.dashed => TextDecorationStyle.dashed,
+                _ => TextDecorationStyle.solid,
+              },
             ),
           )
           ..addText(text);
@@ -1423,6 +1447,7 @@ class _TerminalRowRun {
     required this.bold,
     required this.italic,
     required this.underline,
+    required this.underlineColor,
     required this.strikeout,
   }) : _buffer = StringBuffer(text);
 
@@ -1431,7 +1456,8 @@ class _TerminalRowRun {
   final Color color;
   final bool bold;
   final bool italic;
-  final bool underline;
+  final TerminalScreenUnderline underline;
+  final Color underlineColor;
   final bool strikeout;
   final StringBuffer _buffer;
 
@@ -1440,6 +1466,7 @@ class _TerminalRowRun {
   bool canAppend({
     required TerminalScreenCell cell,
     required Color color,
+    required Color underlineColor,
     required int gap,
   }) {
     return gap >= 0 &&
@@ -1447,6 +1474,7 @@ class _TerminalRowRun {
         bold == cell.bold &&
         italic == cell.italic &&
         underline == cell.underline &&
+        this.underlineColor == underlineColor &&
         strikeout == cell.strikeout;
   }
 

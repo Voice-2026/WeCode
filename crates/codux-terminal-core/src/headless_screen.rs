@@ -74,6 +74,7 @@ pub enum TerminalScreenCursorShape {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TerminalScreenCellSnapshot {
     pub row: i32,
     pub col: usize,
@@ -84,10 +85,26 @@ pub struct TerminalScreenCellSnapshot {
     pub bold: bool,
     pub dim: bool,
     pub italic: bool,
-    pub underline: bool,
+    pub underline: TerminalScreenUnderline,
+    /// SGR 58 underline color override; None means the text foreground.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub underline_color: Option<TerminalScreenColor>,
     pub inverse: bool,
     pub hidden: bool,
     pub strikeout: bool,
+}
+
+/// Underline style carried per cell (SGR 4 and 4:x colon subparams).
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TerminalScreenUnderline {
+    #[default]
+    None,
+    Single,
+    Double,
+    Curly,
+    Dotted,
+    Dashed,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -937,7 +954,11 @@ impl TerminalScreenWorker {
                 bold: cell.flags.contains(Flags::BOLD),
                 dim: cell.flags.contains(Flags::DIM),
                 italic: cell.flags.contains(Flags::ITALIC),
-                underline: cell.flags.intersects(Flags::ALL_UNDERLINES),
+                underline: terminal_screen_underline(cell.flags),
+                underline_color: cell
+                    .underline_color()
+                    .map(terminal_screen_color)
+                    .filter(|color| *color != TerminalScreenColor::Default),
                 inverse: cell.flags.contains(Flags::INVERSE),
                 hidden: cell.flags.contains(Flags::HIDDEN),
                 strikeout: cell.flags.contains(Flags::STRIKEOUT),
@@ -1089,6 +1110,22 @@ fn terminal_screen_color(color: Color) -> TerminalScreenColor {
     }
 }
 
+fn terminal_screen_underline(flags: Flags) -> TerminalScreenUnderline {
+    if flags.contains(Flags::UNDERCURL) {
+        TerminalScreenUnderline::Curly
+    } else if flags.contains(Flags::DOUBLE_UNDERLINE) {
+        TerminalScreenUnderline::Double
+    } else if flags.contains(Flags::DOTTED_UNDERLINE) {
+        TerminalScreenUnderline::Dotted
+    } else if flags.contains(Flags::DASHED_UNDERLINE) {
+        TerminalScreenUnderline::Dashed
+    } else if flags.contains(Flags::UNDERLINE) {
+        TerminalScreenUnderline::Single
+    } else {
+        TerminalScreenUnderline::None
+    }
+}
+
 fn terminal_screen_cursor_shape(shape: CursorShape) -> TerminalScreenCursorShape {
     match shape {
         CursorShape::Block => TerminalScreenCursorShape::Block,
@@ -1106,7 +1143,8 @@ struct SnapshotCellStyle {
     bold: bool,
     dim: bool,
     italic: bool,
-    underline: bool,
+    underline: TerminalScreenUnderline,
+    underline_color: Option<TerminalScreenColor>,
     inverse: bool,
     hidden: bool,
     strikeout: bool,
@@ -1120,7 +1158,8 @@ impl Default for SnapshotCellStyle {
             bold: false,
             dim: false,
             italic: false,
-            underline: false,
+            underline: TerminalScreenUnderline::None,
+            underline_color: None,
             inverse: false,
             hidden: false,
             strikeout: false,
@@ -1137,6 +1176,7 @@ impl From<&TerminalScreenCellSnapshot> for SnapshotCellStyle {
             dim: cell.dim,
             italic: cell.italic,
             underline: cell.underline,
+            underline_color: cell.underline_color.clone(),
             inverse: cell.inverse,
             hidden: cell.hidden,
             strikeout: cell.strikeout,
@@ -1243,8 +1283,13 @@ fn snapshot_style_sgr(style: SnapshotCellStyle) -> String {
     if style.italic {
         codes.push("3".to_string());
     }
-    if style.underline {
-        codes.push("4".to_string());
+    match style.underline {
+        TerminalScreenUnderline::None => {}
+        TerminalScreenUnderline::Single => codes.push("4".to_string()),
+        TerminalScreenUnderline::Double => codes.push("4:2".to_string()),
+        TerminalScreenUnderline::Curly => codes.push("4:3".to_string()),
+        TerminalScreenUnderline::Dotted => codes.push("4:4".to_string()),
+        TerminalScreenUnderline::Dashed => codes.push("4:5".to_string()),
     }
     if style.inverse {
         codes.push("7".to_string());
@@ -1257,6 +1302,23 @@ fn snapshot_style_sgr(style: SnapshotCellStyle) -> String {
     }
     snapshot_color_sgr(&style.fg, false, &mut codes);
     snapshot_color_sgr(&style.bg, true, &mut codes);
+    // SGR 58: underline color override (colors reset to default via the
+    // leading 0, so it only needs emitting when set).
+    match &style.underline_color {
+        Some(TerminalScreenColor::Rgb { r, g, b }) => {
+            codes.push("58".to_string());
+            codes.push("2".to_string());
+            codes.push(r.to_string());
+            codes.push(g.to_string());
+            codes.push(b.to_string());
+        }
+        Some(TerminalScreenColor::Indexed { index }) => {
+            codes.push("58".to_string());
+            codes.push("5".to_string());
+            codes.push(index.to_string());
+        }
+        _ => {}
+    }
     format!("\x1b[{}m", codes.join(";"))
 }
 
@@ -1398,6 +1460,47 @@ mod tests {
         // Replayed history applies titles too (restore path).
         screen.process_replay(b"\x1b]0;zsh\x07");
         assert_eq!(screen.snapshot().title.as_deref(), Some("zsh"));
+    }
+
+    #[test]
+    fn extended_underlines_carry_style_and_color_through_keyframe() {
+        let mut screen = HeadlessTerminalScreen::new(20, 4, 100);
+        screen.process(b"\x1b[4:3m\x1b[58;2;255;0;10mcurly\x1b[0m \x1b[4:2mdd\x1b[0m \x1b[4:5;58;5;9mda\x1b[0m");
+        let snap = screen.snapshot();
+
+        let cell = |ch: &str| {
+            snap.cells
+                .iter()
+                .find(|cell| cell.text == ch)
+                .unwrap_or_else(|| panic!("cell {ch:?} missing"))
+        };
+        assert_eq!(cell("c").underline, TerminalScreenUnderline::Curly);
+        assert_eq!(
+            cell("c").underline_color,
+            Some(TerminalScreenColor::Rgb { r: 255, g: 0, b: 10 })
+        );
+        assert_eq!(cell("d").underline, TerminalScreenUnderline::Double);
+        assert_eq!(cell("d").underline_color, None);
+        assert_eq!(cell("a").underline, TerminalScreenUnderline::Dashed);
+        assert_eq!(
+            cell("a").underline_color,
+            Some(TerminalScreenColor::Indexed { index: 9 })
+        );
+
+        // The keyframe re-encodes 4:x / 58 so a replaying viewer restores them.
+        let mut dst = HeadlessTerminalScreen::new(20, 4, 100);
+        dst.process_replay(snap.data.as_bytes());
+        let dst_snap = dst.snapshot();
+        let dst_cell = dst_snap
+            .cells
+            .iter()
+            .find(|cell| cell.text == "c")
+            .expect("replayed cell");
+        assert_eq!(dst_cell.underline, TerminalScreenUnderline::Curly);
+        assert_eq!(
+            dst_cell.underline_color,
+            Some(TerminalScreenColor::Rgb { r: 255, g: 0, b: 10 })
+        );
     }
 
     #[test]

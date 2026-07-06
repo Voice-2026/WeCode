@@ -54,6 +54,15 @@ class TerminalTheme {
     return resolved;
   }
 
+  /// SGR 58 underline color; falls back to the resolved text foreground.
+  static Color resolveUnderlineColor(
+    Map<String, dynamic>? value,
+    Color fallback,
+  ) {
+    if (value == null) return fallback;
+    return _resolveScreenColor(value, fallback).color;
+  }
+
   static TerminalPaintColors _resolveCellColors({
     required Map<String, dynamic> fg,
     required Map<String, dynamic> bg,

@@ -505,6 +505,17 @@ impl TerminalRenderer {
                 continue;
             }
             if cell.text == " " {
+                // Decorated underlines are painted per cell, so an underlined
+                // space still gets its segment even outside a text run.
+                if let Some(graphic) = terminal_underline_graphic(cell.underline) {
+                    graphics.push(TerminalGraphicCell {
+                        row,
+                        col,
+                        width_cols: cell_width,
+                        color: self.cell_underline_color(cell),
+                        graphic,
+                    });
+                }
                 if current_run.is_some() {
                     pending_spaces += 1;
                 }
@@ -518,7 +529,23 @@ impl TerminalRenderer {
             let link_underline = underline_range
                 .as_ref()
                 .is_some_and(|range| range.contains(&col));
-            let underline = cell.underline || link_underline;
+            let underline_color = self.cell_underline_color(cell);
+            if let Some(graphic) = terminal_underline_graphic(cell.underline) {
+                graphics.push(TerminalGraphicCell {
+                    row,
+                    col,
+                    width_cols: cell_width,
+                    color: underline_color,
+                    graphic,
+                });
+            }
+            // Single/curly draw through gpui's run underline; double/dotted/
+            // dashed went to the decoration channel above.
+            let native_underline = link_underline
+                || matches!(
+                    cell.underline,
+                    TerminalScreenUnderline::Single | TerminalScreenUnderline::Curly
+                );
             let run = TextRun {
                 len: text.len(),
                 font: if symbol {
@@ -528,10 +555,10 @@ impl TerminalRenderer {
                 },
                 color: fg,
                 background_color: None,
-                underline: underline.then_some(UnderlineStyle {
+                underline: native_underline.then_some(UnderlineStyle {
                     thickness: px(1.0),
-                    color: Some(fg),
-                    wavy: link_underline,
+                    color: Some(if link_underline { fg } else { underline_color }),
+                    wavy: link_underline || cell.underline == TerminalScreenUnderline::Curly,
                 }),
                 strikethrough: cell.strikeout.then_some(gpui::StrikethroughStyle {
                     thickness: px(1.0),
@@ -583,6 +610,14 @@ impl TerminalRenderer {
                 .resolve_fg(&TerminalScreenColor::Indexed { index: *index + 8 }, false, false);
         }
         (fg, bg)
+    }
+
+    /// SGR 58 override when present, else the rendered text foreground.
+    fn cell_underline_color(&self, cell: &TerminalScreenCellSnapshot) -> Hsla {
+        match &cell.underline_color {
+            Some(color) => self.palette.resolve_fg(color, false, cell.dim),
+            None => self.cell_render_colors(cell).0,
+        }
     }
 
     fn prepare_selection(

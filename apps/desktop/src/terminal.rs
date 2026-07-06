@@ -8,7 +8,8 @@ use codux_runtime::terminal_pty::{
 use codux_terminal_core::{
     HeadlessTerminalScreen, HeadlessTerminalSnapshotRequest, TerminalInputMode,
     TerminalScreenCellSnapshot, TerminalScreenColor, TerminalScreenCursorShape,
-    TerminalScreenCursorSnapshot, TerminalScreenSnapshot, TerminalSelectionSpanKind,
+    TerminalScreenCursorSnapshot, TerminalScreenSnapshot, TerminalScreenUnderline,
+    TerminalSelectionSpanKind,
 };
 use gpui::{
     App, AppContext, Bounds, ClipboardEntry, ClipboardItem, Context, CursorStyle, Edges, Element,
