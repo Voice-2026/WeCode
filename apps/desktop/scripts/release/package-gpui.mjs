@@ -385,6 +385,8 @@ ManifestDPIAware true
 SetCompressor /SOLID lzma
 !include MUI2.nsh
 !include LogicLib.nsh
+!include StrFunc.nsh
+\${StrRep}
 
 Name "${escapeNsis(appName)}"
 OutFile "${escapeNsis(installerPath)}"
@@ -411,6 +413,7 @@ VIAddVersionKey /LANG=0 "LegalCopyright" "duxweb"
 !define MUI_ICON "${escapeNsis(path.join(desktopAssetsRoot, "icons", "icon.ico"))}"
 !define MUI_UNICON "${escapeNsis(path.join(desktopAssetsRoot, "icons", "icon.ico"))}"
 !define MUI_HEADERIMAGE
+!define MUI_HEADERIMAGE_RIGHT
 !define MUI_HEADERIMAGE_BITMAP "${escapeNsis(headerBitmap)}"
 
 Var FreshInstall
@@ -424,6 +427,9 @@ Var FreshInstall
 !insertmacro MUI_LANGUAGE "English"
 !insertmacro MUI_LANGUAGE "SimpChinese"
 
+SetFont /LANG=\${LANG_ENGLISH} "Segoe UI" 9
+SetFont /LANG=\${LANG_SIMPCHINESE} "Microsoft YaHei UI" 9
+
 LangString MsgAppRunning \${LANG_ENGLISH} "${escapeNsis(appName)} is still running or the executable is locked.$\\r$\\n$\\r$\\nClose ${escapeNsis(appName)} and click Retry to continue."
 LangString MsgAppRunning \${LANG_SIMPCHINESE} "${escapeNsis(appName)} 仍在运行或程序文件被占用。$\\r$\\n$\\r$\\n请退出 ${escapeNsis(appName)} 后点击“重试”继续。"
 LangString MsgRemoveData \${LANG_ENGLISH} "Also remove ${escapeNsis(appName)} user data (settings, AI statistics, memory)?"
@@ -436,6 +442,11 @@ Function .onInit
   \${Else}
     StrCpy $FreshInstall 0
   \${EndIf}
+  ; Older installers stored InstallDir with doubled backslashes; collapse them (keep a UNC lead).
+  StrCpy $0 $INSTDIR 1
+  StrCpy $1 $INSTDIR "" 1
+  \${StrRep} $1 $1 "\\\\" "\\"
+  StrCpy $INSTDIR "$0$1"
 FunctionEnd
 
 Function .onInstSuccess
