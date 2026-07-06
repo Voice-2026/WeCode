@@ -89,25 +89,6 @@ pub(super) fn settings_git_pane(
                     ),
                 )
                 .into_any_element(),
-                settings_row(
-                    settings_text(
-                        language,
-                        "settings.terminal_paste_images_as_paths",
-                        "Paste Images as Paths",
-                    ),
-                    Some(settings_text(
-                        language,
-                        "settings.terminal_paste_images_as_paths.help",
-                        "When pasting an image into a terminal, save it to a temporary file and paste the local path instead of image data.",
-                    )),
-                    settings_toggle(
-                        "settings-terminal-paste-images-as-paths",
-                        settings.terminal_paste_images_as_paths,
-                        cx,
-                        |app, window, cx| app.toggle_terminal_paste_images_as_paths(window, cx),
-                    ),
-                )
-                .into_any_element(),
             ],
             cx,
         )
