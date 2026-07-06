@@ -104,6 +104,25 @@ fn delete_branch_git2(repo: &GitRepository, branch: &str, force: bool) -> Result
         .map_err(|error| error.message().to_string())
 }
 
+fn rename_branch_git2(repo: &GitRepository, branch: &str, new_name: &str) -> Result<(), String> {
+    let mut local_branch = repo
+        .find_branch(branch, git2::BranchType::Local)
+        .map_err(|error| error.message().to_string())?;
+    local_branch
+        .rename(new_name, false)
+        .map(|_| ())
+        .map_err(|error| error.message().to_string())
+}
+
+fn rebase_branch_system_git(repo: &GitRepository, branch: &str) -> Result<(), String> {
+    // Auto-abort on failure: there is no in-app conflict UI for a half-done rebase.
+    let result = run_system_git(repo_root(repo), &["rebase", branch], None);
+    if result.is_err() {
+        let _ = run_system_git(repo_root(repo), &["rebase", "--abort"], None);
+    }
+    result
+}
+
 fn revert_commit_git2(repo: &GitRepository, reference: &str) -> Result<(), String> {
     let commit = repo
         .revparse_single(reference)

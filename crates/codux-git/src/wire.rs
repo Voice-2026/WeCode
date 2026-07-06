@@ -18,6 +18,10 @@ fn flag(args: &Value, key: &str) -> bool {
     args.get(key).and_then(Value::as_bool).unwrap_or(false)
 }
 
+fn index(args: &Value) -> usize {
+    args.get("index").and_then(Value::as_u64).unwrap_or(0) as usize
+}
+
 fn paths(args: &Value) -> Vec<String> {
     args.get("paths")
         .and_then(Value::as_array)
@@ -60,6 +64,12 @@ pub fn wire_status_summary(summary: GitSummary) -> WireStatusSummary {
             .into_iter()
             .map(|value| serde_json::to_value(value).unwrap_or(Value::Null))
             .collect(),
+        stashes: summary
+            .stashes
+            .into_iter()
+            .map(|value| serde_json::to_value(value).unwrap_or(Value::Null))
+            .collect(),
+        tags: summary.tags,
     }
 }
 
@@ -122,6 +132,35 @@ pub fn invoke(repo: &str, op: &str, args: &Value) -> Result<(), String> {
         }
         "merge_branch" => GitService::merge_branch(path, s("branch"), b("squash")),
         "delete_branch" => GitService::delete_branch(path, s("branch"), b("force")),
+        "rename_branch" => GitService::rename_branch(path, s("branch"), s("newName")),
+        "rebase_branch" => GitService::rebase_branch(path, s("branch")),
+        "delete_remote_branch" => GitService::delete_remote_branch(path, s("remoteBranch")),
+        "stash_push" => {
+            let message = s("message");
+            GitService::stash_push(
+                path,
+                (!message.is_empty()).then_some(message),
+                b("includeUntracked"),
+            )
+        }
+        "stash_apply" => GitService::stash_apply(path, index(args)),
+        "stash_pop" => GitService::stash_pop(path, index(args)),
+        "stash_drop" => GitService::stash_drop(path, index(args)),
+        "stash_drop_all" => GitService::stash_drop_all(path),
+        "create_tag" => {
+            let message = s("message");
+            GitService::create_tag(path, s("name"), (!message.is_empty()).then_some(message))
+        }
+        "delete_tag" => GitService::delete_tag(path, s("name")),
+        "push_tags" => {
+            let remote = s("remote");
+            GitService::push_tags(path, (!remote.is_empty()).then_some(remote))
+        }
+        "delete_remote_tag" => {
+            let remote = s("remote");
+            GitService::delete_remote_tag(path, (!remote.is_empty()).then_some(remote), s("name"))
+        }
+        "fetch_prune" => GitService::fetch_prune(path),
         "amend" => GitService::amend_last_commit_message(path, s("message")),
         "undo_last_commit" => GitService::undo_last_commit(path),
         "revert_commit" => GitService::revert_commit(path, s("commit")),

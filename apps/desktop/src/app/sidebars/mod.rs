@@ -314,9 +314,6 @@ impl Render for GitSidebarView {
                     .and_then(|project| project.git_default_push_remote_name.as_deref()),
                 &app.git_clone_remote_url,
                 &app.state.settings.language,
-                app.git_remote_editor_open,
-                &app.git_remote_name,
-                &app.git_remote_url,
                 app.git_running_operation.as_ref(),
                 &app.git_commit_message,
                 app.git_commit_message_revision,
@@ -569,11 +566,8 @@ fn git_interaction_fingerprint(app: &CoduxApp) -> u64 {
                 .and_then(|project| project.git_default_push_remote_name.clone()),
             app.git_clone_remote_url.clone(),
             app.state.settings.language.clone(),
-            app.git_remote_editor_open,
         )),
         hash_sidebar_value(&(
-            app.git_remote_name.clone(),
-            app.git_remote_url.clone(),
             app.git_running_operation
                 .as_ref()
                 .map(|operation| (operation.label.clone(), operation.cancellable)),

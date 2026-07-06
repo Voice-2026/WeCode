@@ -252,6 +252,63 @@ pub fn git_push_remote_branch_with_cancel(
     Ok(git_status(root))
 }
 
+pub fn git_fetch_prune_with_cancel(
+    project_path: String,
+    cancel: Option<GitCancelToken>,
+) -> Result<GitStatusSnapshot, String> {
+    let repo = open_git_repository(&project_path)?;
+    let root = repo_root(&repo).display().to_string();
+    fetch_prune_system_git(&repo, cancel.as_ref())?;
+    Ok(git_status(root))
+}
+
+pub fn git_delete_remote_branch_with_cancel(
+    project_path: String,
+    remote_branch: String,
+    cancel: Option<GitCancelToken>,
+) -> Result<GitStatusSnapshot, String> {
+    let remote_branch = remote_branch.trim();
+    if remote_branch.is_empty() {
+        return Err("Remote branch cannot be empty.".to_string());
+    }
+    let (remote, branch) = remote_branch
+        .split_once('/')
+        .ok_or_else(|| "Remote branch must include a remote name.".to_string())?;
+    let repo = open_git_repository(&project_path)?;
+    let root = repo_root(&repo).display().to_string();
+    delete_remote_branch_system_git(&repo, remote, branch, cancel.as_ref())?;
+    Ok(git_status(root))
+}
+
+pub fn git_push_tags_with_cancel(
+    project_path: String,
+    remote: Option<String>,
+    cancel: Option<GitCancelToken>,
+) -> Result<GitStatusSnapshot, String> {
+    let repo = open_git_repository(&project_path)?;
+    let root = repo_root(&repo).display().to_string();
+    let remote = resolve_push_remote(&repo, remote.as_deref())?;
+    push_tags_system_git(&repo, &remote, cancel.as_ref())?;
+    Ok(git_status(root))
+}
+
+pub fn git_delete_remote_tag_with_cancel(
+    project_path: String,
+    remote: Option<String>,
+    tag: String,
+    cancel: Option<GitCancelToken>,
+) -> Result<GitStatusSnapshot, String> {
+    let tag = tag.trim();
+    if tag.is_empty() {
+        return Err("Tag name cannot be empty.".to_string());
+    }
+    let repo = open_git_repository(&project_path)?;
+    let root = repo_root(&repo).display().to_string();
+    let remote = resolve_push_remote(&repo, remote.as_deref())?;
+    delete_remote_tag_system_git(&repo, &remote, tag, cancel.as_ref())?;
+    Ok(git_status(root))
+}
+
 pub fn git_pull_with_cancel(
     project_path: String,
     cancel: Option<GitCancelToken>,

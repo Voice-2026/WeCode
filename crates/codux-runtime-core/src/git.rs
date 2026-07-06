@@ -18,6 +18,10 @@ pub struct GitStatusSummary {
     pub remote_branches: Vec<String>,
     pub remotes: Vec<Value>,
     pub commits: Vec<Value>,
+    #[serde(default)]
+    pub stashes: Vec<Value>,
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -50,6 +54,8 @@ pub fn git_status_payload(
         "remoteBranches": summary.remote_branches,
         "remotes": summary.remotes,
         "commits": summary.commits,
+        "stashes": summary.stashes,
+        "tags": summary.tags,
     })
 }
 

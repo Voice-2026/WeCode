@@ -36,6 +36,8 @@ fn git_status_from_repo(repo: &GitRepository) -> GitSummary {
         .collect();
     let remotes = git2_remotes(repo);
     let commits = git2_commit_log(repo, 20);
+    let stashes = git2_stashes(repo);
+    let tags = git2_tags(repo);
 
     let staged = raw_changed_files
         .iter()
@@ -69,6 +71,8 @@ fn git_status_from_repo(repo: &GitRepository) -> GitSummary {
         remote_branches,
         remotes,
         commits,
+        stashes,
+        tags,
     }
 }
 

@@ -59,6 +59,43 @@ impl GitService {
         push_refspec_system_git(&repo, remote, &refspec, None)
     }
 
+    pub fn fetch_prune(project_path: &str) -> Result<(), String> {
+        let repo = open_git_repository(project_path)?;
+        fetch_prune_system_git(&repo, None)
+    }
+
+    pub fn delete_remote_branch(project_path: &str, remote_branch: &str) -> Result<(), String> {
+        let remote_branch = remote_branch.trim();
+        if remote_branch.is_empty() {
+            return Err("Remote branch cannot be empty.".to_string());
+        }
+        let (remote, branch) = remote_branch
+            .split_once('/')
+            .ok_or_else(|| "Remote branch must include a remote name.".to_string())?;
+        let repo = open_git_repository(project_path)?;
+        delete_remote_branch_system_git(&repo, remote, branch, None)
+    }
+
+    pub fn push_tags(project_path: &str, remote: Option<&str>) -> Result<(), String> {
+        let repo = open_git_repository(project_path)?;
+        let remote = resolve_push_remote(&repo, remote)?;
+        push_tags_system_git(&repo, &remote, None)
+    }
+
+    pub fn delete_remote_tag(
+        project_path: &str,
+        remote: Option<&str>,
+        tag: &str,
+    ) -> Result<(), String> {
+        let tag = tag.trim();
+        if tag.is_empty() {
+            return Err("Tag name cannot be empty.".to_string());
+        }
+        let repo = open_git_repository(project_path)?;
+        let remote = resolve_push_remote(&repo, remote)?;
+        delete_remote_tag_system_git(&repo, &remote, tag, None)
+    }
+
     pub fn add_remote(project_path: &str, name: &str, url: &str) -> Result<(), String> {
         let name = name.trim();
         let url = url.trim();

@@ -570,6 +570,8 @@ fn git_summary_from_payload(value: &serde_json::Value) -> crate::git::GitSummary
         remote_branches: parse_typed(value, "remoteBranches"),
         remotes: parse_typed(value, "remotes"),
         commits: parse_typed(value, "commits"),
+        stashes: parse_typed(value, "stashes"),
+        tags: parse_typed(value, "tags"),
     }
 }
 

@@ -1,5 +1,7 @@
 include!("metadata/branches.rs");
 include!("metadata/remotes.rs");
+include!("metadata/stashes.rs");
+include!("metadata/tags.rs");
 include!("metadata/log.rs");
 include!("metadata/status.rs");
 include!("metadata/review.rs");

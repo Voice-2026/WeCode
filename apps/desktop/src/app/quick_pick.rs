@@ -9,9 +9,18 @@ use gpui::{
     div, prelude::FluentBuilder as _, px,
 };
 use gpui_component::{
-    Icon, IndexPath, WindowExt as _,
+    ActiveTheme as _, Icon, IndexPath, Sizable as _, WindowExt as _, h_flex,
     list::{List, ListDelegate, ListItem, ListState},
 };
+
+/// Compact VS Code-like row height.
+const ROW_HEIGHT: f32 = 30.0;
+/// Title strip height (matches the Quick Input overlay).
+const TITLE_HEIGHT: f32 = 30.0;
+/// Search input strip height (input + bottom border).
+const SEARCH_HEIGHT: f32 = 37.0;
+/// List area grows with content up to this many rows, then scrolls.
+const MAX_VISIBLE_ROWS: usize = 12;
 
 /// One selectable row in a [`show_quick_pick`] overlay.
 #[derive(Clone)]
@@ -19,6 +28,7 @@ pub struct QuickPickItem {
     pub id: SharedString,
     pub icon: Option<Icon>,
     pub label: SharedString,
+    pub description: Option<SharedString>,
 }
 
 impl QuickPickItem {
@@ -27,11 +37,18 @@ impl QuickPickItem {
             id: id.into(),
             icon: None,
             label: label.into(),
+            description: None,
         }
     }
 
     pub fn icon(mut self, icon: Icon) -> Self {
         self.icon = Some(icon);
+        self
+    }
+
+    /// Dim secondary text rendered after the label (VS Code "description").
+    pub fn description(mut self, description: impl Into<SharedString>) -> Self {
+        self.description = Some(description.into());
         self
     }
 }
@@ -68,6 +85,7 @@ impl ListDelegate for QuickPickDelegate {
                 .cloned()
                 .collect()
         };
+        self.selected = Some(IndexPath::default());
         Task::ready(())
     }
 
@@ -75,19 +93,43 @@ impl ListDelegate for QuickPickDelegate {
         &mut self,
         ix: IndexPath,
         _window: &mut Window,
-        _cx: &mut Context<ListState<Self>>,
+        cx: &mut Context<ListState<Self>>,
     ) -> Option<Self::Item> {
         let item = self.filtered.get(ix.row)?;
         Some(
-            ListItem::new(ix).child(
-                div()
-                    .flex()
-                    .items_center()
+            ListItem::new(ix).py_0().h(px(ROW_HEIGHT)).text_sm().child(
+                h_flex()
                     .gap_2()
-                    .when_some(item.icon.clone(), |this, icon| this.child(icon))
-                    .child(item.label.clone()),
+                    .min_w_0()
+                    .when_some(item.icon.clone(), |this, icon| {
+                        this.child(icon.size_4().text_color(cx.theme().muted_foreground))
+                    })
+                    .child(div().truncate().child(item.label.clone()))
+                    .when_some(item.description.clone(), |this, description| {
+                        this.child(
+                            div()
+                                .text_xs()
+                                .truncate()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(description),
+                        )
+                    }),
             ),
         )
+    }
+
+    fn render_empty(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<ListState<Self>>,
+    ) -> impl gpui::IntoElement {
+        // A single quiet row instead of the default oversized inbox icon.
+        h_flex()
+            .h(px(ROW_HEIGHT))
+            .justify_center()
+            .text_sm()
+            .text_color(cx.theme().muted_foreground.opacity(0.6))
+            .child("· · ·")
     }
 
     fn set_selected_index(
@@ -100,30 +142,41 @@ impl ListDelegate for QuickPickDelegate {
         cx.notify();
     }
 
-    fn confirm(&mut self, _secondary: bool, window: &mut Window, cx: &mut Context<ListState<Self>>) {
+    fn confirm(
+        &mut self,
+        _secondary: bool,
+        window: &mut Window,
+        cx: &mut Context<ListState<Self>>,
+    ) {
         let Some(ix) = self.selected else { return };
         let Some(item) = self.filtered.get(ix.row) else {
             return;
         };
         let id = item.id.clone();
-        (self.on_confirm.clone())(id, window, cx);
+        // Close first: the callback may open a follow-up overlay (chained picker
+        // or Quick Input) that must stay on top of the dialog stack.
         window.close_dialog(cx);
+        (self.on_confirm.clone())(id, window, cx);
     }
 
     // Escape is handled by the hosting Dialog (List::Cancel re-propagates to it).
 }
 
-/// Show a centered, searchable Quick Pick overlay. `on_confirm` receives the
-/// chosen item's `id`; the overlay dismisses on Enter/click (after the
-/// callback), Escape, or click-outside. Requires the window root to render
+/// Show a centered, searchable Quick Pick overlay with a title strip.
+/// `on_confirm` receives the chosen item's `id`; the overlay dismisses on
+/// Enter/click (before the callback, so chained overlays stack correctly),
+/// Escape, or click-outside. Requires the window root to render
 /// `Root::render_dialog_layer` (see `app_render`).
 pub fn show_quick_pick(
-    placeholder: impl Into<SharedString>,
+    title: impl Into<SharedString>,
     items: Vec<QuickPickItem>,
     on_confirm: impl Fn(SharedString, &mut Window, &mut App) + 'static,
     window: &mut Window,
     cx: &mut App,
 ) {
+    // One string serves as both the title strip and the search placeholder.
+    let title = title.into();
+    let placeholder = title.clone();
     let on_confirm: OnConfirm = Rc::new(on_confirm);
     let state = cx.new(|cx| {
         ListState::new(
@@ -140,14 +193,43 @@ pub fn show_quick_pick(
     });
 
     let list = state.clone();
-    let placeholder = placeholder.into();
-    window.open_dialog(cx, move |dialog, _window, _cx| {
-        dialog.close_button(false).w(px(560.)).child(
-            div()
-                .h(px(360.))
-                .w_full()
-                .child(List::new(&list).search_placeholder(placeholder.clone())),
-        )
+    window.open_dialog(cx, move |dialog, _window, cx| {
+        // Height tracks the filtered result count, VS Code style.
+        let rows = list
+            .read(cx)
+            .delegate()
+            .filtered
+            .len()
+            .clamp(1, MAX_VISIBLE_ROWS);
+        let list_height = px(SEARCH_HEIGHT + rows as f32 * ROW_HEIGHT);
+        let theme = cx.theme();
+        dialog
+            .close_button(false)
+            .w(px(560.))
+            .p_0()
+            .gap_0()
+            .min_h(px(0.))
+            .child(
+                // Same title strip as the Quick Input overlay.
+                div()
+                    .h(px(TITLE_HEIGHT))
+                    .px_3()
+                    .flex()
+                    .items_center()
+                    .flex_shrink_0()
+                    .text_xs()
+                    .text_color(theme.muted_foreground)
+                    .border_b_1()
+                    .border_color(theme.border)
+                    .child(title.clone()),
+            )
+            .child(
+                div().h(list_height).w_full().child(
+                    List::new(&list)
+                        .small()
+                        .search_placeholder(placeholder.clone()),
+                ),
+            )
     });
 
     // `open_dialog` focuses the dialog handle; move focus into the search input

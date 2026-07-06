@@ -443,6 +443,129 @@ mod tests {
         assert_eq!(changed.len(), GIT_WATCH_MAX_CHANGED_PATHS);
     }
 
+    #[test]
+    fn stash_tag_and_rename_branch_round_trip() {
+        let repo = temp_dir("git-stash-tag");
+        let path = repo.to_str().expect("repo");
+        GitService::init(path).expect("init repo");
+        let repository = GitRepository::open(&repo).expect("open repo");
+        let mut config = repository.config().expect("config");
+        config.set_str("user.email", "codux@example.test").expect("email");
+        config.set_str("user.name", "Codux").expect("name");
+        fs::write(repo.join("a.txt"), "one\n").expect("file");
+        GitService::stage_file(path, "a.txt").expect("stage");
+        GitService::commit_staged(path, "initial").expect("commit");
+
+        // Stash push / list / pop.
+        fs::write(repo.join("a.txt"), "two\n").expect("modify");
+        GitService::stash_push(path, Some("wip"), false).expect("stash push");
+        let status = GitService::status(path);
+        assert_eq!(status.stashes.len(), 1);
+        assert!(status.stashes[0].message.contains("wip"));
+        GitService::stash_pop(path, 0).expect("stash pop");
+        assert!(GitService::status(path).stashes.is_empty());
+        assert_eq!(fs::read_to_string(repo.join("a.txt")).expect("read"), "two\n");
+
+        // Tag create / list / delete.
+        GitService::create_tag(path, "v1.0.0", None).expect("create tag");
+        assert_eq!(GitService::status(path).tags, vec!["v1.0.0".to_string()]);
+        GitService::delete_tag(path, "v1.0.0").expect("delete tag");
+        assert!(GitService::status(path).tags.is_empty());
+
+        // Rename branch.
+        let current = GitService::status(path).branch;
+        GitService::rename_branch(path, &current, "renamed-branch").expect("rename");
+        assert_eq!(GitService::status(path).branch, "renamed-branch");
+    }
+
+    #[test]
+    fn rebase_replays_branch_commits_onto_target() {
+        let repo = temp_dir("git-rebase");
+        let path = repo.to_str().expect("repo");
+        GitService::init(path).expect("init repo");
+        let repository = GitRepository::open(&repo).expect("open repo");
+        let mut config = repository.config().expect("config");
+        config.set_str("user.email", "codux@example.test").expect("email");
+        config.set_str("user.name", "Codux").expect("name");
+        fs::write(repo.join("base.txt"), "base\n").expect("file");
+        GitService::stage_file(path, "base.txt").expect("stage");
+        GitService::commit_staged(path, "base").expect("commit");
+        let main = GitService::status(path).branch;
+
+        GitService::create_branch(path, "feature", None, true).expect("create feature");
+        fs::write(repo.join("feature.txt"), "feature\n").expect("file");
+        GitService::stage_file(path, "feature.txt").expect("stage");
+        GitService::commit_staged(path, "feature work").expect("commit");
+
+        GitService::checkout_branch(path, &main).expect("checkout main");
+        fs::write(repo.join("main.txt"), "main\n").expect("file");
+        GitService::stage_file(path, "main.txt").expect("stage");
+        GitService::commit_staged(path, "main work").expect("commit");
+
+        GitService::checkout_branch(path, "feature").expect("checkout feature");
+        GitService::rebase_branch(path, &main).expect("rebase");
+
+        // Rebased feature has main's tip as ancestor and both files present.
+        let feature_tip = repository.revparse_single("feature").expect("feature").id();
+        let main_tip = repository.revparse_single(&main).expect("main").id();
+        assert!(
+            repository
+                .graph_descendant_of(feature_tip, main_tip)
+                .expect("graph")
+        );
+        assert!(repo.join("feature.txt").exists());
+        assert!(repo.join("main.txt").exists());
+    }
+
+    #[test]
+    fn remote_branch_and_tag_ops_round_trip_with_local_bare_remote() {
+        let remote_dir = temp_dir("git-remote-bare");
+        GitRepository::init_bare(&remote_dir).expect("bare remote");
+        let repo = temp_dir("git-remote-work");
+        let path = repo.to_str().expect("repo");
+        GitService::init(path).expect("init repo");
+        let repository = GitRepository::open(&repo).expect("open repo");
+        let mut config = repository.config().expect("config");
+        config.set_str("user.email", "codux@example.test").expect("email");
+        config.set_str("user.name", "Codux").expect("name");
+        fs::write(repo.join("a.txt"), "one\n").expect("file");
+        GitService::stage_file(path, "a.txt").expect("stage");
+        GitService::commit_staged(path, "initial").expect("commit");
+        let main = GitService::status(path).branch;
+
+        let remote_url = remote_dir.to_str().expect("remote path");
+        GitService::add_remote(path, "origin", remote_url).expect("add remote");
+        GitService::push_remote_branch(path, &format!("origin/{main}"), None).expect("push main");
+        GitService::push_remote_branch(path, "origin/feature", Some(&main)).expect("push feature");
+        GitService::fetch(path).expect("fetch");
+        let feature_ref = "origin/feature".to_string();
+        assert!(GitService::status(path).remote_branches.contains(&feature_ref));
+
+        // Delete the remote branch, then prune the stale tracking ref.
+        GitService::delete_remote_branch(path, "origin/feature").expect("delete remote branch");
+        GitService::fetch_prune(path).expect("fetch prune");
+        assert!(!GitService::status(path).remote_branches.contains(&feature_ref));
+
+        // Tags: push to the bare remote, then delete there.
+        let bare_tags = || {
+            GitRepository::open(&remote_dir)
+                .expect("open bare")
+                .tag_names(None)
+                .map(|names| {
+                    names
+                        .iter()
+                        .filter_map(|name| name.ok().flatten().map(str::to_string))
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default()
+        };
+        GitService::create_tag(path, "v1.0.0", Some("release")).expect("create tag");
+        GitService::push_tags(path, Some("origin")).expect("push tags");
+        assert_eq!(bare_tags(), vec!["v1.0.0".to_string()]);
+        GitService::delete_remote_tag(path, Some("origin"), "v1.0.0").expect("delete remote tag");
+        assert!(bare_tags().is_empty());
+    }
+
     fn temp_dir(label: &str) -> PathBuf {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)

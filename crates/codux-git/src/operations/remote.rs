@@ -32,6 +32,54 @@ fn fetch_all_remotes_system_git(
     run_system_git(repo_root(repo), &["fetch", "--all"], cancel)
 }
 
+fn fetch_prune_system_git(
+    repo: &GitRepository,
+    cancel: Option<&GitCancelToken>,
+) -> Result<(), String> {
+    run_system_git(repo_root(repo), &["fetch", "--all", "--prune"], cancel)
+}
+
+fn delete_remote_branch_system_git(
+    repo: &GitRepository,
+    remote: &str,
+    branch: &str,
+    cancel: Option<&GitCancelToken>,
+) -> Result<(), String> {
+    run_system_git(repo_root(repo), &["push", remote, "--delete", branch], cancel)
+}
+
+fn push_tags_system_git(
+    repo: &GitRepository,
+    remote: &str,
+    cancel: Option<&GitCancelToken>,
+) -> Result<(), String> {
+    run_system_git(repo_root(repo), &["push", remote, "--tags"], cancel)
+}
+
+fn delete_remote_tag_system_git(
+    repo: &GitRepository,
+    remote: &str,
+    tag: &str,
+    cancel: Option<&GitCancelToken>,
+) -> Result<(), String> {
+    let refspec = format!("refs/tags/{tag}");
+    run_system_git(
+        repo_root(repo),
+        &["push", remote, "--delete", refspec.as_str()],
+        cancel,
+    )
+}
+
+fn resolve_push_remote(repo: &GitRepository, remote: Option<&str>) -> Result<String, String> {
+    remote
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| upstream_remote_for_branch(repo, &current_branch_name(repo)))
+        .or_else(|| first_remote_name(repo))
+        .ok_or_else(|| "No Git remote is configured.".to_string())
+}
+
 fn pull_current_branch_system_git(
     repo: &GitRepository,
     cancel: Option<&GitCancelToken>,

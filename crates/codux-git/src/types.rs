@@ -16,6 +16,17 @@ pub struct GitSummary {
     pub remote_branches: Vec<String>,
     pub remotes: Vec<GitRemoteSummary>,
     pub commits: Vec<GitCommitSummary>,
+    #[serde(default)]
+    pub stashes: Vec<GitStashSummary>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitStashSummary {
+    pub index: usize,
+    pub message: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

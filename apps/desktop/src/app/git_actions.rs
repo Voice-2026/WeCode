@@ -141,41 +141,6 @@ impl CoduxApp {
         window.remove_window();
     }
 
-    pub(super) fn open_git_remote_editor(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        self.git_remote_editor_open = true;
-        if self.git_remote_name.trim().is_empty() {
-            self.git_remote_name = "origin".to_string();
-        }
-        self.status_message = "Git remote editor opened".to_string();
-        self.invalidate_git_panel(cx);
-    }
-
-    pub(super) fn close_git_remote_editor(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        self.git_remote_editor_open = false;
-        self.status_message = "Git remote editor closed".to_string();
-        self.invalidate_git_panel(cx);
-    }
-
-    pub(super) fn set_git_remote_name(
-        &mut self,
-        value: String,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.git_remote_name = value;
-        self.invalidate_git_panel(cx);
-    }
-
-    pub(super) fn set_git_remote_url(
-        &mut self,
-        value: String,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.git_remote_url = value;
-        self.invalidate_git_panel(cx);
-    }
-
     pub(super) fn set_git_commit_message(
         &mut self,
         value: String,
@@ -1069,6 +1034,32 @@ impl CoduxApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.discard_git_paths_inner(paths, cx);
+    }
+
+    /// Confirm-then-discard for the menu's "Discard All Changes".
+    pub(super) fn discard_all_git_changes(
+        &mut self,
+        paths: Vec<String>,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let title = self.text("git.files.discard_all", "Discard All");
+        let message = self.text(
+            "git.files.discard_all.confirm",
+            "Discard all worktree changes?",
+        );
+        let confirm_label = self.text("common.delete", "Delete");
+        self.confirm_git_action(
+            title,
+            message,
+            confirm_label,
+            move |app, cx| app.discard_git_paths_inner(paths, cx),
+            cx,
+        );
+    }
+
+    fn discard_git_paths_inner(&mut self, paths: Vec<String>, cx: &mut Context<Self>) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for Git discard".to_string();
             self.invalidate_git_panel(cx);
@@ -1718,10 +1709,6 @@ impl CoduxApp {
                         self.git_commit_message_revision =
                             self.git_commit_message_revision.saturating_add(1);
                     }
-                    if completion.clear_remote_url {
-                        self.git_remote_url.clear();
-                        self.git_remote_editor_open = false;
-                    }
                     if completion.clear_selected_branch {
                         self.selected_git_branch = None;
                     }
@@ -1845,34 +1832,21 @@ impl CoduxApp {
         self.invalidate_git_panel(cx);
     }
 
-    pub(super) fn add_project_git_remote(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        let Some(project) = &self.state.selected_project else {
-            self.status_message = "no selected project for Git remote".to_string();
-            self.invalidate_git_panel(cx);
-            return;
-        };
-        let project_id = project.id.clone();
-        let project_path = project.path.clone();
-        let remote_name = self.git_remote_name.trim().to_string();
-        let remote_url = self.git_remote_url.trim().to_string();
-        let worker_remote_name = remote_name.clone();
-        let worker_remote_url = remote_url.clone();
-        self.start_project_git_operation(
-            project_id,
-            project_path,
-            GitRunningOperation {
-                label: format!("add-remote:{remote_name}"),
-                cancellable: false,
-            },
-            move |service, path| {
-                service.add_project_git_remote(&path, &worker_remote_name, &worker_remote_url)
-            },
-            GitOperationCompletion {
-                success_message: format!("Git remote added: {remote_name}"),
-                failure_prefix: "failed to add Git remote".to_string(),
-                clear_remote_url: true,
-                ..Default::default()
-            },
+    pub(super) fn add_git_remote(
+        &mut self,
+        name: String,
+        url: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let worker_name = name.clone();
+        let worker_url = url.clone();
+        self.run_simple_git_operation(
+            format!("add-remote:{name}"),
+            false,
+            format!("Git remote added: {name}"),
+            "failed to add Git remote".to_string(),
+            move |service, path| service.add_project_git_remote(&path, &worker_name, &worker_url),
             cx,
         );
     }
@@ -2127,7 +2101,12 @@ impl CoduxApp {
         );
     }
 
-    pub(super) fn create_git_branch(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn create_git_branch(
+        &mut self,
+        branch_name: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for Git branch creation".to_string();
             self.invalidate_git_panel(cx);
@@ -2135,7 +2114,6 @@ impl CoduxApp {
         };
         let project_id = project.id.clone();
         let project_path = project.path.clone();
-        let branch_name = generated_git_branch_name();
         let worker_branch = branch_name.clone();
         self.start_project_git_operation(
             project_id,
@@ -2321,6 +2299,374 @@ impl CoduxApp {
                 clear_selected_branch: false,
                 selected_branch: None,
                 ..Default::default()
+            },
+            cx,
+        );
+    }
+
+    /// Shared confirm-dialog gate for destructive git actions.
+    fn confirm_git_action(
+        &mut self,
+        title: String,
+        message: String,
+        confirm_label: String,
+        on_confirm: impl FnOnce(&mut Self, &mut Context<Self>) + 'static,
+        cx: &mut Context<Self>,
+    ) {
+        let cancel_label = self.text("common.cancel", "Cancel");
+        let service = self.runtime_service.clone();
+        self.status_message = "waiting for Git confirmation".to_string();
+        let timer = cx.background_executor().clone();
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            timer.timer(Duration::from_millis(120)).await;
+            let result = codux_runtime::async_runtime::spawn_blocking(move || {
+                service.localized_confirm_dialog(LocalizedConfirmDialogRequest {
+                    title,
+                    message,
+                    confirm_label,
+                    cancel_label,
+                })
+            })
+            .await
+            .map_err(|error| error.to_string())
+            .and_then(|result| result);
+
+            let _ = this.update(cx, |app, cx| match result {
+                Ok(true) => on_confirm(app, cx),
+                Ok(false) => {
+                    app.status_message = "Git action canceled".to_string();
+                    app.invalidate_git_panel(cx);
+                }
+                Err(error) => {
+                    app.status_message = format!("failed to show Git confirmation: {error}");
+                    app.invalidate_git_panel(cx);
+                }
+            });
+        })
+        .detach();
+        self.invalidate_git_panel(cx);
+    }
+
+    /// Uniform runner for the simple branch/stash/tag operations.
+    fn run_simple_git_operation(
+        &mut self,
+        label: String,
+        cancellable: bool,
+        success_message: String,
+        failure_prefix: String,
+        action: impl FnOnce(RuntimeService, String) -> Result<GitSummary, String> + Send + 'static,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(project) = &self.state.selected_project else {
+            self.status_message = format!("no selected project for Git {label}");
+            self.invalidate_git_panel(cx);
+            return;
+        };
+        let project_id = project.id.clone();
+        let project_path = project.path.clone();
+        self.start_project_git_operation(
+            project_id,
+            project_path,
+            GitRunningOperation { label, cancellable },
+            action,
+            GitOperationCompletion {
+                success_message,
+                failure_prefix,
+                ..Default::default()
+            },
+            cx,
+        );
+    }
+
+    pub(super) fn create_git_branch_from(
+        &mut self,
+        branch_name: String,
+        from: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let worker_branch = branch_name.clone();
+        let worker_from = from.clone();
+        self.run_simple_git_operation(
+            format!("create-branch:{branch_name}"),
+            false,
+            format!("created Git branch {branch_name} from {from}"),
+            "Git branch creation failed".to_string(),
+            move |service, path| {
+                service.create_project_git_branch_from(
+                    &path,
+                    &worker_branch,
+                    Some(&worker_from),
+                    true,
+                )
+            },
+            cx,
+        );
+    }
+
+    pub(super) fn rename_git_branch(
+        &mut self,
+        branch: String,
+        new_name: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let worker_branch = branch.clone();
+        let worker_new_name = new_name.clone();
+        self.run_simple_git_operation(
+            format!("rename-branch:{branch}"),
+            false,
+            format!("renamed Git branch {branch} to {new_name}"),
+            "Git branch rename failed".to_string(),
+            move |service, path| {
+                service.rename_project_git_branch(&path, &worker_branch, &worker_new_name)
+            },
+            cx,
+        );
+    }
+
+    pub(super) fn rebase_git_branch(
+        &mut self,
+        branch: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let worker_branch = branch.clone();
+        self.run_simple_git_operation(
+            format!("rebase:{branch}"),
+            false,
+            format!("rebased onto Git branch: {branch}"),
+            format!("Git rebase onto {branch} failed"),
+            move |service, path| service.rebase_project_git_branch(&path, &worker_branch),
+            cx,
+        );
+    }
+
+    pub(super) fn fetch_prune_project_git(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        self.run_simple_git_operation(
+            "fetch-prune".to_string(),
+            true,
+            "fetched and pruned remote updates".to_string(),
+            "Git fetch (prune) failed".to_string(),
+            move |service, path| service.fetch_prune_project_git(&path),
+            cx,
+        );
+    }
+
+    pub(super) fn delete_git_remote_branch(
+        &mut self,
+        remote_branch: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let title = self.text("git.branch.delete_remote", "Delete Remote Branch");
+        let message = self
+            .text(
+                "git.branch.delete_remote.confirm_format",
+                "Delete remote branch %@?",
+            )
+            .replace("%@", &remote_branch);
+        let confirm_label = self.text("common.delete", "Delete");
+        self.confirm_git_action(
+            title,
+            message,
+            confirm_label,
+            move |app, cx| {
+                let worker_branch = remote_branch.clone();
+                app.run_simple_git_operation(
+                    format!("delete-remote-branch:{remote_branch}"),
+                    true,
+                    format!("deleted remote Git branch: {remote_branch}"),
+                    "Git remote branch deletion failed".to_string(),
+                    move |service, path| {
+                        service.delete_project_git_remote_branch(&path, &worker_branch)
+                    },
+                    cx,
+                );
+            },
+            cx,
+        );
+    }
+
+    pub(super) fn stash_git(
+        &mut self,
+        message: Option<String>,
+        include_untracked: bool,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let worker_message = message.clone();
+        self.run_simple_git_operation(
+            "stash".to_string(),
+            false,
+            "stashed working tree changes".to_string(),
+            "Git stash failed".to_string(),
+            move |service, path| {
+                service.stash_project_git(&path, worker_message.as_deref(), include_untracked)
+            },
+            cx,
+        );
+    }
+
+    pub(super) fn apply_git_stash(
+        &mut self,
+        index: usize,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.run_simple_git_operation(
+            format!("stash-apply:{index}"),
+            false,
+            format!("applied Git stash @{{{index}}}"),
+            "Git stash apply failed".to_string(),
+            move |service, path| service.apply_project_git_stash(&path, index),
+            cx,
+        );
+    }
+
+    pub(super) fn pop_git_stash(
+        &mut self,
+        index: usize,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.run_simple_git_operation(
+            format!("stash-pop:{index}"),
+            false,
+            format!("popped Git stash @{{{index}}}"),
+            "Git stash pop failed".to_string(),
+            move |service, path| service.pop_project_git_stash(&path, index),
+            cx,
+        );
+    }
+
+    pub(super) fn drop_git_stash(
+        &mut self,
+        index: usize,
+        stash_label: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let title = self.text("git.stash.drop", "Drop Stash");
+        let message = self
+            .text("git.stash.drop.confirm_format", "Drop stash %@?")
+            .replace("%@", &stash_label);
+        let confirm_label = self.text("common.delete", "Delete");
+        self.confirm_git_action(
+            title,
+            message,
+            confirm_label,
+            move |app, cx| {
+                app.run_simple_git_operation(
+                    format!("stash-drop:{index}"),
+                    false,
+                    format!("dropped Git stash @{{{index}}}"),
+                    "Git stash drop failed".to_string(),
+                    move |service, path| service.drop_project_git_stash(&path, index),
+                    cx,
+                );
+            },
+            cx,
+        );
+    }
+
+    pub(super) fn drop_all_git_stashes(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        let title = self.text("git.stash.drop_all", "Drop All Stashes");
+        let message = self.text("git.stash.drop_all.confirm", "Drop all stashes?");
+        let confirm_label = self.text("common.delete", "Delete");
+        self.confirm_git_action(
+            title,
+            message,
+            confirm_label,
+            move |app, cx| {
+                app.run_simple_git_operation(
+                    "stash-drop-all".to_string(),
+                    false,
+                    "dropped all Git stashes".to_string(),
+                    "Git stash drop failed".to_string(),
+                    move |service, path| service.drop_all_project_git_stashes(&path),
+                    cx,
+                );
+            },
+            cx,
+        );
+    }
+
+    pub(super) fn create_git_tag(
+        &mut self,
+        name: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let worker_name = name.clone();
+        self.run_simple_git_operation(
+            format!("create-tag:{name}"),
+            false,
+            format!("created Git tag: {name}"),
+            "Git tag creation failed".to_string(),
+            move |service, path| service.create_project_git_tag(&path, &worker_name, None),
+            cx,
+        );
+    }
+
+    pub(super) fn delete_git_tag(
+        &mut self,
+        name: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let worker_name = name.clone();
+        self.run_simple_git_operation(
+            format!("delete-tag:{name}"),
+            false,
+            format!("deleted Git tag: {name}"),
+            "Git tag deletion failed".to_string(),
+            move |service, path| service.delete_project_git_tag(&path, &worker_name),
+            cx,
+        );
+    }
+
+    pub(super) fn push_git_tags(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        self.run_simple_git_operation(
+            "push-tags".to_string(),
+            true,
+            "pushed Git tags".to_string(),
+            "Git tag push failed".to_string(),
+            move |service, path| service.push_project_git_tags(&path, None),
+            cx,
+        );
+    }
+
+    pub(super) fn delete_git_remote_tag(
+        &mut self,
+        name: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let title = self.text("git.tag.delete_remote", "Delete Remote Tag");
+        let message = self
+            .text(
+                "git.tag.delete_remote.confirm_format",
+                "Delete remote tag %@?",
+            )
+            .replace("%@", &name);
+        let confirm_label = self.text("common.delete", "Delete");
+        self.confirm_git_action(
+            title,
+            message,
+            confirm_label,
+            move |app, cx| {
+                let worker_name = name.clone();
+                app.run_simple_git_operation(
+                    format!("delete-remote-tag:{name}"),
+                    true,
+                    format!("deleted remote Git tag: {name}"),
+                    "Git remote tag deletion failed".to_string(),
+                    move |service, path| {
+                        service.delete_project_git_remote_tag(&path, None, &worker_name)
+                    },
+                    cx,
+                );
             },
             cx,
         );

@@ -515,6 +515,169 @@ impl RuntimeService {
         Ok(refresh_git_summary(&self.support_dir, project_path))
     }
 
+    pub fn rename_project_git_branch(
+        &self,
+        project_path: &str,
+        branch: &str,
+        new_name: &str,
+    ) -> Result<git::GitSummary, String> {
+        if let Some(result) = self.remote_git_invoke(project_path, "rename_branch", serde_json::json!({ "branch": branch, "newName": new_name })) {
+            return result;
+        }
+        git::GitService::rename_branch(project_path, branch, new_name)?;
+        Ok(refresh_git_summary(&self.support_dir, project_path))
+    }
+
+    pub fn rebase_project_git_branch(
+        &self,
+        project_path: &str,
+        branch: &str,
+    ) -> Result<git::GitSummary, String> {
+        if let Some(result) = self.remote_git_invoke(project_path, "rebase_branch", serde_json::json!({ "branch": branch })) {
+            return result;
+        }
+        git::GitService::rebase_branch(project_path, branch)?;
+        Ok(refresh_git_summary(&self.support_dir, project_path))
+    }
+
+    pub fn fetch_prune_project_git(&self, project_path: &str) -> Result<git::GitSummary, String> {
+        if let Some(result) = self.remote_git_invoke(project_path, "fetch_prune", serde_json::json!({})) {
+            return result;
+        }
+        self.run_cancellable_project_git(project_path, |path, cancel| {
+            git::git_fetch_prune_with_cancel(path, Some(cancel)).map(|_| ())
+        })
+    }
+
+    pub fn delete_project_git_remote_branch(
+        &self,
+        project_path: &str,
+        remote_branch: &str,
+    ) -> Result<git::GitSummary, String> {
+        if let Some(result) = self.remote_git_invoke(project_path, "delete_remote_branch", serde_json::json!({ "remoteBranch": remote_branch })) {
+            return result;
+        }
+        let remote_branch = remote_branch.to_string();
+        self.run_cancellable_project_git(project_path, move |path, cancel| {
+            git::git_delete_remote_branch_with_cancel(path, remote_branch, Some(cancel)).map(|_| ())
+        })
+    }
+
+    pub fn stash_project_git(
+        &self,
+        project_path: &str,
+        message: Option<&str>,
+        include_untracked: bool,
+    ) -> Result<git::GitSummary, String> {
+        if let Some(result) = self.remote_git_invoke(project_path, "stash_push", serde_json::json!({ "message": message.unwrap_or_default(), "includeUntracked": include_untracked })) {
+            return result;
+        }
+        git::GitService::stash_push(project_path, message, include_untracked)?;
+        Ok(refresh_git_summary(&self.support_dir, project_path))
+    }
+
+    pub fn apply_project_git_stash(
+        &self,
+        project_path: &str,
+        index: usize,
+    ) -> Result<git::GitSummary, String> {
+        if let Some(result) = self.remote_git_invoke(project_path, "stash_apply", serde_json::json!({ "index": index })) {
+            return result;
+        }
+        git::GitService::stash_apply(project_path, index)?;
+        Ok(refresh_git_summary(&self.support_dir, project_path))
+    }
+
+    pub fn pop_project_git_stash(
+        &self,
+        project_path: &str,
+        index: usize,
+    ) -> Result<git::GitSummary, String> {
+        if let Some(result) = self.remote_git_invoke(project_path, "stash_pop", serde_json::json!({ "index": index })) {
+            return result;
+        }
+        git::GitService::stash_pop(project_path, index)?;
+        Ok(refresh_git_summary(&self.support_dir, project_path))
+    }
+
+    pub fn drop_project_git_stash(
+        &self,
+        project_path: &str,
+        index: usize,
+    ) -> Result<git::GitSummary, String> {
+        if let Some(result) = self.remote_git_invoke(project_path, "stash_drop", serde_json::json!({ "index": index })) {
+            return result;
+        }
+        git::GitService::stash_drop(project_path, index)?;
+        Ok(refresh_git_summary(&self.support_dir, project_path))
+    }
+
+    pub fn drop_all_project_git_stashes(
+        &self,
+        project_path: &str,
+    ) -> Result<git::GitSummary, String> {
+        if let Some(result) = self.remote_git_invoke(project_path, "stash_drop_all", serde_json::json!({})) {
+            return result;
+        }
+        git::GitService::stash_drop_all(project_path)?;
+        Ok(refresh_git_summary(&self.support_dir, project_path))
+    }
+
+    pub fn create_project_git_tag(
+        &self,
+        project_path: &str,
+        name: &str,
+        message: Option<&str>,
+    ) -> Result<git::GitSummary, String> {
+        if let Some(result) = self.remote_git_invoke(project_path, "create_tag", serde_json::json!({ "name": name, "message": message.unwrap_or_default() })) {
+            return result;
+        }
+        git::GitService::create_tag(project_path, name, message)?;
+        Ok(refresh_git_summary(&self.support_dir, project_path))
+    }
+
+    pub fn delete_project_git_tag(
+        &self,
+        project_path: &str,
+        name: &str,
+    ) -> Result<git::GitSummary, String> {
+        if let Some(result) = self.remote_git_invoke(project_path, "delete_tag", serde_json::json!({ "name": name })) {
+            return result;
+        }
+        git::GitService::delete_tag(project_path, name)?;
+        Ok(refresh_git_summary(&self.support_dir, project_path))
+    }
+
+    pub fn push_project_git_tags(
+        &self,
+        project_path: &str,
+        remote: Option<&str>,
+    ) -> Result<git::GitSummary, String> {
+        if let Some(result) = self.remote_git_invoke(project_path, "push_tags", serde_json::json!({ "remote": remote.unwrap_or_default() })) {
+            return result;
+        }
+        let remote = remote.map(str::to_string);
+        self.run_cancellable_project_git(project_path, move |path, cancel| {
+            git::git_push_tags_with_cancel(path, remote, Some(cancel)).map(|_| ())
+        })
+    }
+
+    pub fn delete_project_git_remote_tag(
+        &self,
+        project_path: &str,
+        remote: Option<&str>,
+        name: &str,
+    ) -> Result<git::GitSummary, String> {
+        if let Some(result) = self.remote_git_invoke(project_path, "delete_remote_tag", serde_json::json!({ "remote": remote.unwrap_or_default(), "name": name })) {
+            return result;
+        }
+        let remote = remote.map(str::to_string);
+        let name = name.to_string();
+        self.run_cancellable_project_git(project_path, move |path, cancel| {
+            git::git_delete_remote_tag_with_cancel(path, remote, name, Some(cancel)).map(|_| ())
+        })
+    }
+
     fn run_cancellable_project_git(
         &self,
         project_path: &str,

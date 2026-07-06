@@ -37,6 +37,24 @@ impl GitService {
         merge_branch_git2(&repo, branch, squash)
     }
 
+    pub fn rename_branch(project_path: &str, branch: &str, new_name: &str) -> Result<(), String> {
+        let branch = branch.trim();
+        if branch.is_empty() {
+            return Err("Branch name cannot be empty.".to_string());
+        }
+        let repo = open_git_repository(project_path)?;
+        rename_branch_git2(&repo, branch, safe_branch_name(new_name)?.as_str())
+    }
+
+    pub fn rebase_branch(project_path: &str, branch: &str) -> Result<(), String> {
+        let branch = branch.trim();
+        if branch.is_empty() {
+            return Err("Branch name cannot be empty.".to_string());
+        }
+        let repo = open_git_repository(project_path)?;
+        rebase_branch_system_git(&repo, branch)
+    }
+
     pub fn delete_branch(project_path: &str, branch: &str, force: bool) -> Result<(), String> {
         let repo = open_git_repository(project_path)?;
         delete_branch_git2(&repo, safe_branch_name(branch)?.as_str(), force)
