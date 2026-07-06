@@ -293,11 +293,32 @@ impl TerminalRenderer {
             }
         });
 
+        // Inline images anchored like cells; the top may sit above the
+        // visible range (negative display row), clipped at paint time.
+        let base_line = content.line_for_display_row(0);
+        let images = content
+            .images
+            .iter()
+            .filter_map(|placement| {
+                let row = i64::from(placement.line) - i64::from(base_line);
+                let intersects = row + placement.image.rows as i64 > visible_rows.start as i64
+                    && row < visible_rows.end as i64;
+                intersects.then(|| TerminalImagePaint {
+                    row: row as i32,
+                    col: placement.image.col,
+                    rows: placement.image.rows,
+                    cols: placement.image.cols,
+                    image: placement.image.clone(),
+                })
+            })
+            .collect();
+
         TerminalPaintState {
             bounds,
             origin,
             background: default_bg,
             background_rects,
+            images,
             graphics,
             text_runs,
             lines,
@@ -612,6 +633,22 @@ impl TerminalRenderer {
         (fg, bg)
     }
 
+    /// Decode an inline image to the GPU-ready BGRA form once, keyed by the
+    /// engine's image id.
+    fn render_image(&self, image: &TerminalScreenImage) -> Option<Arc<RenderImage>> {
+        let mut cache = self.cache.lock();
+        if let Some(render) = cache.images.get(&image.id) {
+            return Some(render.clone());
+        }
+        let mut decoded = image::load_from_memory(&image.data).ok()?.into_rgba8();
+        for pixel in decoded.chunks_exact_mut(4) {
+            pixel.swap(0, 2);
+        }
+        let render = Arc::new(RenderImage::new(vec![image::Frame::new(decoded)]));
+        cache.images.insert(image.id, render.clone());
+        Some(render)
+    }
+
     /// SGR 58 override when present, else the rendered text foreground.
     fn cell_underline_color(&self, cell: &TerminalScreenCellSnapshot) -> Hsla {
         match &cell.underline_color {
@@ -685,6 +722,20 @@ impl TerminalRenderer {
 
         for rect in &state.background_rects {
             rect.paint(self, state.origin, window);
+        }
+        if !state.images.is_empty() {
+            // Clip: an image scrolled half off the top must not bleed above
+            // the terminal area.
+            window.with_content_mask(
+                Some(ContentMask {
+                    bounds: state.bounds,
+                }),
+                |window| {
+                    for image in &state.images {
+                        image.paint(self, state.origin, window);
+                    }
+                },
+            );
         }
         for graphic in &state.graphics {
             graphic.paint(self, state.origin, window);

@@ -55,8 +55,16 @@ struct TerminalContent {
     input_mode: TerminalInputMode,
     title: Option<String>,
     prompt_marks: Vec<usize>,
+    images: Vec<TerminalImagePlacement>,
     #[cfg(test)]
     scrolled_to_bottom: bool,
+}
+
+/// Inline image anchored to an absolute buffer line, like cells.
+#[derive(Clone, PartialEq)]
+struct TerminalImagePlacement {
+    line: i32,
+    image: TerminalScreenImage,
 }
 
 impl TerminalContent {
@@ -65,6 +73,14 @@ impl TerminalContent {
         let viewport_start_line = total_lines
             .saturating_sub(snapshot.display_offset)
             .saturating_sub(snapshot.rows) as i32;
+        let images = snapshot
+            .images
+            .iter()
+            .map(|image| TerminalImagePlacement {
+                line: viewport_start_line + image.row,
+                image: image.clone(),
+            })
+            .collect();
         let cells = snapshot
             .cells
             .into_iter()
@@ -98,6 +114,7 @@ impl TerminalContent {
             input_mode: snapshot.input_mode,
             title: snapshot.title,
             prompt_marks: snapshot.prompt_marks,
+            images,
             #[cfg(test)]
             scrolled_to_bottom: snapshot.display_offset == 0,
         }

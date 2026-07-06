@@ -8,13 +8,14 @@ use codux_runtime::terminal_pty::{
 use codux_terminal_core::{
     HeadlessTerminalScreen, HeadlessTerminalSnapshotRequest, TerminalInputMode,
     TerminalScreenCellSnapshot, TerminalScreenColor, TerminalScreenCursorShape,
-    TerminalScreenCursorSnapshot, TerminalScreenSnapshot, TerminalScreenUnderline,
-    TerminalSelectionSpanKind,
+    TerminalScreenCursorSnapshot, TerminalScreenImage, TerminalScreenSnapshot,
+    TerminalScreenUnderline, TerminalSelectionSpanKind,
 };
 use gpui::{
-    App, AppContext, Bounds, ClipboardEntry, ClipboardItem, Context, CursorStyle, Edges, Element,
-    ElementId, Entity, ExternalPaths, FocusHandle, Focusable, Font, FontFeatures, FontStyle,
-    FontWeight, GlobalElementId, Hsla, ImageFormat, InputHandler, InspectorElementId,
+    App, AppContext, Bounds, ClipboardEntry, ClipboardItem, ContentMask, Context, Corners,
+    CursorStyle, Edges, Element, ElementId, Entity, ExternalPaths, FocusHandle, Focusable, Font,
+    FontFeatures, FontStyle, FontWeight, GlobalElementId, Hsla, ImageFormat, InputHandler,
+    InspectorElementId, RenderImage,
     InteractiveElement, IntoElement, KeyDownEvent, Keystroke, LayoutId, Modifiers,
     ModifiersChangedEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
     NavigationDirection, ParentElement, Pixels, Point, Render, ScrollWheelEvent, SharedString,

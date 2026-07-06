@@ -167,12 +167,60 @@ struct TerminalPaintState {
     origin: Point<Pixels>,
     background: Hsla,
     background_rects: Vec<TerminalBackgroundRect>,
+    images: Vec<TerminalImagePaint>,
     graphics: Vec<TerminalGraphicCell>,
     text_runs: Vec<TerminalTextRun>,
     lines: Vec<TerminalRowLine>,
     cursor: Option<TerminalCursorPaint>,
     marked_text_cursor: Option<TerminalPoint>,
     ime_cursor_bounds: Option<Bounds<Pixels>>,
+}
+
+/// An inline image aspect-fit inside its reserved cell box. `row` is a
+/// display row and may be negative when the top is scrolled off; painting
+/// is clipped to the terminal bounds.
+struct TerminalImagePaint {
+    row: i32,
+    col: usize,
+    rows: usize,
+    cols: usize,
+    image: TerminalScreenImage,
+}
+
+impl TerminalImagePaint {
+    fn paint(&self, renderer: &TerminalRenderer, origin: Point<Pixels>, window: &mut Window) {
+        let Some(render) = renderer.render_image(&self.image) else {
+            return;
+        };
+        let box_origin = Point {
+            x: origin.x + renderer.cell_width * self.col as f32,
+            y: origin.y + renderer.cell_height * self.row as f32,
+        };
+        let box_size = Size {
+            width: renderer.cell_width * self.cols as f32,
+            height: renderer.cell_height * self.rows as f32,
+        };
+        let image_size = render.size(0);
+        let (px_width, px_height) = (
+            (i32::from(image_size.width) as f32).max(1.0),
+            (i32::from(image_size.height) as f32).max(1.0),
+        );
+        let scale = (f32::from(box_size.width) / px_width)
+            .min(f32::from(box_size.height) / px_height)
+            .min(1.0);
+        let fitted = Size {
+            width: px(px_width * scale),
+            height: px(px_height * scale),
+        };
+        let bounds = Bounds {
+            origin: Point {
+                x: box_origin.x + (box_size.width - fitted.width) * 0.5,
+                y: box_origin.y + (box_size.height - fitted.height) * 0.5,
+            },
+            size: fitted,
+        };
+        let _ = window.paint_image(bounds, Corners::default(), render, 0, false);
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
@@ -191,6 +239,9 @@ struct TerminalRendererCacheKey {
 #[derive(Clone, Default)]
 struct TerminalRenderCache {
     rows: HashMap<TerminalRowCacheKey, TerminalPreparedRow>,
+    // Decoded inline images by engine image id; entries die with their
+    // terminal's renderer (engine caps stored images at 32).
+    images: HashMap<u64, Arc<RenderImage>>,
 }
 
 #[derive(Clone)]

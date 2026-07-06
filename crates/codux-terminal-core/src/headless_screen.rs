@@ -4,6 +4,7 @@ use std::sync::{Arc, mpsc};
 use std::thread;
 
 use alacritty_terminal::event::{Event, EventListener, WindowSize};
+use base64::{Engine as _, engine::general_purpose};
 use alacritty_terminal::grid::{Dimensions, Scroll};
 use alacritty_terminal::index::{Column, Line, Point};
 use alacritty_terminal::term::cell::{Cell, Flags};
@@ -67,6 +68,11 @@ pub struct TerminalScreenSnapshot {
     /// oldest retained scrollback line), sorted ascending.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub prompt_marks: Vec<usize>,
+    /// Inline images (iTerm2 OSC 1337 File) intersecting the viewport.
+    /// Not serialized: the desktop renders in-process; remote viewers do
+    /// not receive images yet.
+    #[serde(skip)]
+    pub images: Vec<TerminalScreenImage>,
     pub cells: Vec<TerminalScreenCellSnapshot>,
     pub cursor: TerminalScreenCursorSnapshot,
 }
@@ -133,6 +139,30 @@ pub enum TerminalScreenColor {
     Named { name: String },
     Rgb { r: u8, g: u8, b: u8 },
     Indexed { index: u8 },
+}
+
+/// An inline image laid over the cell grid. Equality ignores the pixel data
+/// (the id is unique per decoded image), keeping snapshot comparison cheap.
+#[derive(Clone, Debug)]
+pub struct TerminalScreenImage {
+    pub id: u64,
+    /// Viewport row of the top edge; negative when partly scrolled off.
+    pub row: i32,
+    pub col: usize,
+    pub rows: usize,
+    pub cols: usize,
+    /// Original encoded bytes (PNG/JPEG/GIF/WebP...).
+    pub data: Arc<Vec<u8>>,
+}
+
+impl PartialEq for TerminalScreenImage {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+            && self.row == other.row
+            && self.col == other.col
+            && self.rows == other.rows
+            && self.cols == other.cols
+    }
 }
 
 /// Double-click selects a word (alacritty semantic search); triple-click a
@@ -586,8 +616,28 @@ struct TerminalScreenWorker {
     /// time); exact until the scrollback cap starts dropping lines.
     prompt_marks: Vec<usize>,
     /// Chunk-boundary carry: bytes held back because they may be the start
-    /// of a split prompt-mark sequence.
+    /// of a split intercepted sequence (prompt mark or inline image).
     prompt_mark_carry: Vec<u8>,
+    /// Stored inline images anchored to absolute buffer lines.
+    images: Vec<StoredInlineImage>,
+    /// In-flight OSC 1337 capture spanning feed chunks.
+    image_capture: Option<TerminalImageCapture>,
+    next_image_id: u64,
+}
+
+struct StoredInlineImage {
+    id: u64,
+    line: usize,
+    col: usize,
+    rows: usize,
+    cols: usize,
+    alt_screen: bool,
+    data: Arc<Vec<u8>>,
+}
+
+struct TerminalImageCapture {
+    buffer: Vec<u8>,
+    overflowed: bool,
 }
 
 impl TerminalScreenWorker {
@@ -628,6 +678,9 @@ impl TerminalScreenWorker {
             title: None,
             prompt_marks: Vec::new(),
             prompt_mark_carry: Vec::new(),
+            images: Vec::new(),
+            image_capture: None,
+            next_image_id: 0,
         }
     }
 
@@ -635,7 +688,7 @@ impl TerminalScreenWorker {
     /// produced. `answer_queries` is false for replayed history so stale
     /// DSR/DA queries in recorded output don't inject unsolicited replies.
     fn feed(&mut self, bytes: &[u8], answer_queries: bool) {
-        self.advance_with_prompt_marks(bytes);
+        self.advance_with_intercepts(bytes);
         let events: Vec<Event> = self.events.borrow_mut().drain(..).collect();
         // Titles apply for replayed history too: restored output re-sets the
         // title the shell had established before the restore.
@@ -689,13 +742,14 @@ impl TerminalScreenWorker {
         }
     }
 
-    /// Advance the parser, recording the cursor line at every OSC 133;A
-    /// (prompt start; alacritty itself ignores the sequence). The input is
-    /// split at each marker so the cursor is sampled exactly where the
-    /// prompt is about to print; a tail that could be a split marker is
-    /// held back until the next feed.
-    fn advance_with_prompt_marks(&mut self, bytes: &[u8]) {
+    /// Advance the parser around the sequences alacritty ignores but we
+    /// handle ourselves: OSC 133;A prompt marks (cursor sampled where the
+    /// prompt is about to print) and OSC 1337 inline images (payload kept
+    /// out of the VT parser entirely). A tail that could be a split
+    /// sequence start is held back until the next feed.
+    fn advance_with_intercepts(&mut self, bytes: &[u8]) {
         const MARK: &[u8] = b"\x1b]133;A";
+        const IMAGE: &[u8] = b"\x1b]1337;File=";
         let carried;
         let data: &[u8] = if self.prompt_mark_carry.is_empty() {
             bytes
@@ -706,6 +760,13 @@ impl TerminalScreenWorker {
 
         let mut start = 0;
         let mut index = 0;
+        if self.image_capture.is_some() {
+            index = self.continue_image_capture(data, 0);
+            start = index;
+            if self.image_capture.is_some() {
+                return;
+            }
+        }
         while index < data.len() {
             if data[index..].starts_with(MARK) {
                 self.parser.advance(&mut self.term, &data[start..index]);
@@ -713,20 +774,175 @@ impl TerminalScreenWorker {
                 // The marker bytes still go to the parser (it ignores them).
                 start = index;
                 index += MARK.len();
+            } else if data[index..].starts_with(IMAGE) {
+                self.parser.advance(&mut self.term, &data[start..index]);
+                self.image_capture = Some(TerminalImageCapture {
+                    buffer: Vec::new(),
+                    overflowed: false,
+                });
+                index = self.continue_image_capture(data, index + IMAGE.len());
+                start = index;
+                if self.image_capture.is_some() {
+                    return;
+                }
             } else {
                 index += 1;
             }
         }
 
         let mut held = data.len();
-        for candidate in data.len().saturating_sub(MARK.len() - 1).max(start)..data.len() {
-            if MARK.starts_with(&data[candidate..]) {
+        for candidate in data.len().saturating_sub(IMAGE.len() - 1).max(start)..data.len() {
+            let suffix = &data[candidate..];
+            if MARK.starts_with(suffix) || IMAGE.starts_with(suffix) {
                 held = candidate;
                 break;
             }
         }
         self.parser.advance(&mut self.term, &data[start..held]);
         self.prompt_mark_carry = data[held..].to_vec();
+    }
+
+    /// Consume capture bytes until BEL / ST; returns the index just past the
+    /// terminator, or `data.len()` when the capture continues into the next
+    /// feed. The payload never reaches the VT parser.
+    fn continue_image_capture(&mut self, data: &[u8], from: usize) -> usize {
+        // Encoded base64 cap (~24MB decoded), far above realistic previews.
+        const IMAGE_CAPTURE_MAX: usize = 32 * 1024 * 1024;
+
+        // Terminator split across feeds: buffered trailing ESC + leading '\'.
+        if from < data.len()
+            && data[from] == b'\\'
+            && self
+                .image_capture
+                .as_mut()
+                .is_some_and(|capture| capture.buffer.last() == Some(&0x1b))
+        {
+            if let Some(capture) = self.image_capture.as_mut() {
+                capture.buffer.pop();
+            }
+            self.finish_image_capture();
+            return from + 1;
+        }
+
+        let mut index = from;
+        while index < data.len() {
+            let byte = data[index];
+            if byte == 0x07 {
+                self.append_image_capture(&data[from..index], IMAGE_CAPTURE_MAX);
+                self.finish_image_capture();
+                return index + 1;
+            }
+            if byte == 0x1b && data.get(index + 1) == Some(&b'\\') {
+                self.append_image_capture(&data[from..index], IMAGE_CAPTURE_MAX);
+                self.finish_image_capture();
+                return index + 2;
+            }
+            index += 1;
+        }
+        self.append_image_capture(&data[from..], IMAGE_CAPTURE_MAX);
+        data.len()
+    }
+
+    fn append_image_capture(&mut self, bytes: &[u8], max: usize) {
+        let Some(capture) = self.image_capture.as_mut() else {
+            return;
+        };
+        if capture.overflowed || capture.buffer.len() + bytes.len() > max {
+            capture.overflowed = true;
+            // Keep only a possible trailing ESC for terminator detection.
+            capture.buffer.clear();
+            if bytes.last() == Some(&0x1b) {
+                capture.buffer.push(0x1b);
+            }
+            return;
+        }
+        capture.buffer.extend_from_slice(bytes);
+    }
+
+    fn finish_image_capture(&mut self) {
+        let Some(capture) = self.image_capture.take() else {
+            return;
+        };
+        if capture.overflowed {
+            return;
+        }
+        let buffer = capture.buffer;
+        let Some(colon) = buffer.iter().position(|byte| *byte == b':') else {
+            return;
+        };
+        let mut inline = false;
+        let mut width_arg = None;
+        let mut height_arg = None;
+        for pair in String::from_utf8_lossy(&buffer[..colon]).split(';') {
+            let Some((key, value)) = pair.split_once('=') else {
+                continue;
+            };
+            match key {
+                "inline" => inline = value == "1",
+                "width" => width_arg = Some(value.to_string()),
+                "height" => height_arg = Some(value.to_string()),
+                _ => {}
+            }
+        }
+        // Non-inline OSC 1337 files are downloads, which we don't accept.
+        if !inline {
+            return;
+        }
+        let payload: Vec<u8> = buffer[colon + 1..]
+            .iter()
+            .copied()
+            .filter(|byte| !byte.is_ascii_whitespace())
+            .collect();
+        let Ok(data) = general_purpose::STANDARD.decode(&payload) else {
+            return;
+        };
+        let Ok(dimensions) = imagesize::blob_size(&data) else {
+            return;
+        };
+        let (cols, rows) = terminal_image_cell_span(
+            dimensions.width,
+            dimensions.height,
+            width_arg.as_deref(),
+            height_arg.as_deref(),
+            self.term.columns(),
+            self.term.screen_lines(),
+        );
+        let history = self.term.grid().history_size() as i32;
+        let line = (self.term.grid().cursor.point.line.0 + history).max(0) as usize;
+        let col = self.term.grid().cursor.point.column.0;
+        let id = self.next_image_id;
+        self.next_image_id += 1;
+        self.images.push(StoredInlineImage {
+            id,
+            line,
+            col,
+            rows,
+            cols,
+            alt_screen: self.term.mode().contains(TermMode::ALT_SCREEN),
+            data: Arc::new(data),
+        });
+        self.enforce_image_budget();
+        // Reserve grid rows: the cursor lands on the line below the image,
+        // scrolling the buffer as needed (iTerm2 semantics).
+        self.parser
+            .advance(&mut self.term, "\r\n".repeat(rows).as_bytes());
+    }
+
+    // Newest images win; a preview-heavy session can't grow unbounded.
+    fn enforce_image_budget(&mut self) {
+        const MAX_IMAGES: usize = 32;
+        // Conservative: this engine also runs inside the mobile app.
+        const MAX_TOTAL_BYTES: usize = 64 * 1024 * 1024;
+        while self.images.len() > MAX_IMAGES
+            || self
+                .images
+                .iter()
+                .map(|image| image.data.len())
+                .sum::<usize>()
+                > MAX_TOTAL_BYTES
+        {
+            self.images.remove(0);
+        }
     }
 
     fn record_prompt_mark(&mut self) {
@@ -1133,9 +1349,39 @@ impl TerminalScreenWorker {
             title: self.title.clone(),
             wrapped_rows,
             prompt_marks: self.retained_prompt_marks(total_lines),
+            images: self.viewport_images(total_lines, rows, display_offset),
             cells,
             cursor,
         }
+    }
+
+    fn viewport_images(
+        &mut self,
+        total_lines: usize,
+        rows: usize,
+        display_offset: usize,
+    ) -> Vec<TerminalScreenImage> {
+        let alt_active = self.term.mode().contains(TermMode::ALT_SCREEN);
+        // Alt-screen images die with the alt screen; primary images that
+        // scrolled out of the retained buffer are gone for good.
+        self.images
+            .retain(|image| image.line < total_lines && (!image.alt_screen || alt_active));
+        let viewport_top = (total_lines - rows.min(total_lines)) as i64 - display_offset as i64;
+        self.images
+            .iter()
+            .filter(|image| image.alt_screen == alt_active)
+            .filter_map(|image| {
+                let row = image.line as i64 - viewport_top;
+                (row + image.rows as i64 > 0 && row < rows as i64).then(|| TerminalScreenImage {
+                    id: image.id,
+                    row: row as i32,
+                    col: image.col,
+                    rows: image.rows,
+                    cols: image.cols,
+                    data: image.data.clone(),
+                })
+            })
+            .collect()
     }
 }
 
@@ -1253,6 +1499,60 @@ fn terminal_screen_color(color: Color) -> TerminalScreenColor {
         },
         Color::Indexed(index) => TerminalScreenColor::Indexed { index },
     }
+}
+
+/// Map an image's pixel size plus optional iTerm2 width/height args ("N"
+/// cells, "Npx", "N%", "auto") to a cell-grid span. Sizing uses the nominal
+/// cell (real metrics live in the renderer, which aspect-fits inside the
+/// reserved box).
+fn terminal_image_cell_span(
+    px_width: usize,
+    px_height: usize,
+    width_arg: Option<&str>,
+    height_arg: Option<&str>,
+    grid_cols: usize,
+    grid_rows: usize,
+) -> (usize, usize) {
+    const CELL_W: f64 = TERMINAL_CELL_WIDTH_PX as f64;
+    const CELL_H: f64 = TERMINAL_CELL_HEIGHT_PX as f64;
+    const MAX_ROWS: usize = 500;
+    let px_width = px_width.max(1) as f64;
+    let px_height = px_height.max(1) as f64;
+
+    let parse = |arg: Option<&str>, grid: usize, cell: f64| -> Option<f64> {
+        let arg = arg?;
+        if arg == "auto" {
+            return None;
+        }
+        if let Some(percent) = arg.strip_suffix('%') {
+            return Some(grid as f64 * percent.parse::<f64>().ok()? / 100.0);
+        }
+        if let Some(pixels) = arg.strip_suffix("px") {
+            return Some(pixels.parse::<f64>().ok()? / cell);
+        }
+        arg.parse::<f64>().ok()
+    };
+
+    let explicit_cols = parse(width_arg, grid_cols, CELL_W);
+    let explicit_rows = parse(height_arg, grid_rows, CELL_H);
+    let (cols, rows) = match (explicit_cols, explicit_rows) {
+        (Some(cols), Some(rows)) => (cols, rows),
+        (Some(cols), None) => (cols, px_height * (cols * CELL_W / px_width) / CELL_H),
+        (None, Some(rows)) => (px_width * (rows * CELL_H / px_height) / CELL_W, rows),
+        (None, None) => {
+            let mut cols = px_width / CELL_W;
+            let mut rows = px_height / CELL_H;
+            if cols > grid_cols as f64 {
+                rows *= grid_cols as f64 / cols;
+                cols = grid_cols as f64;
+            }
+            (cols, rows)
+        }
+    };
+    (
+        (cols.ceil() as usize).clamp(1, grid_cols.max(1)),
+        (rows.ceil() as usize).clamp(1, MAX_ROWS),
+    )
 }
 
 fn terminal_screen_underline(flags: Flags) -> TerminalScreenUnderline {
@@ -1589,6 +1889,7 @@ pub fn stack_scrolled_snapshots(
         // flags aren't reconstructed across the stitched viewports.
         wrapped_rows: Vec::new(),
         prompt_marks: viewport.prompt_marks.clone(),
+        images: Vec::new(),
         cells,
         cursor,
     }
@@ -1743,6 +2044,32 @@ mod tests {
         let snap = screen.snapshot();
         assert_eq!(snap.prompt_marks, vec![0, 2, 13]);
         assert!(snap.data.contains("third"));
+    }
+
+    #[test]
+    fn osc1337_inline_images_anchor_to_grid_and_reserve_rows() {
+        // 1x1 transparent PNG.
+        const PNG_BASE64: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+        let mut screen = HeadlessTerminalScreen::new(20, 6, 100);
+        screen.process(b"before\r\n");
+        let sequence = format!("\x1b]1337;File=name=dGVzdA==;inline=1:{PNG_BASE64}\x07");
+        // Split the sequence across feeds to exercise the capture carry.
+        let (head, tail) = sequence.as_bytes().split_at(30);
+        screen.process(head);
+        screen.process(tail);
+        screen.process(b"after");
+
+        let snap = screen.snapshot();
+        assert_eq!(snap.images.len(), 1);
+        let image = &snap.images[0];
+        assert_eq!(image.row, 1, "image anchors at the emitting cursor row");
+        assert_eq!((image.cols, image.rows), (1, 1), "1x1 px fits one cell");
+        assert!(!image.data.is_empty());
+        // The reserved row moved the cursor below the image.
+        let after = snap.cells.iter().find(|cell| cell.text == "a");
+        assert_eq!(after.map(|cell| cell.row), Some(2));
+        // The base64 payload never reached the grid.
+        assert!(!snap.data.contains("iVBOR"));
     }
 
     #[test]
