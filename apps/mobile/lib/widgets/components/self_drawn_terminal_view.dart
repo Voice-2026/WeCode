@@ -394,6 +394,7 @@ class _SelfDrawnTerminalViewState extends State<SelfDrawnTerminalView>
     final bytes = terminalKeyInput(
       key: key,
       applicationCursor: _snapshot?.applicationCursor ?? false,
+      kittyFlags: _snapshot?.inputMode.kittyFlags ?? 0,
     );
     if (bytes.isNotEmpty) widget.onSendKey?.call(bytes);
   }
@@ -887,11 +888,25 @@ class _SelfDrawnTerminalViewState extends State<SelfDrawnTerminalView>
     final alt = keyboard.isAltPressed;
     final shift = keyboard.isShiftPressed;
     final appCursor = _snapshot?.applicationCursor ?? false;
-    // Ctrl+letter → control byte (Ctrl+C = 0x03, …), portable and host-safe.
+    final kittyFlags = _snapshot?.inputMode.kittyFlags ?? 0;
+    // Ctrl+letter → control byte (Ctrl+C = 0x03, …), portable and host-safe;
+    // kitty-mode apps get the CSI-u encoding from the shared encoder instead.
     final ch = event.character;
     if (ctrl && !alt && ch != null && ch.length == 1) {
       final upper = ch.toUpperCase().codeUnitAt(0);
       if (upper >= 0x41 && upper <= 0x5A) {
+        if (kittyFlags & 1 != 0) {
+          final bytes = terminalKeyInput(
+            key: ch.toLowerCase(),
+            shift: shift,
+            control: true,
+            kittyFlags: kittyFlags,
+          );
+          if (bytes.isNotEmpty) {
+            widget.onSendKey?.call(bytes);
+            return KeyEventResult.handled;
+          }
+        }
         widget.onSendKey?.call(String.fromCharCode(upper - 0x40));
         return KeyEventResult.handled;
       }
@@ -904,6 +919,7 @@ class _SelfDrawnTerminalViewState extends State<SelfDrawnTerminalView>
         alt: alt,
         control: ctrl,
         applicationCursor: appCursor,
+        kittyFlags: kittyFlags,
       );
       if (bytes.isNotEmpty) {
         widget.onSendKey?.call(bytes);

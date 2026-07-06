@@ -37,6 +37,7 @@ pub extern "C" fn codux_terminal_key_input_json(
     control: bool,
     platform: bool,
     application_cursor: bool,
+    kitty_flags: u8,
 ) -> *mut c_char {
     let Some(key) = c_to_string(key) else {
         return ptr::null_mut();
@@ -53,6 +54,7 @@ pub extern "C" fn codux_terminal_key_input_json(
         },
         mode: TerminalInputMode {
             application_cursor,
+            kitty_flags,
             ..Default::default()
         },
     })

@@ -87,6 +87,57 @@ fn terminal_key_input_maps_control_and_navigation_sequences() {
 }
 
 #[test]
+fn kitty_disambiguate_mode_encodes_csi_u_sequences() {
+    let kitty = |key, key_char, shift, alt, control, platform| {
+        let mut input = key_input(key, key_char, shift, alt, control, platform, false);
+        input.mode.kitty_flags = 1;
+        terminal_key_input(input)
+    };
+
+    assert_eq!(
+        kitty("escape", None, false, false, false, false).as_deref(),
+        Some("\x1b[27u")
+    );
+    assert_eq!(
+        kitty("c", Some("c"), false, false, true, false).as_deref(),
+        Some("\x1b[99;5u")
+    );
+    assert_eq!(
+        kitty("a", None, false, true, false, false).as_deref(),
+        Some("\x1b[97;3u")
+    );
+    // shift+enter is distinguishable from plain enter (which stays CR).
+    assert_eq!(
+        kitty("enter", None, true, false, false, false).as_deref(),
+        Some("\x1b[13;2u")
+    );
+    assert_eq!(
+        kitty("enter", None, false, false, false, false).as_deref(),
+        Some("\x0d")
+    );
+    // alt+left uses the standard modified arrow, not the readline alias.
+    assert_eq!(
+        kitty("left", None, false, true, false, false).as_deref(),
+        Some("\x1b[1;3D")
+    );
+    // Platform-only combos still belong to the app.
+    assert_eq!(kitty("f", None, false, false, false, true), None);
+
+    // Legacy mode is untouched.
+    assert_eq!(
+        terminal_key_input(key_input(
+            "escape", None, false, false, false, false, false
+        ))
+        .as_deref(),
+        Some("\x1b")
+    );
+    assert_eq!(
+        terminal_key_input(key_input("left", None, false, true, false, false, false)).as_deref(),
+        Some("\x1bb")
+    );
+}
+
+#[test]
 fn terminal_key_input_keeps_app_shortcuts_out_of_terminal() {
     assert!(terminal_key_input(key_input("q", None, false, false, false, true, false)).is_none());
     assert!(terminal_is_copy_shortcut(key_input(

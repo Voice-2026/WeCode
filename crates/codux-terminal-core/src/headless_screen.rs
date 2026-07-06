@@ -592,6 +592,10 @@ impl TerminalScreenWorker {
         let events = Rc::new(RefCell::new(Vec::new()));
         let config = AlacrittyConfig {
             scrolling_history: scrollback,
+            // The engine then answers `CSI ? u` queries and tracks the kitty
+            // keyboard flag stack; the key encoder reads the flags back via
+            // TerminalInputMode::kitty_flags.
+            kitty_keyboard: true,
             ..Default::default()
         };
         let term = Term::new(
@@ -1089,11 +1093,27 @@ fn terminal_keyframe_mode_prefix(mode: &TerminalInputMode) -> String {
     if mode.alternate_scroll {
         out.push_str("\x1b[?1007h");
     }
+    // Kitty keyboard flags (CSI = flags ; 1 u sets them outright).
+    if mode.kitty_flags != 0 {
+        out.push_str(&format!("\x1b[={};1u", mode.kitty_flags));
+    }
     out
 }
 
 fn terminal_input_mode(term: &Term<HeadlessEventProxy>) -> TerminalInputMode {
     let mode = term.mode();
+    let mut kitty_flags = 0u8;
+    for (flag, bit) in [
+        (TermMode::DISAMBIGUATE_ESC_CODES, 1u8),
+        (TermMode::REPORT_EVENT_TYPES, 2),
+        (TermMode::REPORT_ALTERNATE_KEYS, 4),
+        (TermMode::REPORT_ALL_KEYS_AS_ESC, 8),
+        (TermMode::REPORT_ASSOCIATED_TEXT, 16),
+    ] {
+        if mode.contains(flag) {
+            kitty_flags |= bit;
+        }
+    }
     TerminalInputMode {
         application_cursor: mode.contains(TermMode::APP_CURSOR),
         alternate_screen: mode.contains(TermMode::ALT_SCREEN),
@@ -1105,6 +1125,7 @@ fn terminal_input_mode(term: &Term<HeadlessEventProxy>) -> TerminalInputMode {
         mouse_drag: mode.contains(TermMode::MOUSE_DRAG),
         sgr_mouse: mode.contains(TermMode::SGR_MOUSE),
         utf8_mouse: mode.contains(TermMode::UTF8_MOUSE),
+        kitty_flags,
     }
 }
 
@@ -1600,6 +1621,24 @@ mod tests {
                 TerminalScreenEvent::Bell,
             ]
         );
+    }
+
+    #[test]
+    fn kitty_keyboard_flags_surface_in_input_mode_and_keyframe() {
+        let mut screen = HeadlessTerminalScreen::new(20, 4, 100);
+        assert_eq!(screen.snapshot().input_mode.kitty_flags, 0);
+
+        screen.process(b"\x1b[>1u"); // push disambiguate
+        let snap = screen.snapshot();
+        assert_eq!(snap.input_mode.kitty_flags, 1);
+        assert!(
+            snap.data.contains("\x1b[=1;1u"),
+            "keyframe should restore kitty flags, got: {:?}",
+            &snap.data[..snap.data.len().min(80)]
+        );
+
+        screen.process(b"\x1b[<u"); // pop
+        assert_eq!(screen.snapshot().input_mode.kitty_flags, 0);
     }
 
     #[test]

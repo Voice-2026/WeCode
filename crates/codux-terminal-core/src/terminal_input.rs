@@ -13,6 +13,14 @@ pub struct TerminalInputMode {
     pub mouse_drag: bool,
     pub sgr_mouse: bool,
     pub utf8_mouse: bool,
+    /// Active kitty keyboard flags (1 disambiguate, 2 event types,
+    /// 4 alternate keys, 8 all keys as escapes, 16 associated text).
+    #[serde(default, skip_serializing_if = "terminal_kitty_flags_is_zero")]
+    pub kitty_flags: u8,
+}
+
+fn terminal_kitty_flags_is_zero(flags: &u8) -> bool {
+    *flags == 0
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -146,6 +154,12 @@ pub fn terminal_key_input_bytes(input: TerminalKeyInput<'_>) -> Option<Vec<u8>> 
         return None;
     }
 
+    if input.mode.kitty_flags & 1 != 0
+        && let Some(sequence) = kitty_key_sequence(&input)
+    {
+        return Some(sequence);
+    }
+
     if input.modifiers.control
         && !input.modifiers.alt
         && !input.modifiers.platform
@@ -169,7 +183,7 @@ pub fn terminal_key_input_bytes(input: TerminalKeyInput<'_>) -> Option<Vec<u8>> 
         ("backspace", TerminalKeyModifiers::Ctrl) => Some("\x08"),
         ("backspace", TerminalKeyModifiers::Alt) => Some("\x1b\x7f"),
         ("back", TerminalKeyModifiers::Alt) => Some("\x1b\x7f"),
-        ("delete", TerminalKeyModifiers::Alt) => Some("\x1bd"),
+        ("delete", TerminalKeyModifiers::Alt) if input.mode.kitty_flags & 1 == 0 => Some("\x1bd"),
         ("backspace", TerminalKeyModifiers::Platform) => Some("\x15"),
         ("back", TerminalKeyModifiers::Platform) => Some("\x15"),
         ("delete", TerminalKeyModifiers::Platform) => Some("\x0b"),
@@ -187,8 +201,9 @@ pub fn terminal_key_input_bytes(input: TerminalKeyInput<'_>) -> Option<Vec<u8>> 
         ("right", TerminalKeyModifiers::None) => Some("\x1b[C"),
         ("left", TerminalKeyModifiers::None) if input.mode.application_cursor => Some("\x1bOD"),
         ("left", TerminalKeyModifiers::None) => Some("\x1b[D"),
-        ("right", TerminalKeyModifiers::Alt) => Some("\x1bf"),
-        ("left", TerminalKeyModifiers::Alt) => Some("\x1bb"),
+        // Readline word-nav aliases; kitty-mode apps expect CSI 1;3C/D instead.
+        ("right", TerminalKeyModifiers::Alt) if input.mode.kitty_flags & 1 == 0 => Some("\x1bf"),
+        ("left", TerminalKeyModifiers::Alt) if input.mode.kitty_flags & 1 == 0 => Some("\x1bb"),
         ("right", TerminalKeyModifiers::Platform) => Some("\x05"),
         ("left", TerminalKeyModifiers::Platform) => Some("\x01"),
         ("end", TerminalKeyModifiers::Platform) => Some("\x05"),
@@ -485,6 +500,73 @@ fn ctrl_sequence(key: &str) -> Option<&'static str> {
         "_" => Some("\x1f"),
         "?" => Some("\x7f"),
         _ => None,
+    }
+}
+
+/// Kitty disambiguate-mode (progressive enhancement bit 1) encoding for the
+/// keys whose legacy sequences are ambiguous: bare escape, and modified
+/// text/enter/tab/backspace keys that would collapse into C0 bytes or
+/// ESC-prefixed text. Functional keys keep their legacy CSI encodings.
+fn kitty_key_sequence(input: &TerminalKeyInput<'_>) -> Option<Vec<u8>> {
+    let modifiers = &input.modifiers;
+    // Platform-only combos stay with the app (cmd+F search, cmd+A select);
+    // the platform bit is still reported when combined with ctrl/alt/shift.
+    let non_platform_modifier = modifiers.shift || modifiers.alt || modifiers.control;
+    let key = terminal_normalize_key(input.key);
+
+    let functional = match key.as_str() {
+        "escape" => Some(27u32),
+        "enter" => Some(13),
+        "tab" => Some(9),
+        "backspace" | "back" => Some(127),
+        _ => None,
+    };
+    if let Some(code) = functional {
+        if code == 27 && !non_platform_modifier && !modifiers.platform {
+            return Some(kitty_csi_u(27, *modifiers));
+        }
+        // Bare enter/tab/backspace keep their single-byte legacy forms.
+        if !non_platform_modifier {
+            return None;
+        }
+        return Some(kitty_csi_u(code, *modifiers));
+    }
+
+    // Modified text keys: encode as the unshifted codepoint so ctrl+i, alt+a
+    // and friends stay distinguishable. Plain or shift-only text continues
+    // through the regular text path.
+    if !(modifiers.alt || modifiers.control) {
+        return None;
+    }
+    let codepoint = match key.as_str() {
+        "space" => Some(' '),
+        _ => {
+            let mut chars = key.chars();
+            let ch = chars.next()?;
+            (chars.next().is_none() && !ch.is_control()).then_some(ch)
+        }
+    }?;
+    Some(kitty_csi_u(codepoint.to_lowercase().next()? as u32, *modifiers))
+}
+
+fn kitty_csi_u(codepoint: u32, modifiers: TerminalKeyInputModifiers) -> Vec<u8> {
+    let mut code = 0u32;
+    if modifiers.shift {
+        code |= 1;
+    }
+    if modifiers.alt {
+        code |= 1 << 1;
+    }
+    if modifiers.control {
+        code |= 1 << 2;
+    }
+    if modifiers.platform {
+        code |= 1 << 3;
+    }
+    if code == 0 {
+        format!("\x1b[{codepoint}u").into_bytes()
+    } else {
+        format!("\x1b[{codepoint};{}u", code + 1).into_bytes()
     }
 }
 

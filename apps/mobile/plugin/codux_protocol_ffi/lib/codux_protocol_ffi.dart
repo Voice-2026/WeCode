@@ -49,6 +49,7 @@ bool _hasRequiredSymbols(DynamicLibrary library) {
           Bool,
           Bool,
           Bool,
+          Uint8,
         )
       >
     >('codux_terminal_key_input_json');
@@ -328,6 +329,7 @@ final _terminalKeyInputJson = _dylib
         Bool,
         Bool,
         Bool,
+        Uint8,
       ),
       Pointer<Utf8> Function(
         Pointer<Utf8>,
@@ -337,6 +339,7 @@ final _terminalKeyInputJson = _dylib
         bool,
         bool,
         bool,
+        int,
       )
     >('codux_terminal_key_input_json');
 final _terminalMouseInputJson = _dylib
@@ -827,6 +830,7 @@ String terminalKeyInput({
   bool control = false,
   bool platform = false,
   bool applicationCursor = false,
+  int kittyFlags = 0,
 }) {
   final keyPtr = key.toNativeUtf8();
   final keyCharPtr = keyChar.toNativeUtf8();
@@ -840,6 +844,7 @@ String terminalKeyInput({
         control,
         platform,
         applicationCursor,
+        kittyFlags,
       ),
     );
   } finally {
@@ -973,6 +978,7 @@ class TerminalScreenInputMode {
     this.mouseDrag = false,
     this.sgrMouse = false,
     this.utf8Mouse = false,
+    this.kittyFlags = 0,
   });
 
   final bool applicationCursor;
@@ -984,6 +990,9 @@ class TerminalScreenInputMode {
   final bool sgrMouse;
   final bool utf8Mouse;
 
+  /// Active kitty keyboard flags (bit 1 = disambiguate escape codes).
+  final int kittyFlags;
+
   factory TerminalScreenInputMode.fromJson(Map<String, dynamic> json) {
     return TerminalScreenInputMode(
       applicationCursor: json['applicationCursor'] == true,
@@ -994,6 +1003,7 @@ class TerminalScreenInputMode {
       mouseDrag: json['mouseDrag'] == true,
       sgrMouse: json['sgrMouse'] == true,
       utf8Mouse: json['utf8Mouse'] == true,
+      kittyFlags: _jsonInt(json['kittyFlags']),
     );
   }
 }
