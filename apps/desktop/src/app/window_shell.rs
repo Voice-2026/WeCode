@@ -30,17 +30,7 @@ pub(in crate::app) fn child_window_shell<T>(
                 .child(title),
         )
         .when(!cfg!(target_os = "macos"), |this| {
-            this.child(
-                Button::new("child-window-close")
-                    .compact()
-                    .ghost()
-                    .h(px(28.0))
-                    .w(px(28.0))
-                    .text_color(cx.theme().muted_foreground)
-                    .window_control_area(WindowControlArea::Close)
-                    .on_click(|_, window, _| window.remove_window())
-                    .child(Icon::new(HeroIconName::XMark).size_3()),
-            )
+            this.child(window_close_control("child-window-close", 28.0, true, cx))
         });
 
     div()

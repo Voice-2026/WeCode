@@ -327,12 +327,7 @@ fn workspace_window_controls(cx: &mut Context<CoduxApp>) -> impl IntoElement {
             WindowControlArea::Max,
             cx,
         ))
-        .child(workspace_window_control_button(
-            "workspace-window-close",
-            HeroIconName::XMark,
-            WindowControlArea::Close,
-            cx,
-        ))
+        .child(window_close_control("workspace-window-close", 30.0, false, cx))
 }
 
 fn workspace_window_control_button(

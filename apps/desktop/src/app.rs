@@ -247,7 +247,7 @@ use self::{
     ui_helpers::{
         assistant_header_icon_button, column_header, dialog_button_label, dialog_cancel_button,
         dialog_footer_bar, dialog_primary_button, dialog_secondary_button, empty_label,
-        header_icon_button, header_icon_button_loading,
+        header_icon_button, header_icon_button_loading, window_close_control,
     },
     ui_invalidation::UiRegion,
     window_shell::child_window_shell,

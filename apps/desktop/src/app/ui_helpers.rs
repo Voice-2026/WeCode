@@ -367,6 +367,34 @@ pub(in crate::app) fn titlebar_drag_area(
         })
 }
 
+pub(in crate::app) fn window_close_control(
+    id: &'static str,
+    width: f32,
+    closes_window: bool,
+    cx: &App,
+) -> impl IntoElement {
+    // Windows convention: the close control hovers red with a white glyph.
+    let danger = cx.theme().danger;
+    let danger_foreground = cx.theme().danger_foreground;
+    div()
+        .id(id)
+        .flex_none()
+        .h(px(28.0))
+        .w(px(width))
+        .rounded(cx.theme().radius)
+        .flex()
+        .items_center()
+        .justify_center()
+        .text_color(cx.theme().muted_foreground)
+        .hover(move |style| style.bg(danger).text_color(danger_foreground))
+        .active(move |style| style.bg(danger.opacity(0.85)).text_color(danger_foreground))
+        .window_control_area(WindowControlArea::Close)
+        .when(closes_window, |this| {
+            this.on_click(|_, window, _| window.remove_window())
+        })
+        .child(Icon::new(HeroIconName::XMark).size_3())
+}
+
 pub(in crate::app) fn header_icon_button(
     id: &'static str,
     icon: HeroIconName,

@@ -493,17 +493,12 @@ pub(super) fn file_editor_toolbar(
                     },
                 ))
                 .when(window_header && !cfg!(target_os = "macos"), |this| {
-                    this.child(
-                        Button::new("file-editor-window-close")
-                            .compact()
-                            .ghost()
-                            .h(px(28.0))
-                            .w(px(28.0))
-                            .text_color(cx.theme().muted_foreground)
-                            .window_control_area(WindowControlArea::Close)
-                            .on_click(|_, window, _| window.remove_window())
-                            .child(Icon::new(HeroIconName::XMark).size_3()),
-                    )
+                    this.child(window_close_control(
+                        "file-editor-window-close",
+                        28.0,
+                        true,
+                        cx,
+                    ))
                 }),
         )
 }

@@ -249,7 +249,7 @@ pub(in crate::app) fn terminal_pane_display_title(
         return (title.to_string(), None);
     }
     if let Some(osc_title) = osc_title.map(str::trim).filter(|title| !title.is_empty()) {
-        return (osc_title.to_string(), None);
+        return (friendly_osc_title(osc_title), None);
     }
     if let Some(shell) = default_shell_display_name() {
         return (shell.to_string(), None);
@@ -272,6 +272,20 @@ fn terminal_slot_title_is_generic(title: &str, language: &str) -> bool {
     ]
     .iter()
     .any(|format| title_matches_numbered_format(title, format))
+}
+
+// Windows conhost defaults the console title to the shell's exe path; show just the exe stem (cmd, pwsh, ...).
+fn friendly_osc_title(title: &str) -> String {
+    if !title.to_ascii_lowercase().ends_with(".exe") {
+        return title.to_string();
+    }
+    // Backslash-split by hand so remote Windows titles also map when viewed from macOS.
+    let normalized = title.replace('\\', "/");
+    std::path::Path::new(&normalized)
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or(title)
+        .to_string()
 }
 
 fn title_matches_numbered_format(title: &str, format: &str) -> bool {

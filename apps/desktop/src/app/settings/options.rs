@@ -424,6 +424,18 @@ fn detected_terminal_shells() -> Vec<(String, String)> {
                 );
             }
         }
+        // Per-user installs (no admin) land under LOCALAPPDATA\Programs.
+        if let Some(dir) = std::env::var_os("LOCALAPPDATA") {
+            let programs = std::path::Path::new(&dir).join("Programs");
+            push(
+                programs.join("PowerShell").join("7").join("pwsh.exe"),
+                "PowerShell 7 (pwsh)",
+            );
+            push(
+                programs.join("Git").join("bin").join("bash.exe"),
+                "Git Bash",
+            );
+        }
         // Store/scoop installs put pwsh.exe on PATH instead of Program Files.
         if let Some(path_var) = std::env::var_os("PATH") {
             for dir in std::env::split_paths(&path_var) {
