@@ -1,5 +1,6 @@
 use super::*;
 
+#[derive(Clone)]
 pub(in crate::app) struct GitSidebarLabels {
     pub(super) remote_url: String,
     pub(super) cancel: String,

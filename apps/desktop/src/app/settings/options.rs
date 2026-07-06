@@ -1,5 +1,6 @@
 use super::*;
 
+#[derive(Clone, Copy)]
 pub(super) struct TerminalThemePreview {
     pub(super) background: u32,
     pub(super) foreground: u32,

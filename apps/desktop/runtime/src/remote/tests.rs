@@ -463,6 +463,8 @@ fn remote_git_status_payload_matches_domain_shape() {
                 is_current: true,
             }],
             remote_branches: vec!["origin/main".to_string()],
+            stashes: vec![],
+            tags: vec![],
             remotes: vec![crate::git::GitRemoteSummary {
                 name: "origin".to_string(),
                 url: "https://example.test/repo.git".to_string(),

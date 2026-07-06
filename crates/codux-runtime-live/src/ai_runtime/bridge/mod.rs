@@ -27,6 +27,9 @@ mod tests;
 
 #[cfg(test)]
 use assets::*;
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AIRuntimeBridgeSnapshot {
     pub runtime_event_dir: String,
     pub wrapper_bin_path: String,
