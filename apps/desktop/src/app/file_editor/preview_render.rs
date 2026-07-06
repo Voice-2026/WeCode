@@ -120,11 +120,16 @@ fn file_preview_window_header(
         .border_b_1()
         .border_color(cx.theme().border)
         .bg(cx.theme().title_bar)
-        .window_control_area(WindowControlArea::Drag)
         .child(
+            // Drag lives on the title only: overlapping a Drag ancestor over the
+            // buttons makes Windows NC hit-testing return HTCAPTION for them.
             div()
                 .min_w_0()
                 .flex_1()
+                .h_full()
+                .flex()
+                .items_center()
+                .window_control_area(WindowControlArea::Drag)
                 .text_size(rems(0.875))
                 .line_height(rems(1.125))
                 .text_color(color(theme::TEXT))
