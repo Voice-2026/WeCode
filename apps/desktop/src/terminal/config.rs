@@ -12,6 +12,8 @@ pub struct TerminalConfig {
     /// Resolved i18n locale (e.g. "en", "zh-Hans") for in-terminal UI like the
     /// handoff placeholder. Empty = fall back to the provided default string.
     pub language: String,
+    /// User-preferred shell for newly spawned local PTYs; None = platform default.
+    pub shell: Option<String>,
 }
 
 pub fn terminal_config() -> TerminalConfig {
@@ -48,6 +50,7 @@ pub fn terminal_config() -> TerminalConfig {
         colors,
         paste_images_as_paths: true,
         language: String::new(),
+        shell: None,
     }
 }
 

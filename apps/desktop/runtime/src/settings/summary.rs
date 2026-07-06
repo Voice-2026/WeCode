@@ -55,6 +55,7 @@ fn summary_from_raw(raw: &Map<String, Value>) -> SettingsSummary {
             .get("terminalPasteImagesAsPaths")
             .and_then(Value::as_bool)
             .unwrap_or(defaults.terminal_paste_images_as_paths),
+        terminal_shell: string_value(raw, "terminalShell", defaults.terminal_shell),
         file_open_default: raw
             .get("fileOpenDefault")
             .and_then(Value::as_str)

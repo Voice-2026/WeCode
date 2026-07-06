@@ -1161,6 +1161,10 @@ pub(in crate::app) fn terminal_config_for_settings(
         .clamp(200, 10_000);
     config.paste_images_as_paths = settings.terminal_paste_images_as_paths;
     config.colors = terminal_color_palette(&settings.theme, &settings.theme_color, appearance);
+    let shell = settings.terminal_shell.trim();
+    // Skip a configured shell that has since been uninstalled instead of failing every spawn.
+    config.shell =
+        (!shell.is_empty() && std::path::Path::new(shell).is_file()).then(|| shell.to_string());
     config
 }
 

@@ -12,6 +12,7 @@ impl Default for SettingsSummary {
             terminal_font_size: "14".to_string(),
             terminal_scrollback_lines: "2000".to_string(),
             terminal_paste_images_as_paths: true,
+            terminal_shell: String::new(),
             file_open_default: "edit".to_string(),
             git_refresh: "60".to_string(),
             ai_refresh: "180".to_string(),

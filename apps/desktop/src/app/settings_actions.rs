@@ -48,6 +48,32 @@ impl CoduxApp {
         self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
+    pub(super) fn set_terminal_shell(
+        &mut self,
+        shell: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.state.settings.terminal_shell == shell {
+            return;
+        }
+        self.save_settings_async(
+            "set_terminal_shell",
+            "saving terminal shell",
+            move |service| service.set_terminal_shell(&shell),
+            |app, settings, cx| {
+                app.apply_async_settings_summary(settings);
+                app.status_message = format!(
+                    "terminal shell saved: {}",
+                    app.state.settings.terminal_shell
+                );
+                app.invalidate_ui_region(cx, UiRegion::Root);
+            },
+            cx,
+        );
+        self.invalidate_ui_region(cx, UiRegion::Root);
+    }
+
     pub(super) fn set_terminal_scrollback_lines(
         &mut self,
         lines: String,

@@ -380,6 +380,10 @@ pub fn terminal_pty_config_with_view(
     config.cols = Some(terminal_config.cols as u16);
     config.rows = Some(terminal_config.rows as u16);
     config.scrollback_lines = Some(terminal_config.scrollback);
+    // Preferred shell applies to local spawns only; a remote host resolves its own default.
+    if config.shell.is_none() && config.host_device_id.is_none() {
+        config.shell = terminal_config.shell.clone();
+    }
     // Theme colors for the tool wrapper to seed OSC 10/11: on Windows, ConPTY
     // answers those queries itself from its own (black) palette, so TUIs like
     // codex would detect a dark background under a light app theme.

@@ -12,6 +12,8 @@ pub struct SettingsSummary {
     pub terminal_font_size: String,
     pub terminal_scrollback_lines: String,
     pub terminal_paste_images_as_paths: bool,
+    /// Absolute path of the preferred terminal shell; empty = platform default.
+    pub terminal_shell: String,
     pub file_open_default: String,
     pub git_refresh: String,
     pub ai_refresh: String,

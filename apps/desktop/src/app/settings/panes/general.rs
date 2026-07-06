@@ -210,6 +210,24 @@ pub(super) fn settings_general_pane(
                     ),
                 )
                 .into_any_element(),
+                settings_row(
+                    settings_text(language, "settings.terminal_shell", "Terminal Shell"),
+                    Some(settings_text(
+                        language,
+                        "settings.terminal_shell.help",
+                        "Applies to newly opened terminals.",
+                    )),
+                    settings_select_impl(
+                        "settings-terminal-shell",
+                        &settings.terminal_shell,
+                        terminal_shell_options(language, &settings.terminal_shell),
+                        window,
+                        cx,
+                        language,
+                        |app, value, window, cx| app.set_terminal_shell(value, window, cx),
+                    ),
+                )
+                .into_any_element(),
             ],
             cx,)
         .into_any_element(),

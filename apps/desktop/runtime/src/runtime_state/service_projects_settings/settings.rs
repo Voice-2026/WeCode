@@ -67,6 +67,10 @@ impl RuntimeService {
         self.update_settings_with_side_effects(|settings| settings.set_terminal_font_family(family))
     }
 
+    pub fn set_terminal_shell(&self, shell: &str) -> Result<SettingsSummary, String> {
+        self.update_settings_with_side_effects(|settings| settings.set_terminal_shell(shell))
+    }
+
     pub fn set_terminal_scrollback_value(&self, lines: &str) -> Result<SettingsSummary, String> {
         self.update_settings_with_side_effects(|settings| {
             settings.set_terminal_scrollback_value(lines)

@@ -371,6 +371,97 @@ pub(super) fn terminal_font_family_options(
     options
 }
 
+pub(super) fn terminal_shell_options(
+    language: &str,
+    selected: &str,
+) -> Vec<(String, SharedString)> {
+    let mut options = vec![(
+        String::new(),
+        SharedString::from(settings_text(
+            language,
+            "settings.terminal_shell.default",
+            "System Default",
+        )),
+    )];
+    for (value, label) in detected_terminal_shells() {
+        options.push((value, SharedString::from(label)));
+    }
+    let selected = selected.trim();
+    if !selected.is_empty() && !options.iter().any(|(value, _)| value == selected) {
+        options.push((
+            selected.to_string(),
+            SharedString::from(selected.to_string()),
+        ));
+    }
+    options
+}
+
+/// Installed shells offered in the picker; the value is the absolute path handed to the PTY.
+fn detected_terminal_shells() -> Vec<(String, String)> {
+    let mut shells: Vec<(String, String)> = Vec::new();
+    let mut push = |path: std::path::PathBuf, label: &str| {
+        if path.is_file() && !shells.iter().any(|(_, existing)| existing == label) {
+            shells.push((path.display().to_string(), label.to_string()));
+        }
+    };
+    #[cfg(target_os = "windows")]
+    {
+        for base in ["ProgramFiles", "ProgramW6432"] {
+            if let Some(dir) = std::env::var_os(base) {
+                push(
+                    std::path::Path::new(&dir)
+                        .join("PowerShell")
+                        .join("7")
+                        .join("pwsh.exe"),
+                    "PowerShell 7 (pwsh)",
+                );
+                push(
+                    std::path::Path::new(&dir)
+                        .join("Git")
+                        .join("bin")
+                        .join("bash.exe"),
+                    "Git Bash",
+                );
+            }
+        }
+        // Store/scoop installs put pwsh.exe on PATH instead of Program Files.
+        if let Some(path_var) = std::env::var_os("PATH") {
+            for dir in std::env::split_paths(&path_var) {
+                push(dir.join("pwsh.exe"), "PowerShell 7 (pwsh)");
+            }
+        }
+        if let Some(system_root) = std::env::var_os("SystemRoot") {
+            let system32 = std::path::Path::new(&system_root).join("System32");
+            push(
+                system32
+                    .join("WindowsPowerShell")
+                    .join("v1.0")
+                    .join("powershell.exe"),
+                "Windows PowerShell",
+            );
+            push(system32.join("cmd.exe"), "Command Prompt");
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        for (path, label) in [
+            ("/bin/zsh", "zsh"),
+            ("/usr/bin/zsh", "zsh"),
+            ("/bin/bash", "bash"),
+            ("/usr/bin/bash", "bash"),
+            ("/opt/homebrew/bin/fish", "fish"),
+            ("/usr/local/bin/fish", "fish"),
+            ("/usr/bin/fish", "fish"),
+            ("/opt/homebrew/bin/nu", "nushell"),
+            ("/usr/local/bin/nu", "nushell"),
+            ("/usr/bin/nu", "nushell"),
+        ] {
+            push(std::path::PathBuf::from(path), label);
+        }
+    }
+    shells
+}
+
 pub(super) fn terminal_font_size_options() -> Vec<(String, SharedString)> {
     (10..=28)
         .map(|value| {
