@@ -1,11 +1,36 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 class TerminalBuiltinGraphic {
-  const TerminalBuiltinGraphic.block(this.block) : box = null;
-  const TerminalBuiltinGraphic.box(this.box) : block = null;
+  const TerminalBuiltinGraphic.block(this.block) : box = null, powerline = null;
+  const TerminalBuiltinGraphic.box(this.box) : block = null, powerline = null;
+  const TerminalBuiltinGraphic.powerline(this.powerline)
+    : block = null,
+      box = null;
 
   final TerminalBlockGraphic? block;
   final TerminalBoxGraphic? box;
+  final TerminalPowerlineGraphic? powerline;
+}
+
+/// Powerline separators (U+E0B0–U+E0BF) are drawn as cell-exact vectors: font
+/// glyphs follow the em box and leave gaps against the padded terminal cell.
+enum TerminalPowerlineGraphic {
+  triangleRight,
+  chevronRight,
+  triangleLeft,
+  chevronLeft,
+  semicircleRight,
+  semicircleRightLine,
+  semicircleLeft,
+  semicircleLeftLine,
+  triangleLowerLeft,
+  diagonalBack,
+  triangleLowerRight,
+  diagonalForward,
+  triangleUpperLeft,
+  triangleUpperRight,
 }
 
 enum TerminalBlockGraphicKind { full, upper, lower, left, right, quadrants }
@@ -91,12 +116,38 @@ int? terminalCellCodepoint(String text) {
 }
 
 TerminalBuiltinGraphic? terminalBuiltinGraphic(int codepoint) {
+  if (codepoint >= 0xe0b0 && codepoint <= 0xe0bf) {
+    final powerline = _terminalPowerlineGraphic(codepoint);
+    return powerline == null
+        ? null
+        : TerminalBuiltinGraphic.powerline(powerline);
+  }
   if (codepoint < 0x2500 || codepoint > 0x259f) return null;
   final block = _terminalBlockGraphic(codepoint);
   if (block != null) return TerminalBuiltinGraphic.block(block);
   final box = _terminalBoxGraphic(codepoint);
   if (box != null) return TerminalBuiltinGraphic.box(box);
   return null;
+}
+
+TerminalPowerlineGraphic? _terminalPowerlineGraphic(int codepoint) {
+  return switch (codepoint) {
+    0xe0b0 => TerminalPowerlineGraphic.triangleRight,
+    0xe0b1 => TerminalPowerlineGraphic.chevronRight,
+    0xe0b2 => TerminalPowerlineGraphic.triangleLeft,
+    0xe0b3 => TerminalPowerlineGraphic.chevronLeft,
+    0xe0b4 => TerminalPowerlineGraphic.semicircleRight,
+    0xe0b5 => TerminalPowerlineGraphic.semicircleRightLine,
+    0xe0b6 => TerminalPowerlineGraphic.semicircleLeft,
+    0xe0b7 => TerminalPowerlineGraphic.semicircleLeftLine,
+    0xe0b8 => TerminalPowerlineGraphic.triangleLowerLeft,
+    0xe0b9 || 0xe0bf => TerminalPowerlineGraphic.diagonalBack,
+    0xe0ba => TerminalPowerlineGraphic.triangleLowerRight,
+    0xe0bb || 0xe0bd => TerminalPowerlineGraphic.diagonalForward,
+    0xe0bc => TerminalPowerlineGraphic.triangleUpperLeft,
+    0xe0be => TerminalPowerlineGraphic.triangleUpperRight,
+    _ => null,
+  };
 }
 
 TerminalBuiltinGraphic? terminalBuiltinGraphicForText(String text) {
@@ -117,7 +168,116 @@ void paintTerminalBuiltinGraphic(
     return;
   }
   final box = graphic.box;
-  if (box != null) _paintBox(canvas, paint, bounds, box);
+  if (box != null) {
+    _paintBox(canvas, paint, bounds, box);
+    return;
+  }
+  final powerline = graphic.powerline;
+  if (powerline != null) _paintPowerline(canvas, paint, bounds, powerline);
+}
+
+void _paintPowerline(
+  Canvas canvas,
+  Paint paint,
+  Rect bounds,
+  TerminalPowerlineGraphic graphic,
+) {
+  final x = bounds.left;
+  final y = bounds.top;
+  final right = bounds.right;
+  final bottom = bounds.bottom;
+  final middle = (y + bottom) * 0.5;
+  switch (graphic) {
+    case TerminalPowerlineGraphic.triangleRight:
+      _paintPolygon(canvas, paint, [
+        Offset(x, y),
+        Offset(right, middle),
+        Offset(x, bottom),
+      ]);
+    case TerminalPowerlineGraphic.triangleLeft:
+      _paintPolygon(canvas, paint, [
+        Offset(right, y),
+        Offset(x, middle),
+        Offset(right, bottom),
+      ]);
+    case TerminalPowerlineGraphic.chevronRight:
+      _paintPolyline(canvas, paint, [
+        Offset(x, y),
+        Offset(right, middle),
+        Offset(x, bottom),
+      ]);
+    case TerminalPowerlineGraphic.chevronLeft:
+      _paintPolyline(canvas, paint, [
+        Offset(right, y),
+        Offset(x, middle),
+        Offset(right, bottom),
+      ]);
+    case TerminalPowerlineGraphic.semicircleRight:
+      _paintPolygon(canvas, paint, _semicirclePoints(bounds, true));
+    case TerminalPowerlineGraphic.semicircleLeft:
+      _paintPolygon(canvas, paint, _semicirclePoints(bounds, false));
+    case TerminalPowerlineGraphic.semicircleRightLine:
+      _paintPolyline(canvas, paint, _semicirclePoints(bounds, true));
+    case TerminalPowerlineGraphic.semicircleLeftLine:
+      _paintPolyline(canvas, paint, _semicirclePoints(bounds, false));
+    case TerminalPowerlineGraphic.triangleLowerLeft:
+      _paintPolygon(canvas, paint, [
+        Offset(x, y),
+        Offset(right, bottom),
+        Offset(x, bottom),
+      ]);
+    case TerminalPowerlineGraphic.triangleLowerRight:
+      _paintPolygon(canvas, paint, [
+        Offset(right, y),
+        Offset(right, bottom),
+        Offset(x, bottom),
+      ]);
+    case TerminalPowerlineGraphic.triangleUpperLeft:
+      _paintPolygon(canvas, paint, [
+        Offset(x, y),
+        Offset(right, y),
+        Offset(x, bottom),
+      ]);
+    case TerminalPowerlineGraphic.triangleUpperRight:
+      _paintPolygon(canvas, paint, [
+        Offset(x, y),
+        Offset(right, y),
+        Offset(right, bottom),
+      ]);
+    case TerminalPowerlineGraphic.diagonalBack:
+      _paintPolyline(canvas, paint, [Offset(x, y), Offset(right, bottom)]);
+    case TerminalPowerlineGraphic.diagonalForward:
+      _paintPolyline(canvas, paint, [Offset(x, bottom), Offset(right, y)]);
+  }
+}
+
+List<Offset> _semicirclePoints(Rect bounds, bool bulgeRight) {
+  final width = bounds.width;
+  final halfHeight = bounds.height * 0.5;
+  final middle = bounds.top + halfHeight;
+  final flatX = bulgeRight ? bounds.left : bounds.right;
+  final direction = bulgeRight ? 1.0 : -1.0;
+  return List.generate(17, (step) {
+    final angle = -math.pi / 2 + math.pi * step / 16;
+    return Offset(
+      flatX + direction * width * math.cos(angle),
+      middle + halfHeight * math.sin(angle),
+    );
+  });
+}
+
+void _paintPolygon(Canvas canvas, Paint paint, List<Offset> points) {
+  final path = Path()..addPolygon(points, true);
+  canvas.drawPath(path, paint);
+}
+
+void _paintPolyline(Canvas canvas, Paint paint, List<Offset> points) {
+  final stroke = Paint()
+    ..color = paint.color
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 1;
+  final path = Path()..addPolygon(points, false);
+  canvas.drawPath(path, stroke);
 }
 
 TerminalBlockGraphic? _terminalBlockGraphic(int codepoint) {

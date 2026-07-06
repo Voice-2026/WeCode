@@ -20,10 +20,19 @@ import 'terminal_builtin_glyphs.dart';
 /// patchwork of system fonts (the spinner flickering between sizes). It only
 /// holds symbol blocks, so ASCII/CJK still fall through to the fonts after it.
 /// Emoji stays last.
+/// `Symbols Nerd Font Mono` (bundled, same asset as desktop) covers the
+/// private-use-area icons (starship, eza, ...) no system font has.
 final List<String> _terminalGlyphFallback = Platform.isIOS
-    ? const ['TerminalSymbols', 'Menlo', 'PingFang SC', 'AppleColorEmoji']
+    ? const [
+        'TerminalSymbols',
+        'Symbols Nerd Font Mono',
+        'Menlo',
+        'PingFang SC',
+        'AppleColorEmoji',
+      ]
     : const [
         'TerminalSymbols',
+        'Symbols Nerd Font Mono',
         'monospace',
         'sans-serif',
         'Noto Sans Symbols 2',

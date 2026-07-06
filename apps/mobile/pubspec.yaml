@@ -84,6 +84,10 @@ flutter:
     - family: TerminalSymbols
       fonts:
         - asset: assets/fonts/TerminalSymbols.ttf
+    # Nerd Font PUA icons (starship, eza, ...); same asset as the desktop app.
+    - family: Symbols Nerd Font Mono
+      fonts:
+        - asset: assets/fonts/SymbolsNerdFontMono-Regular.ttf
   # To add assets to your application, add an assets section, like this:
   # assets:
   #   - images/a_dot_burr.jpeg
