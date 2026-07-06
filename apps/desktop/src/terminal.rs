@@ -57,4 +57,5 @@ include!("terminal/keys.rs");
 include!("terminal/mouse.rs");
 include!("terminal/renderer.rs");
 include!("terminal/palette.rs");
-include!("terminal/tests.rs");
+#[cfg(test)]
+mod tests;
