@@ -182,13 +182,13 @@ mod tests;
 mod transport;
 mod worktrees;
 
-#[allow(unused_imports)]
+#[cfg(test)]
 pub(crate) use files::{remote_file_list, remote_file_read, remote_file_rename, remote_file_write};
-#[allow(unused_imports)]
+#[cfg(test)]
 pub(crate) use git::remote_git_status_payload;
-#[allow(unused_imports)]
+#[cfg(test)]
 pub(crate) use terminal_buffer::{remote_terminal_order_key, remote_terminal_snapshot_payload};
-#[allow(unused_imports)]
+#[cfg(test)]
 pub(crate) use terminal_dispatch::{
     remote_terminal_upload_directory, sanitized_remote_upload_name, terminal_upload_path_input,
     unique_remote_upload_path,
@@ -196,8 +196,6 @@ pub(crate) use terminal_dispatch::{
 
 use projects::*;
 use terminal_dispatch::DesktopTerminalCtx;
-#[allow(unused_imports)]
-use terminal_state::*;
 use worktrees::*;
 
 impl RemoteHostRuntime {
@@ -367,7 +365,11 @@ impl RemoteHostRuntime {
             None,
             Some(project_id),
             None,
-            remote_git_status_payload(project_id.to_string(), project_path.to_string(), summary),
+            git::remote_git_status_payload(
+                project_id.to_string(),
+                project_path.to_string(),
+                summary,
+            ),
         );
     }
 
@@ -531,7 +533,7 @@ impl RemoteHostRuntime {
                     REMOTE_FILE_LIST,
                     envelope.device_id.as_deref(),
                     None,
-                    remote_file_list(path, purpose),
+                    files::remote_file_list(path, purpose),
                 );
             }
             REMOTE_FILE_READ => self.handle_file_read(&envelope),

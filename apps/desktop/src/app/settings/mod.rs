@@ -51,7 +51,7 @@ mod memory;
 mod notifications;
 #[path = "panes/pet.rs"]
 mod pet;
-#[path = "panes/remote.rs"]
+#[path = "panes/remote/mod.rs"]
 mod remote;
 #[path = "panes/shortcuts.rs"]
 mod shortcuts;

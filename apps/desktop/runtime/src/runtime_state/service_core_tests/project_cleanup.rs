@@ -1,0 +1,232 @@
+#[test]
+fn project_close_keeps_pet_baseline() {
+    let support_dir = std::env::temp_dir().join(format!(
+        "codux-project-close-pet-baseline-{}",
+        uuid::Uuid::new_v4()
+    ));
+    let first_dir = support_dir.join("first");
+    let second_dir = support_dir.join("second");
+    fs::create_dir_all(&first_dir).expect("create first project dir");
+    fs::create_dir_all(&second_dir).expect("create second project dir");
+    fs::write(
+        support_dir.join("state.json"),
+        json!({
+            "projects": [
+                {
+                    "id": "project-1",
+                    "name": "First",
+                    "path": first_dir.to_string_lossy()
+                },
+                {
+                    "id": "project-2",
+                    "name": "Second",
+                    "path": second_dir.to_string_lossy()
+                }
+            ],
+            "selectedProjectId": "project-1"
+        })
+        .to_string(),
+    )
+    .expect("write state");
+    let mut pet_snapshot = crate::pet::PetSnapshot {
+        claimed_at: Some(1),
+        species: "codux".to_string(),
+        global_normalized_total_watermark: Some(30),
+        ..crate::pet::PetSnapshot::default()
+    };
+    pet_snapshot
+        .project_normalized_token_watermarks
+        .insert("project-1".to_string(), 10);
+    pet_snapshot
+        .project_normalized_token_watermarks
+        .insert("project-2".to_string(), 20);
+    fs::write(
+        support_dir.join("pet-state.json"),
+        serde_json::to_vec(&pet_snapshot).expect("encode pet"),
+    )
+    .expect("write pet state");
+
+    let service = RuntimeService::new(PathBuf::from(&support_dir));
+
+    service
+        .project_close(crate::project_store::ProjectCloseRequest {
+            project_id: "project-1".to_string(),
+        })
+        .expect("close first project");
+    let pet = service.pet_snapshot().expect("pet snapshot after close");
+    assert_eq!(
+        pet.project_normalized_token_watermarks.get("project-1"),
+        Some(&10)
+    );
+    assert_eq!(
+        pet.project_normalized_token_watermarks.get("project-2"),
+        Some(&20)
+    );
+    assert_eq!(pet.global_normalized_total_watermark, Some(30));
+
+    let _ = fs::remove_dir_all(support_dir);
+}
+
+#[test]
+fn project_close_cleans_workspace_cache_for_root_and_worktrees() {
+    let support_dir = std::env::temp_dir().join(format!(
+        "codux-project-close-workspace-cache-{}",
+        uuid::Uuid::new_v4()
+    ));
+    let project_dir = support_dir.join("project");
+    let worktree_dir = support_dir.join("worktree");
+    fs::create_dir_all(&project_dir).expect("create project dir");
+    fs::create_dir_all(&worktree_dir).expect("create worktree dir");
+    fs::write(
+        support_dir.join("state.json"),
+        json!({
+            "projects": [
+                {
+                    "id": "project-1",
+                    "name": "Project",
+                    "path": project_dir.to_string_lossy()
+                }
+            ],
+            "worktrees": [
+                {
+                    "id": "worktree-1",
+                    "projectId": "project-1",
+                    "name": "Task",
+                    "branch": "task",
+                    "path": worktree_dir.to_string_lossy(),
+                    "status": "active",
+                    "isDefault": false,
+                    "createdAt": 1,
+                    "updatedAt": 1
+                }
+            ],
+            "worktreeTasks": [
+                {
+                    "worktreeId": "worktree-1",
+                    "title": "Task",
+                    "baseBranch": "main",
+                    "status": "active",
+                    "createdAt": 1,
+                    "updatedAt": 1
+                }
+            ],
+            "selectedProjectId": "project-1",
+            "selectedWorktreeIdByProject": {
+                "project-1": "worktree-1"
+            }
+        })
+        .to_string(),
+    )
+    .expect("write state");
+
+    let service = RuntimeService::new(PathBuf::from(&support_dir));
+    service
+        .save_terminal_layout(
+            "project-1",
+            Vec::new(),
+            "terminal-1".to_string(),
+            vec![TerminalPaneSummary {
+                title: "Shell".to_string(),
+                terminal_id: "terminal-1".to_string(),
+            }],
+            vec![1.0],
+            0.24,
+        )
+        .expect("save project terminal layout");
+    service
+        .save_file_editor_layout(
+            "worktree-1",
+            vec![FileEditorTabSummary {
+                path: "src/main.rs".to_string(),
+                label: "main.rs".to_string(),
+                language: "rust".to_string(),
+            }],
+            Some("src/main.rs".to_string()),
+        )
+        .expect("save worktree file editor layout");
+    let obsolete_cache =
+        crate::persistent_cache::PersistentCacheStore::for_support_dir(support_dir.clone())
+            .expect("obsolete cache");
+    obsolete_cache
+        .put_json(
+            "file-tree-state",
+            "worktree-1",
+            &serde_json::json!({
+                "fileDirectory": "src",
+                "selectedFileEntry": "src/main.rs"
+            }),
+        )
+        .expect("save obsolete file tree state");
+    obsolete_cache
+        .put_json(
+            "git-ui-state",
+            "worktree-1",
+            &serde_json::json!({
+                "selectedGitFile": "src/main.rs"
+            }),
+        )
+        .expect("save obsolete git ui state");
+
+    let mut pet_snapshot = crate::pet::PetSnapshot {
+        claimed_at: Some(1),
+        species: "codux".to_string(),
+        global_normalized_total_watermark: Some(30),
+        ..crate::pet::PetSnapshot::default()
+    };
+    pet_snapshot
+        .project_normalized_token_watermarks
+        .insert("project-1".to_string(), 10);
+    pet_snapshot
+        .project_normalized_token_watermarks
+        .insert("worktree-1".to_string(), 20);
+    fs::write(
+        support_dir.join("pet-state.json"),
+        serde_json::to_vec(&pet_snapshot).expect("encode pet"),
+    )
+    .expect("write pet state");
+
+    service
+        .project_close(ProjectCloseRequest {
+            project_id: "project-1".to_string(),
+        })
+        .expect("close project");
+
+    assert!(service.project_list().projects.is_empty());
+    assert!(
+        service
+            .project_list()
+            .selected_worktree_id_by_project
+            .is_empty()
+    );
+    assert!(service.terminal_layout_record("project-1").is_none());
+    assert!(
+        service
+            .reload_file_editor_layout(Some("worktree-1"))
+            .tabs
+            .is_empty()
+    );
+    assert_eq!(
+        obsolete_cache
+            .get_json::<serde_json::Value>("file-tree-state", "worktree-1")
+            .expect("load obsolete file tree state"),
+        None
+    );
+    assert_eq!(
+        obsolete_cache
+            .get_json::<serde_json::Value>("git-ui-state", "worktree-1")
+            .expect("load obsolete git ui state"),
+        None
+    );
+    let pet = service.pet_snapshot().expect("pet snapshot");
+    assert_eq!(
+        pet.project_normalized_token_watermarks.get("project-1"),
+        Some(&10)
+    );
+    assert_eq!(
+        pet.project_normalized_token_watermarks.get("worktree-1"),
+        Some(&20)
+    );
+    assert_eq!(pet.global_normalized_total_watermark, Some(30));
+
+    let _ = fs::remove_dir_all(support_dir);
+}
