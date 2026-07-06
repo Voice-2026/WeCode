@@ -475,6 +475,65 @@ function Write-Runtime-Binding([string]$ExternalSessionId, [string]$Model, [stri
   }
 }
 
+function Convert-Osc-ColorRef([string]$Payload) {
+  # Payload format from the app palette: rgb:rrrr/gggg/bbbb (each byte doubled).
+  if ($Payload -notmatch '^rgb:([0-9a-f]{2})[0-9a-f]{2}/([0-9a-f]{2})[0-9a-f]{2}/([0-9a-f]{2})[0-9a-f]{2}$') { return $null }
+  $r = [Convert]::ToUInt32($Matches[1], 16)
+  $g = [Convert]::ToUInt32($Matches[2], 16)
+  $b = [Convert]::ToUInt32($Matches[3], 16)
+  return [uint32](($b -shl 16) -bor ($g -shl 8) -bor $r)
+}
+
+function Seed-Console-Color-Table([uint32]$Foreground, [uint32]$Background) {
+  # TUIs that get no OSC reply fall back to GetConsoleScreenBufferInfoEx, which
+  # reads conhost's legacy 16-color table: rewrite the two entries behind the
+  # default attributes so that fallback also reports the app theme colors.
+  try {
+    Add-Type -Namespace CoduxWrapper -Name ConsoleColorSeed -ErrorAction Stop -MemberDefinition @'
+[StructLayout(LayoutKind.Sequential)]
+public struct Coord { public short X; public short Y; }
+[StructLayout(LayoutKind.Sequential)]
+public struct SmallRect { public short Left; public short Top; public short Right; public short Bottom; }
+[StructLayout(LayoutKind.Sequential)]
+public struct BufferInfoEx {
+  public uint cbSize;
+  public Coord dwSize;
+  public Coord dwCursorPosition;
+  public ushort wAttributes;
+  public SmallRect srWindow;
+  public Coord dwMaximumWindowSize;
+  public ushort wPopupAttributes;
+  public int bFullscreenSupported;
+  [MarshalAs(UnmanagedType.ByValArray, SizeConst = 16)]
+  public uint[] ColorTable;
+}
+[DllImport("kernel32.dll", SetLastError = true)]
+private static extern IntPtr GetStdHandle(int nStdHandle);
+[DllImport("kernel32.dll", SetLastError = true)]
+private static extern bool GetConsoleScreenBufferInfoEx(IntPtr handle, ref BufferInfoEx info);
+[DllImport("kernel32.dll", SetLastError = true)]
+private static extern bool SetConsoleScreenBufferInfoEx(IntPtr handle, ref BufferInfoEx info);
+public static bool Seed(uint foreground, uint background) {
+  IntPtr handle = GetStdHandle(-11);
+  if (handle == IntPtr.Zero || handle == new IntPtr(-1)) { return false; }
+  BufferInfoEx info = new BufferInfoEx();
+  info.ColorTable = new uint[16];
+  info.cbSize = (uint)Marshal.SizeOf(typeof(BufferInfoEx));
+  if (!GetConsoleScreenBufferInfoEx(handle, ref info)) { return false; }
+  info.ColorTable[info.wAttributes & 0x0f] = foreground;
+  info.ColorTable[(info.wAttributes >> 4) & 0x0f] = background;
+  info.srWindow.Bottom++; // Set treats the window rect as exclusive.
+  return SetConsoleScreenBufferInfoEx(handle, ref info);
+}
+'@
+    if (-not [CoduxWrapper.ConsoleColorSeed]::Seed($Foreground, $Background)) {
+      Write-Live-Log "console color table seed failed"
+    }
+  } catch {
+    Write-Live-Log "console color table seed unavailable: $($_.Exception.Message)"
+  }
+}
+
 $searchPath = Filter-Wrapper-Path $env:PATH
 if ([string]::IsNullOrWhiteSpace($searchPath)) {
   $searchPath = Filter-Wrapper-Path $env:DMUX_ORIGINAL_PATH
@@ -498,6 +557,11 @@ if (-not [Console]::IsOutputRedirected) {
   }
   if (-not [string]::IsNullOrWhiteSpace($env:DMUX_TERMINAL_OSC_BG)) {
     [Console]::Out.Write("$esc]11;$($env:DMUX_TERMINAL_OSC_BG)$esc\")
+  }
+  $oscFgRef = Convert-Osc-ColorRef ([string]$env:DMUX_TERMINAL_OSC_FG)
+  $oscBgRef = Convert-Osc-ColorRef ([string]$env:DMUX_TERMINAL_OSC_BG)
+  if ($null -ne $oscFgRef -and $null -ne $oscBgRef) {
+    Seed-Console-Color-Table $oscFgRef $oscBgRef
   }
 }
 
