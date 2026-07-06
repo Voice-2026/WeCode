@@ -29,6 +29,8 @@ pub struct TerminalView {
     _search_input_subscription: Option<Subscription>,
     link_opener: Option<Arc<dyn Fn(String, &mut Window, &mut Context<TerminalView>)>>,
     selection_autoscroll: Option<SelectionAutoScroll>,
+    // Right-click went to the app as a mouse report; the context menu must stay closed.
+    context_menu_suppressed: bool,
     _observe_model: Subscription,
     _observe_blink_manager: Subscription,
 }
@@ -213,6 +215,7 @@ impl TerminalView {
             _search_input_subscription: None,
             link_opener: None,
             selection_autoscroll: None,
+            context_menu_suppressed: false,
             _observe_model: observe_model,
             _observe_blink_manager: observe_blink_manager,
         }
@@ -478,6 +481,13 @@ impl TerminalView {
         cx.notify();
     }
 
+    fn clear_screen(&mut self, cx: &mut Context<Self>) {
+        self.selection.lock().clear();
+        self.selection_autoscroll = None;
+        self.model.update(cx, |model, _| model.clear_screen());
+        cx.notify();
+    }
+
     pub fn open_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let was_open = self.search_open;
         self.search_open = true;
@@ -698,13 +708,10 @@ impl TerminalView {
             return;
         }
 
-        if event.button == MouseButton::Right && self.copy_selected_text(cx) {
-            self.selection.lock().clear();
-            self.model.update(cx, |model, _| model.clear_selection());
-            self.selection_autoscroll = None;
-            cx.stop_propagation();
-            cx.notify();
-            return;
+        if event.button == MouseButton::Right {
+            // The context menu element opens on this same event; keep it closed
+            // when the click is forwarded to a mouse-reporting app instead.
+            self.context_menu_suppressed = self.should_report_mouse(event.modifiers.shift, cx);
         }
 
         if self.should_report_mouse(event.modifiers.shift, cx) {
@@ -769,16 +776,8 @@ impl TerminalView {
                     self.paste_text(&text, cx);
                 }
             }
-            MouseButton::Right => {
-                // No selection to copy (handled above): Windows pastes on
-                // right-click, conhost/Windows Terminal parity.
-                if cfg!(windows) {
-                    if let Some(text) = self.terminal_clipboard_paste_text(cx) {
-                        self.suppress_text_input_echo(&text);
-                        self.paste_text(&text, cx);
-                    }
-                }
-            }
+            // Right-click opens the context menu (handled by the wrapping element).
+            MouseButton::Right => {}
             MouseButton::Navigate(_) => {}
         }
         cx.stop_propagation();

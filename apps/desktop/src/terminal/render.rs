@@ -179,10 +179,85 @@ impl Render for TerminalView {
                 terminal
             }
         };
-        if self.hover_link.is_some() {
+        let terminal = if self.hover_link.is_some() {
             terminal.cursor(CursorStyle::PointingHand)
         } else {
             terminal
+        };
+        let menu_view = cx.entity();
+        let menu_language = self.config.language.clone();
+        terminal
+            .id("terminal-context-menu-area")
+            .context_menu(move |menu, _window, cx| {
+                terminal_context_menu(menu, &menu_view, &menu_language, cx)
+            })
+    }
+}
+
+// Zed-style right-click menu; stays closed while a mouse-reporting app consumes
+// right-click or a remote device owns the viewport.
+fn terminal_context_menu(
+    menu: PopupMenu,
+    view: &Entity<TerminalView>,
+    language: &str,
+    cx: &mut Context<PopupMenu>,
+) -> PopupMenu {
+    {
+        let state = view.read(cx);
+        if state.context_menu_suppressed || !state.session.local_viewport_owns() {
+            return menu;
         }
     }
+    let has_selection = view.read(cx).selected_text(cx).is_some();
+    let translate =
+        |key: &str, default: &str| codux_runtime::i18n::translate(language, key, default);
+    let copy_view = view.clone();
+    let paste_view = view.clone();
+    let select_all_view = view.clone();
+    let clear_view = view.clone();
+    menu.item(
+        PopupMenuItem::new(translate("terminal.menu.copy", "Copy"))
+            .icon(HeroIconName::DocumentDuplicate)
+            .disabled(!has_selection)
+            .on_click(move |_, window, cx| {
+                cx.update_entity(&copy_view, |view, cx| {
+                    view.copy_selected_text(cx);
+                    window.focus(&view.focus_handle, cx);
+                });
+            }),
+    )
+    .item(
+        PopupMenuItem::new(translate("terminal.menu.paste", "Paste"))
+            .icon(HeroIconName::ClipboardDocument)
+            .on_click(move |_, window, cx| {
+                cx.update_entity(&paste_view, |view, cx| {
+                    if let Some(text) = view.terminal_clipboard_paste_text(cx) {
+                        view.suppress_text_input_echo(&text);
+                        view.paste_text(&text, cx);
+                    }
+                    window.focus(&view.focus_handle, cx);
+                });
+            }),
+    )
+    .item(
+        PopupMenuItem::new(translate("terminal.menu.selectAll", "Select All"))
+            .icon(HeroIconName::CursorArrowRays)
+            .on_click(move |_, window, cx| {
+                cx.update_entity(&select_all_view, |view, cx| {
+                    view.select_all(cx);
+                    window.focus(&view.focus_handle, cx);
+                });
+            }),
+    )
+    .separator()
+    .item(
+        PopupMenuItem::new(translate("terminal.menu.clear", "Clear"))
+            .icon(HeroIconName::Trash)
+            .on_click(move |_, window, cx| {
+                cx.update_entity(&clear_view, |view, cx| {
+                    view.clear_screen(cx);
+                    window.focus(&view.focus_handle, cx);
+                });
+            }),
+    )
 }

@@ -24,6 +24,7 @@ use gpui::{
     transparent_black,
 };
 use gpui_component::input::{Input, InputEvent, InputState};
+use gpui_component::menu::{ContextMenuExt, PopupMenu, PopupMenuItem};
 use gpui_component::scroll::{Scrollbar, ScrollbarAxis, ScrollbarHandle, ScrollbarShow};
 use gpui_component::{ActiveTheme, Icon, Sizable, Size as ComponentSize, WindowExt};
 use parking_lot::Mutex;

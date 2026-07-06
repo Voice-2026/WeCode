@@ -930,6 +930,13 @@ impl TerminalModel {
         self.selection.clear();
     }
 
+    /// Wipe screen and scrollback but keep the prompt row (iTerm-style clear).
+    fn clear_screen(&mut self) {
+        self.handle.screen.lock().clear_keep_prompt();
+        self.selection.clear();
+        self.snapshot_dirty = true;
+    }
+
     /// Case-insensitive single-line substring search over the whole buffer
     /// including scrollback, in buffer order.
     fn search_buffer(&self, query: &str, max_matches: usize) -> Vec<SelectionRange> {

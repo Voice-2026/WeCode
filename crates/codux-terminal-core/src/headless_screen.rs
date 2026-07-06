@@ -343,6 +343,13 @@ impl HeadlessTerminalScreen {
         self.pending_scroll_pixels = 0.0;
     }
 
+    /// Drop scrollback and screen but keep the cursor row as the new top line,
+    /// so the shell prompt survives (iTerm/Zed-style clear).
+    pub fn clear_keep_prompt(&mut self) {
+        self.engine.clear_keep_prompt();
+        self.pending_scroll_pixels = 0.0;
+    }
+
     pub fn snapshot(&self) -> TerminalScreenSnapshot {
         self.engine.snapshot(self.pending_scroll_pixels)
     }
@@ -407,6 +414,10 @@ impl TerminalScreenEngine {
 
     fn clear(&mut self) {
         self.send(TerminalScreenCommand::Clear);
+    }
+
+    fn clear_keep_prompt(&mut self) {
+        self.send(TerminalScreenCommand::ClearKeepPrompt);
     }
 
     fn send(&self, command: TerminalScreenCommand) {
@@ -557,6 +568,7 @@ enum TerminalScreenCommand {
         reply: mpsc::Sender<Option<TerminalSelectionSpan>>,
     },
     Clear,
+    ClearKeepPrompt,
 }
 
 /// Fixed grid size handed to the alacritty `Term`; scrollback is configured
@@ -1070,6 +1082,7 @@ impl TerminalScreenWorker {
                     );
                     self.event_sink = event_sink;
                 }
+                TerminalScreenCommand::ClearKeepPrompt => self.clear_keep_prompt(),
             }
         }
     }
@@ -1108,6 +1121,32 @@ impl TerminalScreenWorker {
         if delta != 0 {
             self.term.scroll_display(Scroll::Delta(delta));
         }
+    }
+
+    // iTerm/Zed-style clear: wipe scrollback and screen, then move the cursor
+    // row to the top so the shell prompt stays visible. No-op on the alternate
+    // screen (a full-screen TUI owns the whole grid).
+    fn clear_keep_prompt(&mut self) {
+        if self.term.mode().contains(TermMode::ALT_SCREEN) {
+            return;
+        }
+        let cursor = self.term.grid().cursor.point;
+        let prompt_row: Vec<Cell> = (0..self.cols)
+            .map(|col| self.term.grid()[cursor.line][Column(col)].clone())
+            .collect();
+        let grid = self.term.grid_mut();
+        grid.clear_history();
+        if cursor.line.0 > 0 {
+            grid.reset_region(..cursor.line);
+        }
+        for (col, cell) in prompt_row.into_iter().enumerate() {
+            grid[Line(0)][Column(col)] = cell;
+        }
+        grid.cursor.point = Point::new(Line(0), cursor.column);
+        if self.rows > 1 {
+            grid.reset_region(Line(1)..);
+        }
+        self.term.scroll_display(Scroll::Bottom);
     }
 
     fn display_offset(&self) -> usize {
@@ -2251,6 +2290,37 @@ mod tests {
         assert_eq!(screen.snapshot().display_offset, 1);
         screen.scroll_to_offset(0);
         assert_eq!(screen.snapshot().display_offset, 0);
+    }
+
+    #[test]
+    fn clear_keep_prompt_moves_cursor_row_to_top_and_drops_history() {
+        let mut screen = HeadlessTerminalScreen::new(20, 4, 100);
+        screen.process(b"one\r\ntwo\r\nthree\r\nfour\r\nfive\r\nprompt$ ");
+
+        screen.clear_keep_prompt();
+        let snapshot = screen.snapshot();
+
+        assert_eq!(snapshot.display_offset, 0);
+        assert_eq!(snapshot.total_lines, 4, "scrollback must be dropped");
+        assert_eq!(snapshot.cursor.row, 0);
+        assert_eq!(snapshot.cursor.col, "prompt$ ".len());
+        let top_row: String = snapshot
+            .cells
+            .iter()
+            .filter(|cell| cell.row == 0)
+            .map(|cell| cell.text.as_str())
+            .collect();
+        assert!(
+            top_row.starts_with("prompt$"),
+            "prompt row must survive at the top: {top_row:?}"
+        );
+        assert!(
+            snapshot
+                .cells
+                .iter()
+                .all(|cell| cell.row == 0 || cell.text.trim().is_empty()),
+            "rows below the prompt must be blank"
+        );
     }
 
     #[test]

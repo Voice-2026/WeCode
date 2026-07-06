@@ -26,7 +26,11 @@
       "terminal.ai_restore.restored": "AI-Sitzung im Hauptsplit wiederhergestellt.",
       "terminal.ai_restore.paste_failed_format": "Wiederherstellungsbefehl konnte nicht eingefügt werden: %@",
       "terminal.split.not_found": "Terminal-Split nicht gefunden.",
-      "terminal.search.placeholder": "Suchen"
+      "terminal.search.placeholder": "Suchen",
+      "terminal.menu.copy": "Kopieren",
+      "terminal.menu.paste": "Einfügen",
+      "terminal.menu.selectAll": "Alles auswählen",
+      "terminal.menu.clear": "Leeren"
     },
     "en": {
       "terminal.closed": "Closed terminal.",
@@ -58,7 +62,11 @@
       "terminal.ai_restore.restored": "AI session restored in the main split.",
       "terminal.ai_restore.paste_failed_format": "Failed to paste restore command: %@",
       "terminal.split.not_found": "Terminal split not found.",
-      "terminal.search.placeholder": "Search"
+      "terminal.search.placeholder": "Search",
+      "terminal.menu.copy": "Copy",
+      "terminal.menu.paste": "Paste",
+      "terminal.menu.selectAll": "Select All",
+      "terminal.menu.clear": "Clear"
     },
     "es": {
       "terminal.closed": "Closed terminal.",
@@ -86,7 +94,11 @@
       "terminal.ai_restore.restored": "Sesión de IA restaurada en la división principal.",
       "terminal.ai_restore.paste_failed_format": "No se pudo pegar el comando de restauración: %@",
       "terminal.split.not_found": "No se encontró la división de terminal.",
-      "terminal.search.placeholder": "Buscar"
+      "terminal.search.placeholder": "Buscar",
+      "terminal.menu.copy": "Copiar",
+      "terminal.menu.paste": "Pegar",
+      "terminal.menu.selectAll": "Seleccionar todo",
+      "terminal.menu.clear": "Limpiar"
     },
     "fr": {
       "terminal.closed": "Closed terminal.",
@@ -114,7 +126,11 @@
       "terminal.ai_restore.restored": "Session IA restaurée dans la division principale.",
       "terminal.ai_restore.paste_failed_format": "Impossible de coller la commande de restauration : %@",
       "terminal.split.not_found": "Split de terminal introuvable.",
-      "terminal.search.placeholder": "Rechercher"
+      "terminal.search.placeholder": "Rechercher",
+      "terminal.menu.copy": "Copier",
+      "terminal.menu.paste": "Coller",
+      "terminal.menu.selectAll": "Tout sélectionner",
+      "terminal.menu.clear": "Effacer"
     },
     "ja": {
       "terminal.closed": "Closed terminal.",
@@ -142,7 +158,11 @@
       "terminal.ai_restore.restored": "メイン分割で AI セッションを復元しました。",
       "terminal.ai_restore.paste_failed_format": "復元コマンドを貼り付けられませんでした: %@",
       "terminal.split.not_found": "ターミナル分割が見つかりません。",
-      "terminal.search.placeholder": "検索"
+      "terminal.search.placeholder": "検索",
+      "terminal.menu.copy": "コピー",
+      "terminal.menu.paste": "貼り付け",
+      "terminal.menu.selectAll": "すべて選択",
+      "terminal.menu.clear": "クリア"
     },
     "ko": {
       "terminal.closed": "Closed terminal.",
@@ -170,7 +190,11 @@
       "terminal.ai_restore.restored": "메인 분할에서 AI 세션을 복원했습니다.",
       "terminal.ai_restore.paste_failed_format": "복원 명령을 붙여넣지 못했습니다: %@",
       "terminal.split.not_found": "터미널 분할을 찾을 수 없습니다.",
-      "terminal.search.placeholder": "검색"
+      "terminal.search.placeholder": "검색",
+      "terminal.menu.copy": "복사",
+      "terminal.menu.paste": "붙여넣기",
+      "terminal.menu.selectAll": "모두 선택",
+      "terminal.menu.clear": "지우기"
     },
     "pt-BR": {
       "terminal.closed": "Closed terminal.",
@@ -198,7 +222,11 @@
       "terminal.ai_restore.restored": "Sessão de IA restaurada na divisão principal.",
       "terminal.ai_restore.paste_failed_format": "Falha ao colar o comando de restauração: %@",
       "terminal.split.not_found": "Divisão do terminal não encontrada.",
-      "terminal.search.placeholder": "Pesquisar"
+      "terminal.search.placeholder": "Pesquisar",
+      "terminal.menu.copy": "Copiar",
+      "terminal.menu.paste": "Colar",
+      "terminal.menu.selectAll": "Selecionar tudo",
+      "terminal.menu.clear": "Limpar"
     },
     "ru": {
       "terminal.closed": "Closed terminal.",
@@ -226,7 +254,11 @@
       "terminal.ai_restore.restored": "Сессия ИИ восстановлена в основном разделении.",
       "terminal.ai_restore.paste_failed_format": "Не удалось вставить команду восстановления: %@",
       "terminal.split.not_found": "Сплит терминала не найден.",
-      "terminal.search.placeholder": "Поиск"
+      "terminal.search.placeholder": "Поиск",
+      "terminal.menu.copy": "Копировать",
+      "terminal.menu.paste": "Вставить",
+      "terminal.menu.selectAll": "Выделить всё",
+      "terminal.menu.clear": "Очистить"
     },
     "zh-Hans": {
       "terminal.closed": "已关闭终端。",
@@ -258,7 +290,11 @@
       "terminal.ai_restore.restored": "已在主分屏恢复 AI 会话。",
       "terminal.ai_restore.paste_failed_format": "粘贴恢复命令失败：%@",
       "terminal.split.not_found": "找不到终端分屏。",
-      "terminal.search.placeholder": "搜索"
+      "terminal.search.placeholder": "搜索",
+      "terminal.menu.copy": "复制",
+      "terminal.menu.paste": "粘贴",
+      "terminal.menu.selectAll": "全选",
+      "terminal.menu.clear": "清屏"
     },
     "zh-Hant": {
       "terminal.closed": "已關閉終端機。",
@@ -290,7 +326,11 @@
       "terminal.ai_restore.restored": "已在主分割還原 AI 工作階段。",
       "terminal.ai_restore.paste_failed_format": "貼上復原命令失敗：%@",
       "terminal.split.not_found": "找不到終端機分屏。",
-      "terminal.search.placeholder": "搜尋"
+      "terminal.search.placeholder": "搜尋",
+      "terminal.menu.copy": "複製",
+      "terminal.menu.paste": "貼上",
+      "terminal.menu.selectAll": "全選",
+      "terminal.menu.clear": "清除畫面"
     }
   }
 }
