@@ -21,6 +21,16 @@ impl RemoteHostRuntime {
         let tail = options.tail;
         match self.terminal_buffer_window(session_id, offset, options) {
             Ok(window) => {
+                crate::runtime_trace::runtime_trace(
+                    "remote",
+                    &format!(
+                        "terminal_baseline_send session={session_id} device={} chars={} tail={} screen={}",
+                        device_id.unwrap_or("none"),
+                        window.total_characters,
+                        window.tail,
+                        window.screen_data.is_some()
+                    ),
+                );
                 let output_seq = window
                     .output_seq
                     .unwrap_or_else(|| self.current_terminal_output_seq(session_id));

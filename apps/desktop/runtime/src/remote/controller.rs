@@ -251,12 +251,30 @@ impl ControllerInner {
             // live stream, just as it is for a local terminal. (The keyframe stays
             // in the protocol for grid-reconciling clients; this emulator isn't
             // one — see the tmux-style notes in the remote terminal design.)
-            let bytes = (!data.is_empty()).then(|| data.as_bytes().to_vec());
-            if let (Some(session_id), Some(bytes)) = (session_id, bytes) {
-                if let Ok(forwarders) = self.terminal_outputs.lock() {
-                    if let Some(forwarder) = forwarders.get(session_id) {
-                        forwarder(bytes);
+            let is_buffer = payload
+                .get("buffer")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            let mut delivered = false;
+            if let Some(session_id) = session_id {
+                if !data.is_empty() {
+                    if let Ok(forwarders) = self.terminal_outputs.lock() {
+                        if let Some(forwarder) = forwarders.get(session_id) {
+                            forwarder(data.as_bytes().to_vec());
+                            delivered = true;
+                        }
                     }
+                }
+                // Baseline chunks and dropped output are rare; live output with a
+                // forwarder stays untraced.
+                if is_buffer || (!delivered && !data.is_empty()) {
+                    crate::runtime_trace::runtime_trace(
+                        "remote-controller",
+                        &format!(
+                            "terminal_output buffer={is_buffer} delivered={delivered} bytes={} session={session_id}",
+                            data.len()
+                        ),
+                    );
                 }
             }
             return;

@@ -189,6 +189,14 @@ impl RemoteHostRuntime {
         };
         match create_result {
             Ok(session_id) => {
+                crate::runtime_trace::runtime_trace(
+                    "remote",
+                    &format!(
+                        "terminal_create session={session_id} reattaching={} device={}",
+                        lifecycle.reattaching,
+                        envelope.device_id.as_deref().unwrap_or("none")
+                    ),
+                );
                 self.persist_remote_terminal_layout(
                     &plan.scope.layout_key,
                     &session_id,

@@ -293,6 +293,17 @@ impl TerminalPane {
         {
             controller.unregister_terminal_output(terminal_id);
         }
+        codux_runtime::runtime_trace::runtime_trace(
+            "terminal-restore",
+            &format!(
+                "remote_attach terminal_id={} session_id={session_id} layout={}",
+                pre_registered_terminal_id.as_deref().unwrap_or("none"),
+                match initial_layout {
+                    Some((cols, rows)) => format!("{cols}x{rows}"),
+                    None => "none".to_string(),
+                },
+            ),
+        );
         // The host is the single seed authority: on reattach it pushes the
         // baseline right after `terminal.created` (caught by the forwarder we
         // registered above); on a fresh create it sends nothing and the shell's
