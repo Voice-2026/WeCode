@@ -395,6 +395,26 @@ fn baseline_keyframe_reconstructs_current_screen_over_raw_history() {
 }
 
 #[test]
+fn baseline_scroll_restore_falls_back_to_bottom_when_history_shrinks() {
+    let mut session = RemotePtySession::<String>::new(2048);
+    session.resize_screen(20, 8);
+    let tall: String = (1..=30)
+        .map(|index| format!("tall history {index:02}"))
+        .collect::<Vec<_>>()
+        .join("\r\n");
+    session.replace_from_baseline(&tall, None, Some(90), Some(1));
+    scroll_history_up(&mut session, 6);
+    assert_eq!(session.screen_snapshot().display_offset, 6);
+
+    // Resync with a shorter buffer (max offset 4 < previous 6): the old spot no
+    // longer exists, so the view must land at the bottom, not clamp to the top.
+    session.replace_from_baseline(&scrollable_history("short"), None, Some(12), Some(2));
+    let screen = session.screen_snapshot();
+    assert_eq!(screen.display_offset, 0);
+    assert!(screen.data.contains("short 12"));
+}
+
+#[test]
 fn live_output_appends_to_raw_history_screen() {
     let mut session = RemotePtySession::<String>::new(512);
     session.resize_screen(20, 8);

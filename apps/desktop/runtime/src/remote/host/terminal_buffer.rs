@@ -178,12 +178,17 @@ impl RemoteHostRuntime {
                 .terminals
                 .buffer_characters(session_id)
                 .unwrap_or_else(|_| start_offset + data.chars().count());
-            // Default attach only keyframes alt-screen sessions: normal shells
-            // are rebuilt from raw history to avoid drawing the current line
-            // twice at the host grid. When the requester already owns the
-            // viewport, `options.viewport` means the host has just reflowed to
-            // that requester, so a target-grid keyframe is safe and is the
-            // authoritative restore primitive for normal-buffer TUIs.
+            // Every tail baseline ships a screen keyframe. Raw history replay
+            // alone cannot reconstruct the screen of a primary-buffer TUI that
+            // redraws in place (codex spinner): the tail starts mid-stream, its
+            // cursor-up/erase frames replay against the wrong rows, and the
+            // viewer shows stacked garbage lines. The keyframe opens with a
+            // home+2J wipe, so it authoritatively replaces whatever the tail
+            // replay left on the visible screen; since the single-owner grid
+            // model (2985838) viewers render the owner's grid 1:1, so a
+            // host-grid keyframe can no longer land at reflowed rows (the old
+            // ghost-prompt reason to omit it). When the requester owns the
+            // viewport the keyframe is rendered at the just-reflowed target grid.
             let screen_data = if options.viewport.is_some() {
                 let max_lines = options
                     .viewport
@@ -197,7 +202,6 @@ impl RemoteHostRuntime {
                 self.terminals
                     .screen_snapshot(session_id)
                     .ok()
-                    .filter(|snapshot| snapshot.input_mode.alternate_screen)
                     .map(|snapshot| snapshot.data)
             }
             .filter(|data| !data.is_empty());

@@ -191,12 +191,13 @@ fn remote_terminal_buffer_window_tail_returns_history_tail() {
 }
 
 #[test]
-fn remote_terminal_buffer_window_tail_omits_keyframe_for_normal_screen() {
-    // A normal-screen session reconstructs fully from the raw history tail, so
-    // the baseline must NOT also ship the screen keyframe: replaying both the
-    // history AND the keyframe redraws the current line and leaves a duplicate
-    // (ghost) first prompt line on the viewer. Alt-screen sessions still ship
-    // it -- see terminal_resource_subscribe_baseline_keyframe_for_alt_screen.
+fn remote_terminal_buffer_window_tail_ships_keyframe_for_normal_screen() {
+    // Raw history replay cannot reconstruct a primary-screen TUI that redraws
+    // in place (codex spinner): the tail starts mid-stream and replays into
+    // stacked garbage lines. Every tail baseline therefore ships the screen
+    // keyframe; its home+2J wipe replaces the tail's on-screen result, and
+    // since the single-owner grid model viewers render the host grid 1:1, so
+    // the keyframe cannot land at reflowed rows (the old ghost-prompt bug).
     let support_dir = temp_support_dir("codux-remote-terminal-buffer-screen-baseline");
     let terminals = Arc::new(TerminalManager::new());
     let runtime = RemoteHostRuntime::new_with_ai_history_and_terminals(
@@ -229,12 +230,14 @@ fn remote_terminal_buffer_window_tail_omits_keyframe_for_normal_screen() {
     }
     let window = window.expect("terminal buffer window");
 
-    // The raw history alone reconstructs the visible screen ...
     assert!(window.data.contains("visible tui"));
-    // ... so a normal screen must NOT carry a redundant keyframe on top.
+    let screen_data = window
+        .screen_data
+        .as_deref()
+        .expect("normal-screen tail baseline must ship the screen keyframe");
     assert!(
-        window.screen_data.is_none(),
-        "normal-screen baseline must not ship a keyframe (it duplicates the prompt)"
+        screen_data.contains("visible tui"),
+        "keyframe must carry the current screen: {screen_data:?}"
     );
     assert!(window.tail);
 
@@ -328,8 +331,8 @@ fn remote_terminal_buffer_window_tail_includes_target_viewport_keyframe() {
 fn terminal_resource_subscribe_baseline_keyframe_for_alt_screen() {
     // The alternate buffer has no scrollback, so a re-attaching viewer cannot
     // reconstruct an alt-screen TUI from the raw history alone -- the baseline
-    // MUST carry the screen keyframe. (A normal screen does NOT; that path is
-    // covered by remote_terminal_buffer_window_tail_omits_keyframe_for_normal_screen.)
+    // MUST carry the screen keyframe. (Normal screens ship it too; see
+    // remote_terminal_buffer_window_tail_ships_keyframe_for_normal_screen.)
     let support_dir = temp_support_dir("codux-resource-subscribe-terminal-screen-baseline");
     write_paired_remote_settings(&support_dir);
     let terminals = Arc::new(TerminalManager::new());

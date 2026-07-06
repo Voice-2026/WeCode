@@ -62,7 +62,15 @@ fn terminal_baseline_viewport_does_not_steal_from_other_owner() {
         .service()
         .parse_incoming_envelope(&text)
         .expect("parse outgoing envelope");
-    assert!(envelope.payload.get("screenData").is_none());
+    // The non-owner still gets a host-grid keyframe (viewers render the owner's
+    // grid 1:1); it just must not steal the lease or resize the PTY.
+    assert!(
+        envelope
+            .payload
+            .get("screenData")
+            .and_then(Value::as_str)
+            .is_some_and(|data| !data.is_empty())
+    );
 
     fs::remove_dir_all(support_dir).ok();
 }
@@ -183,12 +191,16 @@ fn project_terminal_baseline_viewport_targets_active_split_only() {
             .unwrap_or(false),
         "active split should receive a target-viewport keyframe"
     );
+    // Background splits keep their own grid: they get a host-grid keyframe
+    // (every tail baseline ships one) but never the active split's viewport.
     assert!(
         background_baseline
             .as_ref()
             .and_then(|payload| payload.get("screenData"))
-            .is_none(),
-        "background splits must not be resized or keyframed to the active split viewport"
+            .and_then(Value::as_str)
+            .map(|screen_data| screen_data.contains("background split"))
+            .unwrap_or(false),
+        "background split keyframe must carry its own screen at its own grid"
     );
     let active_state = terminals
         .viewport_state(&session_a)

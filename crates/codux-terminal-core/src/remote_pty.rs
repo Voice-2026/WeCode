@@ -155,6 +155,12 @@ impl<T> RemotePtySession<T> {
             self.history_screen.scroll_to_bottom();
             if prev_offset > 0 {
                 self.history_screen.scroll_to_offset(prev_offset);
+                // A rebuilt buffer can be shorter than the old scroll distance;
+                // a clamped restore would strand the view at the very top, so
+                // fall back to the bottom when the exact spot no longer exists.
+                if self.history_screen.display_offset() != prev_offset {
+                    self.history_screen.scroll_to_bottom();
+                }
             }
         }
         let base_sequence = sequence.unwrap_or(self.sequence);

@@ -10,6 +10,10 @@ struct TerminalModel {
     sync_output_depth: usize,
     sync_output_pending_notify: bool,
     sync_output_scan_tail: Vec<u8>,
+    conpty_output: bool,
+    // Output ends at a ConPTY frame commit; the real cursor position arrives
+    // in a follow-up burst, so publishes keep the previous cursor until then.
+    cursor_correction_pending: bool,
     restored_bootstrap_active: bool,
     // A remote client (mobile, always dark-themed) owns the viewport; color
     // scheme queries must be answered for the renderer the user is actually
@@ -182,6 +186,8 @@ impl TerminalModel {
             sync_output_depth: 0,
             sync_output_pending_notify: false,
             sync_output_scan_tail: Vec::new(),
+            conpty_output: config.conpty_output,
+            cursor_correction_pending: false,
             restored_bootstrap_active,
             remote_viewer: false,
             viewport_generation: 0,
@@ -291,6 +297,7 @@ impl TerminalModel {
         self.apply_model_events();
         self.replace_restored_bootstrap_before_output(bytes.len());
         let sync_update = self.update_synchronized_output_state(bytes);
+        self.note_output_sync_boundary(sync_update);
         let color_scheme_update =
             update_terminal_color_scheme_state(bytes, &mut self.color_scheme_state);
         self.respond_to_color_scheme_queries(color_scheme_update.query_count);
@@ -334,6 +341,12 @@ impl TerminalModel {
             &mut self.sync_output_depth,
             &mut self.sync_output_scan_tail,
         )
+    }
+
+    fn note_output_sync_boundary(&mut self, sync_update: SyncOutputUpdate) {
+        if self.conpty_output {
+            self.cursor_correction_pending = sync_update.ended_at_sync_exit;
+        }
     }
 
     fn trace_terminal_state_after_output(&self, bytes_len: usize) {
@@ -714,11 +727,17 @@ impl TerminalModel {
 
     fn publish_completed_snapshot(
         &mut self,
-        snapshot: TerminalScreenSnapshot,
+        mut snapshot: TerminalScreenSnapshot,
         elapsed: Duration,
     ) -> bool {
         if !self.events.is_empty() {
             self.apply_model_events();
+        }
+        // Mid-correction ConPTY cursor (parked at the repaint scan position):
+        // keep the previously published cursor until the follow-up burst
+        // restores the real one, otherwise it visibly jumps every frame.
+        if self.cursor_correction_pending {
+            snapshot.cursor = self.handle.snapshot.lock().cursor.clone();
         }
         let publish_deferred = self.snapshot_publish_deferred();
         let dirty_queued = self.snapshot_dirty;
@@ -1098,6 +1117,8 @@ impl TerminalModel {
             sync_output_depth: 0,
             sync_output_pending_notify: false,
             sync_output_scan_tail: Vec::new(),
+            conpty_output: false,
+            cursor_correction_pending: false,
             restored_bootstrap_active: false,
             remote_viewer: false,
             viewport_generation: 0,
