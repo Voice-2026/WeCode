@@ -108,7 +108,14 @@ use std::{
 };
 
 include!("types.rs");
-include!("service_core.rs");
+include!("service_bootstrap.rs");
+include!("service_lifecycle.rs");
+include!("service_files.rs");
+include!("service_git_watch.rs");
+include!("service_activity.rs");
+include!("service_ai_history.rs");
+include!("service_ai_runtime.rs");
+include!("service_core_tests.rs");
 include!("service_git_files.rs");
 include!("service_ai_memory.rs");
 include!("service_ssh_worktree.rs");
