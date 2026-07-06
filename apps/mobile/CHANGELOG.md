@@ -4,6 +4,16 @@ Important changes to this project are documented here.
 
 ## [Unreleased]
 
+## [2.0.0-rc.4] - 2026-07-06
+
+### Added
+
+- Added mobile terminal support for bundled Nerd Font symbols, vector powerline separators, broader legacy/braille glyph coverage, kitty keyboard disambiguation, and extended underline styling.
+
+### Changed
+
+- Aligned the Flutter mobile release with Codux 2.0.0-rc.4. No mobile pairing protocol changes are required for this release candidate.
+
 ## [2.0.0-rc.3] - 2026-07-05
 
 ### Changed

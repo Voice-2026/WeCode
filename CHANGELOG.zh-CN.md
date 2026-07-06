@@ -4,6 +4,25 @@
 
 ## [Unreleased]
 
+## [2.0.0-rc.4] - 2026-07-06
+
+### 新增
+
+- 扩展终端协议支持：新增 OSC 8 超链接、OSC 52 剪贴板写入、OSC 133 prompt 标记、OSC 1337 行内图片、kitty 键盘消歧、终端响铃通知、扩展下划线颜色、Nerd Font 符号、powerline 分隔符，以及 legacy/braille 字形渲染。
+- 终端设置新增 shell 选择、行高、内边距配置，并支持将字号调低到 8px。
+
+### 调整
+
+- 将桌面端与运行时的大文件拆分为更聚焦的子模块，不改变行为，便于 review 和后续维护。
+- 将「图片粘贴为路径」移动到终端设置卡片，并将桌面依赖切回官方 GPUI component 来源。
+
+### 修复
+
+- 提升 Git 操作在 worktree 和远程项目中的可靠性，覆盖修改最近提交说明、已有仓库初始化、分支切换、Quick Pick/Input 交互和失败弹窗。
+- 提升 Windows 与 Linux 终端稳定性，修复粘贴快捷键、PowerShell wrapper 路径处理、隐藏控制台窗口、conhost 浅色主题识别，以及 Windows 文件预览关闭按钮问题。
+- 修复终端非 ASCII 组合字符、Nerd Font 图标、powerline 分隔符，以及 reflow 后输入法光标位置的渲染问题。
+- 优化已保存 SSH 的自动连接与重连、`codux-ssh` 非交互执行、SCP 支持，以及 agent 中继配置参数。
+
 ## [2.0.0-rc.3] - 2026-07-05
 
 ### 新增

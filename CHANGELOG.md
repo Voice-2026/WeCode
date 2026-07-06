@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [2.0.0-rc.4] - 2026-07-06
+
+### Added
+
+- Added broader terminal protocol support, including OSC 8 hyperlinks, OSC 52 clipboard writes, OSC 133 prompt marks, OSC 1337 inline images, kitty keyboard disambiguation, bell notifications, extended underline colors, Nerd Font symbols, powerline separators, and legacy/braille glyph rendering.
+- Added terminal settings for shell selection, line height, padding, and smaller font sizes down to 8px.
+
+### Changed
+
+- Split large desktop and runtime modules into focused submodules without behavior changes, improving reviewability and follow-up maintenance.
+- Moved paste-images-as-paths into the terminal settings card and switched desktop dependencies back to the official GPUI component source.
+
+### Fixed
+
+- Improved Git action reliability for worktrees and remote projects, including amend-last-message, existing-repo init, branch switching, Quick Pick/Input interactions, and visible failure dialogs.
+- Improved terminal stability on Windows and Linux, including paste shortcuts, PowerShell wrapper path handling, hidden console windows, conhost light-theme detection, and Windows file-preview close behavior.
+- Fixed terminal rendering for non-ASCII combining marks, Nerd Font icons, powerline separators, and IME cursor bounds during reflow.
+- Improved saved SSH auto-connect/reconnect behavior, `codux-ssh` non-interactive execution, SCP support, and agent relay configuration flags.
+
 ## [2.0.0-rc.3] - 2026-07-05
 
 ### Added
