@@ -1,13 +1,12 @@
 use crate::ai_runtime::tool_driver::canonical_process_tool_name;
 use std::collections::{HashMap, HashSet};
-use std::process::Command;
 
-/// Identify each terminal's AI tool by walking the process tree from its shell PID to a descendant AI CLI. Read-only `ps`, non-intrusive.
+/// Identify each terminal's AI tool by walking the process tree from its shell PID to a descendant AI CLI. Read-only snapshot (`ps` on unix, sysinfo on Windows), non-intrusive.
 pub fn detect_terminal_tools(shell_pids: &[(String, u32)]) -> Option<HashMap<String, String>> {
     if shell_pids.is_empty() {
         return Some(HashMap::new());
     }
-    let rows = ps_process_snapshot()?;
+    let rows = process_snapshot()?;
     Some(detect_from_rows(shell_pids, &rows))
 }
 
@@ -17,8 +16,9 @@ struct ProcessRow {
     command: String,
 }
 
-fn ps_process_snapshot() -> Option<Vec<ProcessRow>> {
-    let output = Command::new("ps")
+#[cfg(not(windows))]
+fn process_snapshot() -> Option<Vec<ProcessRow>> {
+    let output = std::process::Command::new("ps")
         .args(["-axo", "pid=,ppid=,command="])
         .output()
         .ok()?;
@@ -29,6 +29,43 @@ fn ps_process_snapshot() -> Option<Vec<ProcessRow>> {
     Some(text.lines().filter_map(parse_ps_row).collect())
 }
 
+// Native enumeration: spawning `ps` (an MSYS console binary when present) from
+// the GUI app flashed a console window every poll and listed no Win32 processes.
+#[cfg(windows)]
+fn process_snapshot() -> Option<Vec<ProcessRow>> {
+    use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
+    let mut system = System::new();
+    // Only the command line is needed; skip memory/cpu/disk sampling on this 5s poll.
+    system.refresh_processes_specifics(
+        ProcessesToUpdate::All,
+        true,
+        ProcessRefreshKind::nothing().with_cmd(UpdateKind::Always),
+    );
+    let rows = system
+        .processes()
+        .iter()
+        .map(|(pid, process)| {
+            let command = if process.cmd().is_empty() {
+                process.name().to_string_lossy().into_owned()
+            } else {
+                process
+                    .cmd()
+                    .iter()
+                    .map(|part| part.to_string_lossy().into_owned())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            };
+            ProcessRow {
+                pid: pid.as_u32(),
+                ppid: process.parent().map(|parent| parent.as_u32()).unwrap_or(0),
+                command,
+            }
+        })
+        .collect();
+    Some(rows)
+}
+
+#[cfg(not(windows))]
 fn parse_ps_row(line: &str) -> Option<ProcessRow> {
     let trimmed = line.trim_start();
     let (pid, rest) = trimmed.split_once(char::is_whitespace)?;
@@ -101,8 +138,19 @@ fn executable_name(word: &str) -> Option<String> {
     if word.is_empty() {
         return None;
     }
-    let base = word.rsplit('/').next().unwrap_or(word);
+    let base = word.rsplit(['/', '\\']).next().unwrap_or(word);
+    let base = strip_launcher_extension(base);
     (!base.is_empty()).then(|| base.to_string())
+}
+
+/// Strip Windows launcher extensions so `codex.exe` / `codex.cmd` / `codex.js` match the driver registry.
+fn strip_launcher_extension(base: &str) -> &str {
+    for ext in [".exe", ".cmd", ".bat", ".ps1", ".js"] {
+        if base.len() > ext.len() && base[base.len() - ext.len()..].eq_ignore_ascii_case(ext) {
+            return &base[..base.len() - ext.len()];
+        }
+    }
+    base
 }
 
 #[cfg(test)]
@@ -117,6 +165,7 @@ mod tests {
         }
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn parses_ps_rows() {
         let parsed = parse_ps_row("  4321   4300 /opt/homebrew/bin/codex resume s-1").expect("row");
@@ -163,6 +212,21 @@ mod tests {
     fn no_ai_descendant_yields_nothing() {
         let rows = vec![row(100, 1, "/bin/zsh"), row(101, 100, "vim notes.md")];
         assert!(detect_from_rows(&[("t".to_string(), 100)], &rows).is_empty());
+    }
+
+    #[test]
+    fn detects_windows_style_command_lines() {
+        // pwsh shell 100 -> node running an npm-installed codex launcher
+        let rows = vec![
+            row(100, 1, r"C:\Program Files\PowerShell\7\pwsh.exe"),
+            row(
+                101,
+                100,
+                r"node C:\Users\me\AppData\Roaming\npm\node_modules\@openai\codex\bin\codex.js",
+            ),
+        ];
+        let detected = detect_from_rows(&[("t".to_string(), 100)], &rows);
+        assert_eq!(detected.get("t").map(String::as_str), Some("codex"));
     }
 
     #[test]

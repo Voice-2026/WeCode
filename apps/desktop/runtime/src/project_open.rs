@@ -298,8 +298,16 @@ fn open_project_path_in_application(
     {
         for command in spec.commands {
             if command_in_path(command) {
-                return Command::new(command)
-                    .arg(path)
+                let mut launch = Command::new(command);
+                launch.arg(path);
+                // Editor CLI launchers are console stubs (`code.cmd`) on Windows; hide their transient console.
+                #[cfg(target_os = "windows")]
+                {
+                    use std::os::windows::process::CommandExt;
+                    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+                    launch.creation_flags(CREATE_NO_WINDOW);
+                }
+                return launch
                     .spawn()
                     .map(|_| ())
                     .map_err(|error| error.to_string());

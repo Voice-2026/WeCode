@@ -102,8 +102,10 @@ fn powershell_string(path: &Path) -> String {
 }
 
 fn run_command_status(program: &str, args: &[&str], action: &str) -> Result<(), String> {
-    let output = Command::new(program)
-        .args(args)
+    let mut command = Command::new(program);
+    command.args(args);
+    apply_no_window(&mut command);
+    let output = command
         .output()
         .map_err(|error| format!("Unable to {action}: {error}"))?;
     if output.status.success() {
@@ -118,9 +120,25 @@ fn run_command_status(program: &str, args: &[&str], action: &str) -> Result<(), 
 }
 
 fn run_spawn_command(program: &str, args: &[&str]) -> Result<(), String> {
-    Command::new(program)
-        .args(args)
+    let mut command = Command::new(program);
+    command.args(args);
+    apply_no_window(&mut command);
+    command
         .spawn()
         .map(|_| ())
         .map_err(|error| error.to_string())
+}
+
+/// On Windows, run console helpers (powershell recycle-bin calls) without flashing a console window.
+fn apply_no_window(command: &mut Command) {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = command;
+    }
 }
