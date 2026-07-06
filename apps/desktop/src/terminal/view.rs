@@ -460,6 +460,15 @@ impl TerminalView {
             self.select_all(cx);
             return true;
         }
+        // cmd+up/down: jump between OSC 133 prompt marks (Ghostty parity);
+        // falls through to the PTY when the shell emits no marks.
+        if let Some(direction) = prompt_jump_direction(keystroke)
+            && self
+                .model
+                .update(cx, |model, cx| model.jump_to_prompt(direction, cx))
+        {
+            return true;
+        }
         self.handle_terminal_keystroke(keystroke, cx)
     }
 

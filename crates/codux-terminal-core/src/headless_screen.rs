@@ -63,6 +63,10 @@ pub struct TerminalScreenSnapshot {
     /// when unknown (older peers, remote overscan snapshots).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub wrapped_rows: Vec<bool>,
+    /// OSC 133;A prompt-start lines in absolute buffer coordinates (0 =
+    /// oldest retained scrollback line), sorted ascending.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub prompt_marks: Vec<usize>,
     pub cells: Vec<TerminalScreenCellSnapshot>,
     pub cursor: TerminalScreenCursorSnapshot,
 }
@@ -578,6 +582,12 @@ struct TerminalScreenWorker {
     responder: Option<TerminalPtyResponder>,
     event_sink: Option<TerminalScreenEventSink>,
     title: Option<String>,
+    /// OSC 133;A prompt-start lines (absolute buffer coordinates at record
+    /// time); exact until the scrollback cap starts dropping lines.
+    prompt_marks: Vec<usize>,
+    /// Chunk-boundary carry: bytes held back because they may be the start
+    /// of a split prompt-mark sequence.
+    prompt_mark_carry: Vec<u8>,
 }
 
 impl TerminalScreenWorker {
@@ -616,6 +626,8 @@ impl TerminalScreenWorker {
             responder,
             event_sink: None,
             title: None,
+            prompt_marks: Vec::new(),
+            prompt_mark_carry: Vec::new(),
         }
     }
 
@@ -623,7 +635,7 @@ impl TerminalScreenWorker {
     /// produced. `answer_queries` is false for replayed history so stale
     /// DSR/DA queries in recorded output don't inject unsolicited replies.
     fn feed(&mut self, bytes: &[u8], answer_queries: bool) {
-        self.parser.advance(&mut self.term, bytes);
+        self.advance_with_prompt_marks(bytes);
         let events: Vec<Event> = self.events.borrow_mut().drain(..).collect();
         // Titles apply for replayed history too: restored output re-sets the
         // title the shell had established before the restore.
@@ -675,6 +687,74 @@ impl TerminalScreenWorker {
             cell_width: TERMINAL_CELL_WIDTH_PX as u16,
             cell_height: TERMINAL_CELL_HEIGHT_PX as u16,
         }
+    }
+
+    /// Advance the parser, recording the cursor line at every OSC 133;A
+    /// (prompt start; alacritty itself ignores the sequence). The input is
+    /// split at each marker so the cursor is sampled exactly where the
+    /// prompt is about to print; a tail that could be a split marker is
+    /// held back until the next feed.
+    fn advance_with_prompt_marks(&mut self, bytes: &[u8]) {
+        const MARK: &[u8] = b"\x1b]133;A";
+        let carried;
+        let data: &[u8] = if self.prompt_mark_carry.is_empty() {
+            bytes
+        } else {
+            carried = [std::mem::take(&mut self.prompt_mark_carry), bytes.to_vec()].concat();
+            &carried
+        };
+
+        let mut start = 0;
+        let mut index = 0;
+        while index < data.len() {
+            if data[index..].starts_with(MARK) {
+                self.parser.advance(&mut self.term, &data[start..index]);
+                self.record_prompt_mark();
+                // The marker bytes still go to the parser (it ignores them).
+                start = index;
+                index += MARK.len();
+            } else {
+                index += 1;
+            }
+        }
+
+        let mut held = data.len();
+        for candidate in data.len().saturating_sub(MARK.len() - 1).max(start)..data.len() {
+            if MARK.starts_with(&data[candidate..]) {
+                held = candidate;
+                break;
+            }
+        }
+        self.parser.advance(&mut self.term, &data[start..held]);
+        self.prompt_mark_carry = data[held..].to_vec();
+    }
+
+    fn record_prompt_mark(&mut self) {
+        let history = self.term.grid().history_size() as i32;
+        let line = self.term.grid().cursor.point.line.0 + history;
+        if line < 0 {
+            return;
+        }
+        let line = line as usize;
+        if self.prompt_marks.last() == Some(&line) {
+            return;
+        }
+        self.prompt_marks.push(line);
+        if self.prompt_marks.len() > 500 {
+            self.prompt_marks.remove(0);
+        }
+    }
+
+    fn retained_prompt_marks(&self, total_lines: usize) -> Vec<usize> {
+        let mut marks: Vec<usize> = self
+            .prompt_marks
+            .iter()
+            .copied()
+            .filter(|line| *line < total_lines)
+            .collect();
+        marks.sort_unstable();
+        marks.dedup();
+        marks
     }
 
     fn run(mut self, rx: mpsc::Receiver<TerminalScreenCommand>) {
@@ -765,12 +845,14 @@ impl TerminalScreenWorker {
                     let _ = reply.send(self.selection_span(line, col, kind));
                 }
                 TerminalScreenCommand::Clear => {
+                    let event_sink = self.event_sink.take();
                     self = Self::new(
                         self.cols,
                         self.rows,
                         self.scrollback,
                         self.responder.clone(),
                     );
+                    self.event_sink = event_sink;
                 }
             }
         }
@@ -1050,6 +1132,7 @@ impl TerminalScreenWorker {
             input_mode,
             title: self.title.clone(),
             wrapped_rows,
+            prompt_marks: self.retained_prompt_marks(total_lines),
             cells,
             cursor,
         }
@@ -1505,6 +1588,7 @@ pub fn stack_scrolled_snapshots(
         // Overscan stacking is the remote-scroll path, not local copy; row wrap
         // flags aren't reconstructed across the stitched viewports.
         wrapped_rows: Vec::new(),
+        prompt_marks: viewport.prompt_marks.clone(),
         cells,
         cursor,
     }
@@ -1639,6 +1723,26 @@ mod tests {
 
         screen.process(b"\x1b[<u"); // pop
         assert_eq!(screen.snapshot().input_mode.kitty_flags, 0);
+    }
+
+    #[test]
+    fn osc133_prompt_marks_record_absolute_lines_across_chunks() {
+        let mut screen = HeadlessTerminalScreen::new(20, 6, 100);
+        screen.process(b"\x1b]133;A\x07$ first\r\nout\r\n");
+        // Marker split across process calls must still be detected once.
+        screen.process(b"\x1b]13");
+        screen.process(b"3;A\x07$ second\r\n");
+        let snap = screen.snapshot();
+        assert_eq!(snap.prompt_marks, vec![0, 2]);
+
+        // Scrolled history keeps marks in absolute coordinates.
+        for _ in 0..10 {
+            screen.process(b"line\r\n");
+        }
+        screen.process(b"\x1b]133;A\x07$ third");
+        let snap = screen.snapshot();
+        assert_eq!(snap.prompt_marks, vec![0, 2, 13]);
+        assert!(snap.data.contains("third"));
     }
 
     #[test]

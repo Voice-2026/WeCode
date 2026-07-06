@@ -881,6 +881,41 @@ impl TerminalModel {
         true
     }
 
+    /// Jump the viewport to the previous (-1) or next (+1) OSC 133 prompt
+    /// mark. Returns false when no mark is available in that direction.
+    fn jump_to_prompt(&mut self, direction: i32, cx: &mut Context<Self>) -> bool {
+        let content = self.handle.snapshot();
+        if content.prompt_marks.is_empty() || content.input_mode.alternate_screen {
+            return false;
+        }
+        let history = content.total_lines.saturating_sub(content.screen_lines);
+        let top = history.saturating_sub(content.display_offset);
+        let target = if direction < 0 {
+            content
+                .prompt_marks
+                .iter()
+                .rev()
+                .find(|&&mark| mark < top)
+                .copied()
+        } else {
+            content
+                .prompt_marks
+                .iter()
+                .find(|&&mark| mark > top)
+                .copied()
+        };
+        let Some(target) = target else {
+            return false;
+        };
+        self.scroll_to_display_offset(history.saturating_sub(target));
+        if self.apply_model_events() {
+            self.snapshot_dirty = true;
+        }
+        self.request_snapshot_publish(cx);
+        cx.notify();
+        true
+    }
+
     fn start_selection(&mut self, point: TerminalSelectionPoint) {
         self.selection.start(point);
     }

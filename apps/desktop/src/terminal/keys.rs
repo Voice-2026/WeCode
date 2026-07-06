@@ -25,6 +25,19 @@ fn is_select_all_keystroke(keystroke: &Keystroke) -> bool {
         && !modifiers.shift
 }
 
+/// cmd+up / cmd+down navigate OSC 133 prompt marks.
+fn prompt_jump_direction(keystroke: &Keystroke) -> Option<i32> {
+    let modifiers = &keystroke.modifiers;
+    if !modifiers.platform || modifiers.control || modifiers.alt || modifiers.shift {
+        return None;
+    }
+    match keystroke.key.as_str() {
+        "up" => Some(-1),
+        "down" => Some(1),
+        _ => None,
+    }
+}
+
 fn core_key_input(
     keystroke: &Keystroke,
     mode: TerminalInputMode,

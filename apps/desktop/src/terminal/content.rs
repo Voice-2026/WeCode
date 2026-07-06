@@ -54,6 +54,7 @@ struct TerminalContent {
     visible_row_shift: usize,
     input_mode: TerminalInputMode,
     title: Option<String>,
+    prompt_marks: Vec<usize>,
     #[cfg(test)]
     scrolled_to_bottom: bool,
 }
@@ -96,6 +97,7 @@ impl TerminalContent {
             visible_row_shift: 0,
             input_mode: snapshot.input_mode,
             title: snapshot.title,
+            prompt_marks: snapshot.prompt_marks,
             #[cfg(test)]
             scrolled_to_bottom: snapshot.display_offset == 0,
         }
