@@ -17,16 +17,23 @@ const script = __testWindowsNsisScript(
 );
 
 assert.match(script, /!include MUI2\.nsh/);
-assert.match(script, /!insertmacro MUI_PAGE_WELCOME/);
+assert.match(script, /ManifestDPIAware true/);
+assert.match(script, /VIProductVersion "\d+\.\d+\.\d+\.\d+"/);
 assert.match(script, /!insertmacro MUI_PAGE_DIRECTORY/);
-assert.match(script, /Page custom OptionsPageCreate OptionsPageLeave/);
-assert.match(script, /Create Start Menu shortcut/);
-assert.match(script, /Create Desktop shortcut/);
+assert.match(script, /!insertmacro MUI_LANGUAGE "English"/);
+assert.match(script, /!insertmacro MUI_LANGUAGE "SimpChinese"/);
+assert.match(script, /MUI_HEADERIMAGE_BITMAP/);
+assert.doesNotMatch(script, /MUI_PAGE_WELCOME/);
+assert.doesNotMatch(script, /Page custom/);
 assert.match(script, /Function EnsureCoduxCanBeUpdated/);
 assert.match(script, /Codux is still running or the executable is locked/);
-assert.match(script, /CreateShortcut "\$DESKTOP\\\\Codux\.lnk"/);
-assert.match(script, /CreateShortcut "\$SMPROGRAMS\\\\Codux\\\\Codux\.lnk"/);
-assert.doesNotMatch(script, /ShowInstDetails nevershow/);
+assert.match(script, /CreateShortcut "\$DESKTOP\\Codux\.lnk"/);
+assert.match(script, /CreateShortcut "\$SMPROGRAMS\\Codux\\Codux\.lnk"/);
+assert.match(script, /Uninstall\\Codux"$/m);
+assert.match(script, /"UninstallString"/);
+assert.match(script, /Exec '"\$INSTDIR\\Codux\.exe"'/);
+assert.match(script, /RMDir \/r "\$INSTDIR\\Data"/);
+assert.match(script, /\/SD IDNO/);
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "codux-package-runtime-"));
 try {

@@ -14,6 +14,12 @@ pub fn home_dir() -> PathBuf {
 }
 
 #[cfg(target_os = "windows")]
+fn windows_exe_data_dir() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    Some(exe.parent()?.join("Data"))
+}
+
+#[cfg(target_os = "windows")]
 fn windows_user_profile() -> Option<PathBuf> {
     std::env::var_os("USERPROFILE")
         .filter(|value| !value.is_empty())
@@ -58,7 +64,13 @@ pub fn app_support_candidates() -> Vec<PathBuf> {
         if cfg!(debug_assertions) {
             return vec![base.join("Codux Dev")];
         }
-        return vec![base.join("Codux")];
+        // Installed layout keeps data in Data beside Codux.exe; existing %APPDATA% data keeps winning via the probe.
+        let mut candidates = Vec::new();
+        if let Some(data) = windows_exe_data_dir() {
+            candidates.push(data);
+        }
+        candidates.push(base.join("Codux"));
+        return candidates;
     }
 
     #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]

@@ -163,7 +163,8 @@ function packageWindows() {
 
     const installerScriptPath = path.join(tempDir, `${appName}.nsi`);
     const installerPath = path.join(outputDir, `${artifactBaseName("windows")}-setup.exe`);
-    fs.writeFileSync(installerScriptPath, windowsNsisScript(packageDir, installerPath), "utf8");
+    // BOM so makensis reads the localized LangStrings as UTF-8.
+    fs.writeFileSync(installerScriptPath, "\ufeff" + windowsNsisScript(packageDir, installerPath), "utf8");
     run(windowsMakensisCommand(), [installerScriptPath]);
     writeSha256(installerPath);
     signTauriUpdaterArtifact(installerPath);
@@ -375,119 +376,153 @@ function isReleaseBuild() {
 }
 
 function windowsNsisScript(packageDir, installerPath) {
+  const version = readCargoVersion();
+  const fileVersion = `${version.match(/^(\d+)\.(\d+)\.(\d+)/)?.slice(1).join(".") || "0.0.0"}.0`;
+  const headerBitmap = path.join(desktopRoot, "scripts", "release", "installer-header.bmp");
+  const estimatedSizeKB = directorySizeKB(packageDir);
   return `Unicode true
+ManifestDPIAware true
+SetCompressor /SOLID lzma
 !include MUI2.nsh
 !include LogicLib.nsh
-!include nsDialogs.nsh
 
 Name "${escapeNsis(appName)}"
 OutFile "${escapeNsis(installerPath)}"
-InstallDir "$LOCALAPPDATA\\\\Programs\\\\${escapeNsis(appName)}"
-InstallDirRegKey HKCU "Software\\\\${escapeNsis(appName)}" "InstallDir"
+InstallDir "$LOCALAPPDATA\\Programs\\${escapeNsis(appName)}"
+InstallDirRegKey HKCU "Software\\${escapeNsis(appName)}" "InstallDir"
 RequestExecutionLevel user
 SilentInstall normal
-ShowInstDetails show
-ShowUninstDetails show
+ShowInstDetails nevershow
+ShowUninstDetails nevershow
+AutoCloseWindow true
+BrandingText "${escapeNsis(appName)} ${escapeNsis(version)}"
+
+VIProductVersion "${fileVersion}"
+VIAddVersionKey /LANG=0 "ProductName" "${escapeNsis(appName)}"
+VIAddVersionKey /LANG=0 "ProductVersion" "${escapeNsis(version)}"
+VIAddVersionKey /LANG=0 "FileVersion" "${fileVersion}"
+VIAddVersionKey /LANG=0 "FileDescription" "${escapeNsis(appName)} Installer"
+VIAddVersionKey /LANG=0 "CompanyName" "duxweb"
+VIAddVersionKey /LANG=0 "LegalCopyright" "duxweb"
+
+!define UNINSTALL_KEY "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\${escapeNsis(appName)}"
 
 !define MUI_ABORTWARNING
 !define MUI_ICON "${escapeNsis(path.join(desktopAssetsRoot, "icons", "icon.ico"))}"
 !define MUI_UNICON "${escapeNsis(path.join(desktopAssetsRoot, "icons", "icon.ico"))}"
+!define MUI_HEADERIMAGE
+!define MUI_HEADERIMAGE_BITMAP "${escapeNsis(headerBitmap)}"
 
-Var CreateDesktopShortcut
-Var CreateStartMenuShortcut
-Var DesktopShortcutCheckbox
-Var StartMenuShortcutCheckbox
+Var FreshInstall
 
-!insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_DIRECTORY
-Page custom OptionsPageCreate OptionsPageLeave
 !insertmacro MUI_PAGE_INSTFILES
-!insertmacro MUI_PAGE_FINISH
 
 !insertmacro MUI_UNPAGE_CONFIRM
 !insertmacro MUI_UNPAGE_INSTFILES
 
 !insertmacro MUI_LANGUAGE "English"
+!insertmacro MUI_LANGUAGE "SimpChinese"
+
+LangString MsgAppRunning \${LANG_ENGLISH} "${escapeNsis(appName)} is still running or the executable is locked.$\\r$\\n$\\r$\\nClose ${escapeNsis(appName)} and click Retry to continue."
+LangString MsgAppRunning \${LANG_SIMPCHINESE} "${escapeNsis(appName)} 仍在运行或程序文件被占用。$\\r$\\n$\\r$\\n请退出 ${escapeNsis(appName)} 后点击“重试”继续。"
+LangString MsgRemoveData \${LANG_ENGLISH} "Also remove ${escapeNsis(appName)} user data (settings, AI statistics, memory)?"
+LangString MsgRemoveData \${LANG_SIMPCHINESE} "是否同时删除 ${escapeNsis(appName)} 用户数据（设置、AI 统计、记忆）？"
 
 Function .onInit
-  StrCpy $CreateDesktopShortcut 1
-  StrCpy $CreateStartMenuShortcut 1
+  ReadRegStr $0 HKCU "Software\\${escapeNsis(appName)}" "InstallDir"
+  \${If} $0 == ""
+    StrCpy $FreshInstall 1
+  \${Else}
+    StrCpy $FreshInstall 0
+  \${EndIf}
 FunctionEnd
 
-Function OptionsPageCreate
-  nsDialogs::Create 1018
-  Pop $0
-  \${If} $0 == error
-    Abort
-  \${EndIf}
-
-  \${NSD_CreateLabel} 0 0 100% 24u "Choose which shortcuts Codux should create."
-  Pop $0
-  \${NSD_CreateCheckbox} 0 34u 100% 12u "Create Start Menu shortcut"
-  Pop $StartMenuShortcutCheckbox
-  \${If} $CreateStartMenuShortcut == 1
-    \${NSD_Check} $StartMenuShortcutCheckbox
-  \${EndIf}
-  \${NSD_CreateCheckbox} 0 56u 100% 12u "Create Desktop shortcut"
-  Pop $DesktopShortcutCheckbox
-  \${If} $CreateDesktopShortcut == 1
-    \${NSD_Check} $DesktopShortcutCheckbox
-  \${EndIf}
-
-  nsDialogs::Show
-FunctionEnd
-
-Function OptionsPageLeave
-  \${NSD_GetState} $StartMenuShortcutCheckbox $CreateStartMenuShortcut
-  \${NSD_GetState} $DesktopShortcutCheckbox $CreateDesktopShortcut
+Function .onInstSuccess
+  ; Silent updates relaunch via the updater's helper script instead.
+  IfSilent +2
+  Exec '"$INSTDIR\\${escapeNsis(appName)}.exe"'
 FunctionEnd
 
 Function EnsureCoduxCanBeUpdated
-  IfFileExists "$INSTDIR\\\\${escapeNsis(appName)}.exe" 0 done
+  StrCpy $1 0
+  check:
+  IfFileExists "$INSTDIR\\${escapeNsis(appName)}.exe" 0 done
   ClearErrors
-  FileOpen $0 "$INSTDIR\\\\${escapeNsis(appName)}.exe" a
-  IfErrors locked unlocked
-  unlocked:
-    FileClose $0
-    Goto done
+  FileOpen $0 "$INSTDIR\\${escapeNsis(appName)}.exe" a
+  IfErrors locked
+  FileClose $0
+  Goto done
   locked:
-    MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "${escapeNsis(appName)} is still running or the executable is locked.$\\r$\\n$\\r$\\nClose ${escapeNsis(appName)} and click Retry to continue." IDRETRY retry
+  \${If} \${Silent}
+    IntOp $1 $1 + 1
+    \${If} $1 > 40
+      Abort
+    \${EndIf}
+    Sleep 500
+    Goto check
+  \${Else}
+    MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "$(MsgAppRunning)" IDRETRY check
     Abort
-  retry:
-    Call EnsureCoduxCanBeUpdated
+  \${EndIf}
   done:
 FunctionEnd
 
 Section "Install"
   Call EnsureCoduxCanBeUpdated
   SetOutPath "$INSTDIR"
-  File /r "${escapeNsis(packageDir)}\\\\*"
-  \${If} $CreateStartMenuShortcut == 1
-    CreateDirectory "$SMPROGRAMS\\\\${escapeNsis(appName)}"
-    CreateShortcut "$SMPROGRAMS\\\\${escapeNsis(appName)}\\\\${escapeNsis(appName)}.lnk" "$INSTDIR\\\\${escapeNsis(appName)}.exe"
+  File /r "${escapeNsis(packageDir)}\\*"
+  CreateDirectory "$SMPROGRAMS\\${escapeNsis(appName)}"
+  CreateShortcut "$SMPROGRAMS\\${escapeNsis(appName)}\\${escapeNsis(appName)}.lnk" "$INSTDIR\\${escapeNsis(appName)}.exe"
+  \${If} $FreshInstall == 1
+    CreateShortcut "$DESKTOP\\${escapeNsis(appName)}.lnk" "$INSTDIR\\${escapeNsis(appName)}.exe"
   \${EndIf}
-  \${If} $CreateDesktopShortcut == 1
-    CreateShortcut "$DESKTOP\\\\${escapeNsis(appName)}.lnk" "$INSTDIR\\\\${escapeNsis(appName)}.exe"
-  \${EndIf}
-  WriteRegStr HKCU "Software\\\\${escapeNsis(appName)}" "InstallDir" "$INSTDIR"
-  WriteUninstaller "$INSTDIR\\\\Uninstall.exe"
+  WriteRegStr HKCU "Software\\${escapeNsis(appName)}" "InstallDir" "$INSTDIR"
+  WriteUninstaller "$INSTDIR\\Uninstall.exe"
+  WriteRegStr HKCU "\${UNINSTALL_KEY}" "DisplayName" "${escapeNsis(appName)}"
+  WriteRegStr HKCU "\${UNINSTALL_KEY}" "DisplayVersion" "${escapeNsis(version)}"
+  WriteRegStr HKCU "\${UNINSTALL_KEY}" "DisplayIcon" "$INSTDIR\\${escapeNsis(appName)}.exe"
+  WriteRegStr HKCU "\${UNINSTALL_KEY}" "Publisher" "duxweb"
+  WriteRegStr HKCU "\${UNINSTALL_KEY}" "InstallLocation" "$INSTDIR"
+  WriteRegStr HKCU "\${UNINSTALL_KEY}" "UninstallString" '"$INSTDIR\\Uninstall.exe"'
+  WriteRegStr HKCU "\${UNINSTALL_KEY}" "QuietUninstallString" '"$INSTDIR\\Uninstall.exe" /S'
+  WriteRegDWORD HKCU "\${UNINSTALL_KEY}" "NoModify" 1
+  WriteRegDWORD HKCU "\${UNINSTALL_KEY}" "NoRepair" 1
+  WriteRegDWORD HKCU "\${UNINSTALL_KEY}" "EstimatedSize" ${estimatedSizeKB}
 SectionEnd
 
 Section "Uninstall"
-  Delete "$SMPROGRAMS\\\\${escapeNsis(appName)}\\\\${escapeNsis(appName)}.lnk"
-  RMDir "$SMPROGRAMS\\\\${escapeNsis(appName)}"
-  Delete "$DESKTOP\\\\${escapeNsis(appName)}.lnk"
-  Delete "$INSTDIR\\\\Uninstall.exe"
-  Delete "$INSTDIR\\\\${escapeNsis(appName)}.exe"
-  Delete "$INSTDIR\\\\icon.ico"
-  DeleteRegKey HKCU "Software\\\\${escapeNsis(appName)}"
+  Delete "$SMPROGRAMS\\${escapeNsis(appName)}\\${escapeNsis(appName)}.lnk"
+  RMDir "$SMPROGRAMS\\${escapeNsis(appName)}"
+  Delete "$DESKTOP\\${escapeNsis(appName)}.lnk"
+  Delete "$INSTDIR\\${escapeNsis(appName)}.exe"
+  Delete "$INSTDIR\\icon.ico"
+  RMDir /r "$INSTDIR\\runtime-root"
+  Delete "$INSTDIR\\Uninstall.exe"
+  MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 "$(MsgRemoveData)" /SD IDNO IDNO keepdata
+  RMDir /r "$INSTDIR\\Data"
+  keepdata:
   RMDir "$INSTDIR"
+  DeleteRegKey HKCU "Software\\${escapeNsis(appName)}"
+  DeleteRegKey HKCU "\${UNINSTALL_KEY}"
 SectionEnd
 `;
 }
 
+function directorySizeKB(dir) {
+  try {
+    let bytes = 0;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true, recursive: true })) {
+      if (entry.isFile()) bytes += fs.statSync(path.join(entry.parentPath ?? entry.path, entry.name)).size;
+    }
+    return Math.ceil(bytes / 1024);
+  } catch {
+    return 0;
+  }
+}
+
 function escapeNsis(value) {
-  return String(value).replaceAll("\\", "\\\\").replaceAll('"', '$\\"');
+  return String(value).replaceAll('"', '$\\"');
 }
 
 function windowsMakensisCommand() {

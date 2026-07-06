@@ -137,7 +137,13 @@ pub fn app_support_candidates() -> Vec<PathBuf> {
         if cfg!(debug_assertions) {
             return vec![base.join("Codux Dev")];
         }
-        return vec![base.join("Codux")];
+        // Installed layout keeps data in Data beside Codux.exe; existing %APPDATA% data keeps winning via the probe.
+        let mut candidates = Vec::new();
+        if let Some(data) = windows_exe_data_dir() {
+            candidates.push(data);
+        }
+        candidates.push(base.join("Codux"));
+        return candidates;
     }
 
     #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
@@ -167,6 +173,12 @@ pub fn home_dir() -> PathBuf {
         .map(PathBuf::from)
         .or_else(windows_user_profile)
         .unwrap_or_else(|| PathBuf::from("."))
+}
+
+#[cfg(target_os = "windows")]
+fn windows_exe_data_dir() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    Some(exe.parent()?.join("Data"))
 }
 
 #[cfg(target_os = "windows")]
@@ -215,11 +227,12 @@ mod tests {
     #[test]
     fn support_dir_matches_build_profile() {
         let candidates = app_support_candidates();
-        assert_eq!(candidates.len(), 1);
         if cfg!(debug_assertions) {
+            assert_eq!(candidates.len(), 1);
             assert!(candidates[0].ends_with("Codux Dev"));
         } else {
-            assert!(candidates[0].ends_with("Codux"));
+            // Windows release prepends the exe-relative Data dir.
+            assert!(candidates.last().unwrap().ends_with("Codux"));
         }
     }
 }
