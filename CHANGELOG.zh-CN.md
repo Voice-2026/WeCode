@@ -4,6 +4,24 @@
 
 ## [Unreleased]
 
+## [2.0.0-rc.5] - 2026-07-07
+
+### 新增
+
+- 终端右键菜单新增复制、粘贴、全选，以及保留当前提示符的清屏操作。
+
+### 调整
+
+- RC 构建默认使用 stable 更新通道；stable 发布时也会同步刷新 beta manifest，避免 beta 通道安装停留在旧 beta 版本。
+- 新增可选的原始终端输出捕获索引，排查终端渲染问题时可保留真实 PTY 分片边界。
+
+### 修复
+
+- 优化 Windows 终端启动环境，保留 `SystemDrive`、`ProgramData` 等核心系统变量，避免项目目录下生成字面量 `%SystemDrive%` 目录。
+- 稳定 Windows ConPTY 和远程终端重绘，修复同步输出帧边界的光标跳动、主屏 TUI 恢复、baseline keyframe，以及较短历史重同步后的滚动恢复问题。
+- 规范化 Windows 文件路径，避免 Explorer 和回收站辅助操作收到 `\\?\` 前缀路径。
+- worktree 删除改到后台线程执行，删除较大的 worktree 时不再卡住界面。
+
 ## [2.0.0-rc.4] - 2026-07-06
 
 ### 新增

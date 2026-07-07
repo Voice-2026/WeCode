@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [2.0.0-rc.5] - 2026-07-07
+
+### Added
+
+- Added a terminal right-click menu for copy, paste, select all, and prompt-preserving clear.
+
+### Changed
+
+- RC builds now default to the stable update channel, and stable release publishing also refreshes the beta manifest so beta-channel installs do not remain pinned to older beta builds.
+- Added an opt-in raw terminal capture index for diagnosing terminal rendering regressions with the original PTY chunk boundaries.
+
+### Fixed
+
+- Improved Windows terminal startup by preserving core system environment variables such as `SystemDrive` and `ProgramData`, preventing literal `%SystemDrive%` directories from being created in project folders.
+- Stabilized Windows ConPTY and remote terminal redraws, including cursor jumps at synchronized output frame boundaries, primary-buffer TUI recovery, baseline keyframes, and scroll restore after shorter history resyncs.
+- Normalized Windows file paths before file operations so Explorer and recycle-bin helpers do not receive `\\?\`-prefixed paths.
+- Moved worktree removal off the UI thread so deleting larger worktrees no longer freezes the interface.
+
 ## [2.0.0-rc.4] - 2026-07-06
 
 ### Added

@@ -171,10 +171,21 @@ pub(super) fn default_developer_refresh() -> String {
 }
 
 pub(super) fn default_update_channel() -> &'static str {
-    if env!("CARGO_PKG_VERSION").contains('-') {
-        "beta"
-    } else {
-        "stable"
+    release_channel_for_version(env!("CARGO_PKG_VERSION"))
+}
+
+// Mirrors automaticReleaseChannel in prepare-release.mjs: rc prereleases
+// publish to the stable channel, other prereleases to beta.
+pub(super) fn release_channel_for_version(version: &str) -> &'static str {
+    match version.split_once('-') {
+        Some((_, prerelease))
+            if prerelease != "rc"
+                && !prerelease.starts_with("rc.")
+                && !prerelease.starts_with("rc-") =>
+        {
+            "beta"
+        }
+        _ => "stable",
     }
 }
 
@@ -194,4 +205,18 @@ pub(super) fn is_managed_update_endpoint(endpoint: &str) -> bool {
             | "https://raw.githubusercontent.com/duxweb/codux/main/updates/stable/latest.json"
             | "https://raw.githubusercontent.com/duxweb/codux/main/updates/beta/latest.json"
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::release_channel_for_version;
+
+    #[test]
+    fn rc_builds_default_to_the_stable_update_channel() {
+        assert_eq!(release_channel_for_version("2.0.0"), "stable");
+        assert_eq!(release_channel_for_version("2.0.0-rc.4"), "stable");
+        assert_eq!(release_channel_for_version("2.0.0-rc"), "stable");
+        assert_eq!(release_channel_for_version("2.0.0-beta.11"), "beta");
+        assert_eq!(release_channel_for_version("2.0.0-alpha.1"), "beta");
+    }
 }

@@ -291,23 +291,49 @@ impl CoduxApp {
             return;
         }
 
-        match self.runtime_service.remove_worktree(
-            &project.id,
-            &project.path,
-            &worktree_id,
-            remove_branch,
-        ) {
-            Ok(summary) => {
-                self.state.worktrees = summary;
-                self.status_message = self.text("worktree.remove.success", "Removed worktree.");
-            }
-            Err(error) => {
-                let title = self.text("worktree.remove.title", "Remove Worktree");
-                self.status_message = title.clone();
-                self.show_system_error_alert(title, error, cx);
-            }
-        }
+        let project_id = project.id.clone();
+        let project_path = project.path.clone();
+        let service = self.runtime_service.clone();
+        self.status_message = self.text("worktree.remove.running", "Removing worktree.");
         self.invalidate_worktree_context(cx);
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            // Deleting the worktree directory can take a while; keep it off
+            // the UI thread (issue #57).
+            let result = codux_runtime::async_runtime::spawn_blocking({
+                let project_id = project_id.clone();
+                let project_path = project_path.clone();
+                let worktree_id = worktree_id.clone();
+                move || {
+                    service.remove_worktree(&project_id, &project_path, &worktree_id, remove_branch)
+                }
+            })
+            .await
+            .map_err(|error| error.to_string())
+            .and_then(|result| result);
+
+            let _ = this.update(cx, |app, cx| {
+                match result {
+                    Ok(summary) => {
+                        let selected_matches =
+                            app.state.selected_project.as_ref().is_some_and(|project| {
+                                project.id == project_id && project.path == project_path
+                            });
+                        if selected_matches {
+                            app.state.worktrees = summary;
+                        }
+                        app.status_message =
+                            app.text("worktree.remove.success", "Removed worktree.");
+                    }
+                    Err(error) => {
+                        let title = app.text("worktree.remove.title", "Remove Worktree");
+                        app.status_message = title.clone();
+                        app.show_system_error_alert(title, error, cx);
+                    }
+                }
+                app.invalidate_worktree_context(cx);
+            });
+        })
+        .detach();
     }
 
     pub(in crate::app) fn request_remove_worktree_by_id(

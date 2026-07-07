@@ -4,6 +4,16 @@ Important changes to this project are documented here.
 
 ## [Unreleased]
 
+## [2.0.0-rc.5] - 2026-07-07
+
+### Changed
+
+- Aligned the Flutter mobile release with Codux 2.0.0-rc.5. No mobile pairing protocol changes are required for this release candidate.
+
+### Fixed
+
+- Improved remote terminal recovery compatibility with the desktop host's latest baseline keyframe and redraw stabilization changes.
+
 ## [2.0.0-rc.4] - 2026-07-06
 
 ### Added

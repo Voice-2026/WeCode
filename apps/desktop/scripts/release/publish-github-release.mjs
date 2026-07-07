@@ -17,7 +17,9 @@ const notes = fs.existsSync(notesPath) ? fs.readFileSync(notesPath, "utf8") : `C
 if (!["stable", "beta"].includes(channel)) {
   throw new Error(`RELEASE_CHANNEL must be stable or beta, got ${channel}`);
 }
-const manifestPath = path.join(root, "updates", channel, "latest.json");
+// Stable releases also refresh the beta manifest so beta-channel installs
+// are never stranded behind the stable channel.
+const manifestChannels = channel === "stable" ? ["stable", "beta"] : [channel];
 const requireExistingRelease = process.env.RELEASE_REQUIRE_EXISTING === "true";
 const uploadLatest = process.env.RELEASE_UPLOAD_LATEST !== "false";
 const publishManifest = process.env.RELEASE_PUBLISH_MANIFEST !== "false";
@@ -280,13 +282,16 @@ function publishChannelManifest(sourcePath) {
   const latestContent = fs.readFileSync(sourcePath, "utf8");
   run("git", ["fetch", "origin", "main"]);
   run("git", ["checkout", "-B", "main", "origin/main"]);
-  fs.mkdirSync(path.dirname(manifestPath), { recursive: true });
-  fs.writeFileSync(manifestPath, latestContent, "utf8");
+  for (const manifestChannel of manifestChannels) {
+    const manifestPath = path.join(root, "updates", manifestChannel, "latest.json");
+    fs.mkdirSync(path.dirname(manifestPath), { recursive: true });
+    fs.writeFileSync(manifestPath, latestContent, "utf8");
+    run("git", ["add", manifestPath]);
+  }
   run("git", ["config", "user.name", "github-actions[bot]"]);
   run("git", ["config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com"]);
-  run("git", ["add", manifestPath]);
   const diff = spawnSync("git", ["diff", "--cached", "--quiet"], { stdio: "inherit", env: process.env });
   if (diff.status === 0) return;
-  run("git", ["commit", "-m", `chore: update ${channel} updater manifest for ${version}`]);
+  run("git", ["commit", "-m", `chore: update ${manifestChannels.join("+")} updater manifest for ${version}`]);
   run("git", ["push", "origin", "HEAD:main"]);
 }
