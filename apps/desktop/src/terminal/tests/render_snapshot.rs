@@ -123,7 +123,7 @@ fn stale_snapshot_does_not_replace_published_terminal_content() {
     };
 
     state.snapshot_dirty = true;
-    let published = state.publish_completed_snapshot(stale_empty, TERMINAL_SNAPSHOT_PUBLISH_SLOW);
+    let published = state.publish_completed_snapshot(stale_empty, TERMINAL_SNAPSHOT_PUBLISH_SLOW, false);
     let snapshot = state.handle.snapshot();
 
     assert!(!published);
@@ -171,7 +171,7 @@ fn stale_resized_snapshot_does_not_replace_current_dimensions() {
     };
 
     let published =
-        state.publish_completed_snapshot(stale_old_size, TERMINAL_SNAPSHOT_PUBLISH_SLOW);
+        state.publish_completed_snapshot(stale_old_size, TERMINAL_SNAPSHOT_PUBLISH_SLOW, false);
     let snapshot = state.handle.snapshot();
 
     assert!(!published);
@@ -210,7 +210,7 @@ fn output_batching_keeps_non_empty_snapshot_publishing() {
     };
 
     state.output_flush_pending = true;
-    let published = state.publish_completed_snapshot(next, TERMINAL_SNAPSHOT_PUBLISH_SLOW);
+    let published = state.publish_completed_snapshot(next, TERMINAL_SNAPSHOT_PUBLISH_SLOW, false);
     let snapshot = state.handle.snapshot();
 
     assert!(published);

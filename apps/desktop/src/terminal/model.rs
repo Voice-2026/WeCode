@@ -696,6 +696,12 @@ impl TerminalModel {
         let request = self.handle.snapshot_request();
         self.snapshot_dirty = false;
         self.snapshot_publish_pending = true;
+        // Latched here, not read at publish time: the engine worker is FIFO,
+        // so the snapshot reflects exactly the chunks processed so far — but
+        // by the time the publish lands the correction chunk may already have
+        // cleared the flag, and the stale snapshot would leak its parked
+        // cursor through.
+        let hold_cursor = self.cursor_correction_pending;
         let started_at = Instant::now();
         cx.spawn(async move |this: WeakEntity<Self>, cx| {
             let snapshot = codux_runtime::async_runtime::spawn_blocking(move || request.snapshot())
@@ -706,7 +712,7 @@ impl TerminalModel {
                 let mut content_changed = false;
                 if let Some(snapshot) = snapshot {
                     let elapsed = started_at.elapsed();
-                    content_changed = model.publish_completed_snapshot(snapshot, elapsed);
+                    content_changed = model.publish_completed_snapshot(snapshot, elapsed, hold_cursor);
                 }
                 if model.snapshot_dirty {
                     model.request_snapshot_publish(cx);
@@ -729,6 +735,7 @@ impl TerminalModel {
         &mut self,
         mut snapshot: TerminalScreenSnapshot,
         elapsed: Duration,
+        hold_cursor: bool,
     ) -> bool {
         if !self.events.is_empty() {
             self.apply_model_events();
@@ -736,8 +743,15 @@ impl TerminalModel {
         // Mid-correction ConPTY cursor (parked at the repaint scan position):
         // keep the previously published cursor until the follow-up burst
         // restores the real one, otherwise it visibly jumps every frame.
-        if self.cursor_correction_pending {
-            snapshot.cursor = self.handle.snapshot.lock().cursor.clone();
+        if hold_cursor {
+            let held = self.handle.snapshot.lock().cursor.clone();
+            if terminal_trace_enabled() {
+                terminal_trace(&format!(
+                    "cursor_hold held_row={} held_col={} snapshot_row={} snapshot_col={}",
+                    held.row, held.col, snapshot.cursor.row, snapshot.cursor.col
+                ));
+            }
+            snapshot.cursor = held;
         }
         let publish_deferred = self.snapshot_publish_deferred();
         let dirty_queued = self.snapshot_dirty;

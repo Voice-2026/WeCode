@@ -29,12 +29,22 @@ pub(super) struct CaptureReader {
     event_subscribers: Arc<parking_lot::Mutex<Vec<EventSubscriber>>>,
     info: Arc<parking_lot::Mutex<TerminalSessionSnapshot>>,
     pending_utf8: Vec<u8>,
-    raw_capture: Option<std::fs::File>,
+    raw_capture: Option<RawCapture>,
+}
+
+struct RawCapture {
+    data: std::fs::File,
+    // Sidecar read-boundary log: one "<elapsed_ms> <offset> <len>" line per
+    // PTY read, so a replay knows the real chunking and timing.
+    index: std::fs::File,
+    started: std::time::Instant,
+    offset: u64,
 }
 
 // Debug lever: CODUX_TERMINAL_CAPTURE=<dir|1> appends each session's raw PTY
-// output to terminal-<session>.ans for offline replay of rendering bugs.
-fn raw_capture_file(session_id: &str) -> Option<std::fs::File> {
+// output to terminal-<session>.ans (+ .idx read boundaries) for offline
+// replay of rendering bugs.
+fn raw_capture_file(session_id: &str) -> Option<RawCapture> {
     let value = std::env::var("CODUX_TERMINAL_CAPTURE").ok()?;
     let value = value.trim();
     if value.is_empty() || value == "0" || value.eq_ignore_ascii_case("false") {
@@ -51,11 +61,19 @@ fn raw_capture_file(session_id: &str) -> Option<std::fs::File> {
         .chars()
         .map(|ch| if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' { ch } else { '_' })
         .collect();
-    std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(dir.join(format!("terminal-{name}.ans")))
-        .ok()
+    let open = |extension: &str| {
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(dir.join(format!("terminal-{name}.{extension}")))
+            .ok()
+    };
+    Some(RawCapture {
+        data: open("ans")?,
+        index: open("idx")?,
+        started: std::time::Instant::now(),
+        offset: 0,
+    })
 }
 
 impl CaptureReader {
@@ -94,8 +112,16 @@ impl Read for CaptureReader {
         }
         if read > 0 {
             let bytes = &buf[..read];
-            if let Some(file) = self.raw_capture.as_mut() {
-                let _ = file.write_all(bytes);
+            if let Some(capture) = self.raw_capture.as_mut() {
+                let _ = capture.data.write_all(bytes);
+                let _ = writeln!(
+                    capture.index,
+                    "{} {} {}",
+                    capture.started.elapsed().as_millis(),
+                    capture.offset,
+                    read
+                );
+                capture.offset += read as u64;
             }
             self.output_capture.lock().push(bytes);
             self.screen.lock().process(bytes);
