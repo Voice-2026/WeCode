@@ -170,7 +170,7 @@ impl CoduxApp {
                 self.status_message = format!("failed to build SSH launch command: {error}");
             }
         }
-        self.sync_project_activity_state(cx);
+        self.sync_project_lifecycle_state(cx);
         self.invalidate_task_column(cx);
         self.invalidate_remote_panel(cx);
     }
@@ -1233,6 +1233,7 @@ impl CoduxApp {
         let drained = self
             .runtime_service
             .drain_ai_runtime_events_and_enqueue_memory();
+        let terminal_status_changed = self.apply_terminal_status_events(&drained.events);
         self.dispatch_ai_completion_notifications(&drained.events);
         self.refresh_dock_badge_for_ai_runtime_events(&drained.events, cx);
         self.ai_runtime_state_save_tick = self.ai_runtime_state_save_tick.wrapping_add(1);
@@ -1270,6 +1271,7 @@ impl CoduxApp {
         } else if !self.pane_agent_lifecycle.is_empty() {
             pane_lifecycle_changed = self.sync_pane_agent_lifecycle();
         }
+        pane_lifecycle_changed |= terminal_status_changed;
         self.maybe_refresh_git_for_agent_activity(pane_lifecycle_changed, cx);
         if include_scheduled_tick {
             self.refresh_global_today_ai_tokens();
@@ -1305,16 +1307,15 @@ impl CoduxApp {
             || child_window_events > 0
             || !remote_events.is_empty()
             || ai_activity_changed
+            || terminal_status_changed
             || pane_lifecycle_changed
             || remote_ai_stats_changed
             || !drained.memory.is_empty()
             || memory_update_event
             || has_scheduled_refresh;
         if changed {
-            if ai_activity_changed {
-                self.sync_project_activity_state(cx);
-                self.invalidate_task_column(cx);
-            } else if pane_lifecycle_changed {
+            if ai_activity_changed || pane_lifecycle_changed || terminal_status_changed {
+                self.sync_project_lifecycle_state(cx);
                 self.invalidate_task_column(cx);
             }
             self.runtime_trace(
@@ -1417,12 +1418,17 @@ impl CoduxApp {
         let drained = self
             .runtime_service
             .drain_ai_runtime_events_and_enqueue_memory();
+        let terminal_status_changed = self.apply_terminal_status_events(&drained.events);
         let memory_event = current_memory_update_event();
         let memory_update_event = memory_event.revision > self.memory_seen_revision;
         if memory_update_event {
             self.memory_seen_revision = memory_event.revision;
         }
-        if drained.events.is_empty() && drained.memory.is_empty() && !memory_update_event {
+        if drained.events.is_empty()
+            && drained.memory.is_empty()
+            && !memory_update_event
+            && !terminal_status_changed
+        {
             if !self.pane_agent_lifecycle.is_empty() {
                 let pane_lifecycle_changed = self.sync_pane_agent_lifecycle();
                 if pane_lifecycle_changed {
@@ -1475,14 +1481,16 @@ impl CoduxApp {
             }
         }
 
-        if ai_activity_changed {
-            self.sync_project_activity_state(cx);
-            self.invalidate_task_column(cx);
-        } else if pane_lifecycle_changed {
+        let pane_lifecycle_changed = pane_lifecycle_changed || terminal_status_changed;
+        if ai_activity_changed || pane_lifecycle_changed {
+            self.sync_project_lifecycle_state(cx);
             self.invalidate_task_column(cx);
         }
         let memory_events = drained.memory.len() + usize::from(memory_update_event);
-        let changed = ai_activity_changed || memory_events > 0 || pane_lifecycle_changed;
+        let changed = ai_activity_changed
+            || memory_events > 0
+            || pane_lifecycle_changed
+            || terminal_status_changed;
         if changed {
             self.runtime_trace(
                 "runtime-activity",
@@ -1874,47 +1882,6 @@ impl CoduxApp {
         let reloaded_tabs = self.reload_clean_file_editor_tabs_for_file_events(&events, cx);
 
         applied + reloaded_tabs
-    }
-
-    pub(super) fn dismiss_worktree_ai_completion(
-        &mut self,
-        worktree_id: &str,
-        cx: &mut Context<Self>,
-    ) {
-        if worktree_id.trim().is_empty() {
-            return;
-        }
-        let mut changed = self
-            .runtime_service
-            .ai_runtime_dismiss_completion(worktree_id);
-        if let Some(worktree) = self
-            .state
-            .worktrees
-            .worktrees
-            .iter()
-            .find(|worktree| worktree.id == worktree_id)
-        {
-            changed |= self
-                .runtime_service
-                .ai_runtime_dismiss_completion(&worktree.project_id);
-            self.dismissed_worktree_ai_completion_at
-                .insert(worktree.project_id.clone(), app_now_seconds());
-        }
-        if !changed {
-            return;
-        }
-        self.dismissed_worktree_ai_completion_at
-            .insert(worktree_id.to_string(), app_now_seconds());
-        let snapshot = self.runtime_service.ai_runtime_state_snapshot();
-        self.state.ai_runtime_state = self
-            .runtime_service
-            .summarize_ai_runtime_state_snapshot(&snapshot);
-        let _ = self.sync_pane_agent_lifecycle();
-        self.state.refresh_ai_history_stats();
-        self.refresh_dock_badge_now(cx);
-        self.sync_project_activity_state(cx);
-        self.invalidate_task_column(cx);
-        self.invalidate_remote_panel(cx);
     }
 
     fn refresh_dock_badge_now(&mut self, cx: &mut Context<Self>) {

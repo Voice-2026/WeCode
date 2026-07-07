@@ -7,6 +7,7 @@ use super::{
     payload::AIHookEventPayload,
     registry::{AIRuntimeRegistry, AIRuntimeTerminalState},
     supervisor::{AIRuntimeSupervisor, AIRuntimeSupervisorEvent},
+    terminal_status::TerminalStatusEvent,
 };
 use crate::runtime_paths::{
     ai_runtime_binding_dir_in, claude_session_map_dir_in, home_dir, opencode_session_map_dir_in,
@@ -186,6 +187,10 @@ impl AIRuntimeBridge {
         self.supervisor.drain_events()
     }
 
+    pub fn submit_terminal_status(&self, status: TerminalStatusEvent) -> Result<(), String> {
+        self.supervisor.submit_terminal_status(status)
+    }
+
     pub fn wrapper_bin_dir(&self) -> &Path {
         &self.wrapper_bin_dir
     }
@@ -218,16 +223,14 @@ impl AIRuntimeBridge {
         self.supervisor.remove_session(terminal_id)
     }
 
-    /// Refresh an in-flight turn's liveness from real terminal output so the
-    /// loading/responding state tracks genuine activity. No-op unless the
-    /// terminal already has a `responding` turn (hook-established).
+    /// Refresh an in-flight AI turn's liveness from real terminal output. No-op
+    /// unless the terminal already has a `responding` turn.
     pub fn note_output_activity(&self, terminal_id: &str, now: f64) -> bool {
         self.supervisor.note_output_activity(terminal_id, now)
     }
 
     /// Ask the supervisor to scrape this terminal's current screen and apply
-    /// the resulting runtime signal. Used by PTY output to avoid waiting for
-    /// the 5s poll when CLIs like Kiro expose live state only in the TUI.
+    /// the resulting runtime signal for AI session metadata.
     pub fn refresh_screen_signal(&self, terminal_id: &str) -> bool {
         self.supervisor.refresh_screen_signal(terminal_id)
     }

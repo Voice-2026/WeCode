@@ -1,4 +1,4 @@
-use super::ai_runtime_status::AIActivityState;
+use super::ai_runtime_status::AgentLifecycleState;
 use super::*;
 use codux_runtime::remote::ControllerLinkState;
 
@@ -18,11 +18,11 @@ impl CoduxApp {
             return state.clone();
         }
 
-        let activity = self.project_activity_snapshot();
+        let lifecycle = self.project_lifecycle_snapshot();
         let state = cx.new(|_| {
             let mut state =
                 ProjectListState::new(self.state.projects.clone(), self.selected_project_id());
-            state.activity = activity;
+            state.lifecycle = lifecycle;
             state
         });
         self.project_list_state = Some(state.clone());
@@ -33,11 +33,11 @@ impl CoduxApp {
         let state = self.ensure_project_list_state(cx);
         let projects = self.state.projects.clone();
         let selected_project_id = self.selected_project_id();
-        let activity = self.project_activity_snapshot();
+        let lifecycle = self.project_lifecycle_snapshot();
         let links = self.remote_link_states.clone();
         state.update(cx, |state, cx| {
             state.set_snapshot(projects, selected_project_id, cx);
-            state.set_activity(activity, cx);
+            state.set_lifecycle(lifecycle, cx);
             state.set_links(links, cx);
         });
         // Mirror the refreshed project list to connected controllers (pad/phone)
@@ -47,10 +47,10 @@ impl CoduxApp {
         self.runtime_service.broadcast_remote_project_list();
     }
 
-    pub(super) fn sync_project_activity_state(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn sync_project_lifecycle_state(&mut self, cx: &mut Context<Self>) {
         let state = self.ensure_project_list_state(cx);
-        let activity = self.project_activity_snapshot();
-        state.update(cx, |state, cx| state.set_activity(activity, cx));
+        let lifecycle = self.project_lifecycle_snapshot();
+        state.update(cx, |state, cx| state.set_lifecycle(lifecycle, cx));
     }
 
     /// Pull the latest client→host link states from the runtime (a cheap cached
@@ -142,27 +142,13 @@ impl CoduxApp {
         self.spawn_project_switch_load(project_id, generation, cx);
     }
 
-    fn project_activity_snapshot(&self) -> HashMap<String, AIActivityState> {
-        let worktree_activity = self
-            .state
-            .worktrees
-            .worktrees
-            .iter()
-            .map(|worktree| (worktree.id.clone(), self.ai_activity_for_worktree(worktree)))
-            .collect::<HashMap<_, _>>();
+    fn project_lifecycle_snapshot(&self) -> HashMap<String, AgentLifecycleState> {
         self.state
             .projects
             .iter()
-            .map(|project| {
-                (
-                    project.id.clone(),
-                    super::ai_runtime_status::aggregate_project_activity(
-                        self.ai_activity_for_project(project),
-                        &project.id,
-                        &self.state.worktrees.worktrees,
-                        &worktree_activity,
-                    ),
-                )
+            .filter_map(|project| {
+                self.project_agent_lifecycle(project)
+                    .map(|lifecycle| (project.id.clone(), lifecycle))
             })
             .collect()
     }

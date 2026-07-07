@@ -135,10 +135,17 @@ fn terminal_progress_osc_parser_detects_split_start_and_completion() {
     let mut parser = TerminalProgressOscParser::default();
 
     assert!(parser.push(b"noise\x1b]9;").is_empty());
-    assert_eq!(parser.push(b"4;1\x07"), vec![TerminalProgressOsc::Started]);
+    assert_eq!(
+        parser.push(b"4;3\x07"),
+        vec![TerminalOscEvent::Progress(
+            TerminalProgressOscState::Working
+        )]
+    );
     assert_eq!(
         parser.push(b"\x1b]9;4;0\x1b\\"),
-        vec![TerminalProgressOsc::Completed]
+        vec![TerminalOscEvent::Progress(
+            TerminalProgressOscState::Completed
+        )]
     );
 }
 
@@ -147,7 +154,40 @@ fn terminal_progress_osc_parser_ignores_incomplete_sequence() {
     let mut parser = TerminalProgressOscParser::default();
 
     assert!(parser.push(b"\x1b]9;4;0").is_empty());
-    assert_eq!(parser.push(b"\x07"), vec![TerminalProgressOsc::Completed]);
+    assert_eq!(
+        parser.push(b"\x07"),
+        vec![TerminalOscEvent::Progress(
+            TerminalProgressOscState::Completed
+        )]
+    );
+}
+
+#[test]
+fn terminal_progress_osc_parser_accepts_percent_error_and_warning() {
+    let mut parser = TerminalProgressOscParser::default();
+
+    assert_eq!(
+        parser.push(b"\x1b]9;4;1;50\x07\x1b]9;4;2\x07\x1b]9;4;4\x1b\\"),
+        vec![
+            TerminalOscEvent::Progress(TerminalProgressOscState::Working),
+            TerminalOscEvent::Progress(TerminalProgressOscState::Error),
+            TerminalOscEvent::Progress(TerminalProgressOscState::Warning),
+        ]
+    );
+}
+
+#[test]
+fn terminal_osc_parser_detects_codex_wait_notifications() {
+    let mut parser = TerminalProgressOscParser::default();
+
+    assert_eq!(
+        parser
+            .push(b"\x1b]9;Approval requested: npm install\x07\x1b]9;Plan mode prompt: Review\x07"),
+        vec![
+            TerminalOscEvent::Notification(TerminalNotificationKind::ApprovalRequested),
+            TerminalOscEvent::Notification(TerminalNotificationKind::PlanModePrompt),
+        ]
+    );
 }
 
 #[test]

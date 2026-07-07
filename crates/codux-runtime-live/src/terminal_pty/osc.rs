@@ -1,7 +1,21 @@
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum TerminalProgressOsc {
-    Started,
+pub(super) enum TerminalOscEvent {
+    Progress(TerminalProgressOscState),
+    Notification(TerminalNotificationKind),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum TerminalProgressOscState {
     Completed,
+    Working,
+    Error,
+    Warning,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum TerminalNotificationKind {
+    ApprovalRequested,
+    PlanModePrompt,
 }
 
 #[derive(Debug, Default)]
@@ -10,7 +24,7 @@ pub(super) struct TerminalProgressOscParser {
 }
 
 impl TerminalProgressOscParser {
-    pub(super) fn push(&mut self, bytes: &[u8]) -> Vec<TerminalProgressOsc> {
+    pub(super) fn push(&mut self, bytes: &[u8]) -> Vec<TerminalOscEvent> {
         if bytes.is_empty() {
             return Vec::new();
         }
@@ -33,25 +47,25 @@ impl TerminalProgressOscParser {
             let Some(rest) = scan.get(index..) else {
                 break;
             };
-            if b"\x1b]9;4;".starts_with(rest) {
+            if b"\x1b]9;".starts_with(rest) {
                 consumed_until = index;
                 break;
             }
-            let Some(body) = rest.strip_prefix(b"\x1b]9;4;") else {
+            let Some(body) = rest.strip_prefix(b"\x1b]9;") else {
                 index += 1;
                 consumed_until = index;
                 continue;
             };
-            let Some((value, terminator_len)) = terminal_progress_osc_value(body) else {
+            let Some((payload, terminator_len)) = terminal_osc_payload(body) else {
                 consumed_until = index;
                 break;
             };
-            match value {
-                b'1' => events.push(TerminalProgressOsc::Started),
-                b'0' => events.push(TerminalProgressOsc::Completed),
-                _ => {}
+            if let Some(state) = terminal_progress_osc_state(payload) {
+                events.push(TerminalOscEvent::Progress(state));
+            } else if let Some(kind) = terminal_notification_kind(payload) {
+                events.push(TerminalOscEvent::Notification(kind));
             }
-            index += b"\x1b]9;4;".len() + 1 + terminator_len;
+            index += b"\x1b]9;".len() + payload.len() + terminator_len;
             consumed_until = index;
         }
 
@@ -64,14 +78,45 @@ impl TerminalProgressOscParser {
     }
 }
 
-pub(super) fn terminal_progress_osc_value(body: &[u8]) -> Option<(u8, usize)> {
-    let value = *body.first()?;
-    let rest = &body[1..];
-    if rest.first().copied() == Some(0x07) {
-        return Some((value, 1));
+fn terminal_osc_payload(body: &[u8]) -> Option<(&[u8], usize)> {
+    if let Some(end) = body.iter().position(|byte| *byte == 0x07) {
+        return Some((&body[..end], 1));
     }
-    if rest.starts_with(b"\x1b\\") {
-        return Some((value, 2));
+    if let Some(end) = body.windows(2).position(|bytes| bytes == b"\x1b\\") {
+        return Some((&body[..end], 2));
+    }
+    None
+}
+
+fn terminal_progress_osc_state(payload: &[u8]) -> Option<TerminalProgressOscState> {
+    let progress = payload.strip_prefix(b"4;")?;
+    let code_end = progress
+        .iter()
+        .position(|byte| *byte == b';')
+        .unwrap_or(progress.len());
+    let code = std::str::from_utf8(&progress[..code_end]).ok()?.trim();
+    match code {
+        "0" => Some(TerminalProgressOscState::Completed),
+        "1" | "3" => Some(TerminalProgressOscState::Working),
+        "2" => Some(TerminalProgressOscState::Error),
+        "4" => Some(TerminalProgressOscState::Warning),
+        _ => None,
+    }
+}
+
+fn terminal_notification_kind(payload: &[u8]) -> Option<TerminalNotificationKind> {
+    let message = std::str::from_utf8(payload)
+        .ok()?
+        .trim()
+        .to_ascii_lowercase();
+    if message.starts_with("approval requested:")
+        || message.starts_with("approval requested by ")
+        || message.starts_with("codex wants to edit ")
+    {
+        return Some(TerminalNotificationKind::ApprovalRequested);
+    }
+    if message.starts_with("plan mode prompt:") {
+        return Some(TerminalNotificationKind::PlanModePrompt);
     }
     None
 }

@@ -19,6 +19,14 @@ function nowSeconds() {
   return Date.now() / 1000
 }
 
+function emitTerminalProgressOsc(code) {
+  if (!runtimeSessionID) return
+  try {
+    process.stdout.write(`\x1b]9;4;${code}\x07`)
+  } catch (error) {
+    log("terminal-progress-osc-error", { message: error instanceof Error ? error.message : String(error), code })
+  }
+}
 
 function readManagedPrompt() {
   const path = process.env.DMUX_AI_MEMORY_PROMPT_FILE
@@ -334,6 +342,7 @@ export const DmuxRuntimePlugin = async ({ client }) => {
           if (statusType === "busy" || statusType === "retry") {
             hasActivePrompt = true
             activePromptStartedAt = activePromptStartedAt ?? nowSeconds()
+            emitTerminalProgressOsc("3")
             dispatchUpdate({
               externalSessionID: sessionID,
               responseState: "responding",
@@ -343,6 +352,9 @@ export const DmuxRuntimePlugin = async ({ client }) => {
             return
           }
           if (statusType === "idle") {
+            if (hasActivePrompt) {
+              emitTerminalProgressOsc("0")
+            }
             dispatchUpdate({
               externalSessionID: sessionID,
               responseState: "idle",
@@ -362,6 +374,7 @@ export const DmuxRuntimePlugin = async ({ client }) => {
           }
           hasActivePrompt = false
           activePromptStartedAt = null
+          emitTerminalProgressOsc("0")
           dispatchAIHook({
             kind: "turnCompleted",
             externalSessionID: sessionID,
@@ -399,6 +412,7 @@ export const DmuxRuntimePlugin = async ({ client }) => {
             lastUserMessageID = messageID
             hasActivePrompt = true
             activePromptStartedAt = nowSeconds()
+            emitTerminalProgressOsc("3")
             dispatchUpdate({
               externalSessionID: sessionID,
               responseState: "responding",

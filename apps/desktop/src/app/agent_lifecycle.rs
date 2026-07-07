@@ -1,117 +1,32 @@
-use super::ai_runtime_status::{AgentLifecycleInput, AgentLifecycleState};
-use super::{CoduxApp, WorktreeInfo};
+use super::ai_runtime_status::AgentLifecycleState;
+use super::{CoduxApp, ProjectInfo, WorktreeInfo};
+use codux_runtime::ai_runtime::{TerminalStatusEvent, TerminalStatusState};
 use std::collections::HashSet;
-use std::time::{Duration, Instant};
-
-const MIN_WORKING_HOLD: Duration = Duration::from_millis(1500);
-const WORKING_IDLE_DEBOUNCE: Duration = Duration::from_millis(8000);
-const COMPLETED_DECAY: Duration = Duration::from_millis(3000);
-const WORKING_WAITING_LOCK: Duration = Duration::from_millis(500);
 
 pub(in crate::app) struct PaneAgentLifecycle {
     pub state: AgentLifecycleState,
-    last_transition_at: Instant,
-    last_input_at: Instant,
-    working_waiting_lock_until: Option<Instant>,
-    locked_reverse_input: Option<AgentLifecycleInput>,
 }
 
 impl PaneAgentLifecycle {
-    pub(in crate::app) fn new(now: Instant) -> Self {
+    pub(in crate::app) fn new() -> Self {
         Self {
             state: AgentLifecycleState::Idle,
-            last_transition_at: now,
-            last_input_at: now,
-            working_waiting_lock_until: None,
-            locked_reverse_input: None,
         }
     }
 
-    pub(in crate::app) fn tick(&mut self, input: Option<AgentLifecycleInput>, now: Instant) {
-        if input.is_some() {
-            self.last_input_at = now;
-        }
-
-        if let Some(inp) = input {
-            self.try_apply_input(inp, now);
-        }
-
-        self.apply_timer_transitions(now);
-    }
-
-    fn try_apply_input(&mut self, input: AgentLifecycleInput, now: Instant) -> bool {
-        if self.is_reverse_transition_locked(input, now) {
-            return false;
-        }
-
-        if self.state == AgentLifecycleState::Working
-            && matches!(
-                input,
-                AgentLifecycleInput::Prompt | AgentLifecycleInput::Settle
-            )
-            && now.duration_since(self.last_transition_at) < MIN_WORKING_HOLD
-        {
-            return false;
-        }
-
-        let Some(next) = self.state.transition(input) else {
-            return false;
-        };
-
-        let previous = self.state;
-        self.state = next;
-        self.last_transition_at = now;
-        self.record_working_waiting_lock(previous, next, now);
-        true
-    }
-
-    fn is_reverse_transition_locked(&self, input: AgentLifecycleInput, now: Instant) -> bool {
-        let Some(lock_until) = self.working_waiting_lock_until else {
-            return false;
-        };
-        now < lock_until && self.locked_reverse_input == Some(input)
-    }
-
-    fn record_working_waiting_lock(
-        &mut self,
-        from: AgentLifecycleState,
-        to: AgentLifecycleState,
-        now: Instant,
-    ) {
-        match (from, to) {
-            (AgentLifecycleState::Working, AgentLifecycleState::Waiting) => {
-                self.working_waiting_lock_until = Some(now + WORKING_WAITING_LOCK);
-                self.locked_reverse_input = Some(AgentLifecycleInput::Busy);
-            }
-            (AgentLifecycleState::Waiting, AgentLifecycleState::Working) => {
-                self.working_waiting_lock_until = Some(now + WORKING_WAITING_LOCK);
-                self.locked_reverse_input = Some(AgentLifecycleInput::Prompt);
-            }
-            // Left the Working/Waiting pair, so drop the flap guard or it wrongly blocks a real resume.
-            _ => {
-                self.working_waiting_lock_until = None;
-                self.locked_reverse_input = None;
-            }
-        }
-    }
-
-    fn apply_timer_transitions(&mut self, now: Instant) {
-        if self.state == AgentLifecycleState::Working
-            && now.duration_since(self.last_input_at) >= WORKING_IDLE_DEBOUNCE
-        {
-            self.state = AgentLifecycleState::Idle;
-            self.last_transition_at = now;
-            self.working_waiting_lock_until = None;
-            self.locked_reverse_input = None;
+    pub(in crate::app) fn apply_status(&mut self, state: AgentLifecycleState) {
+        if self.state == state {
             return;
         }
+        self.state = state;
+    }
 
-        if self.state == AgentLifecycleState::Completed
-            && now.duration_since(self.last_transition_at) >= COMPLETED_DECAY
-        {
-            self.state = AgentLifecycleState::Idle;
-            self.last_transition_at = now;
+    pub(in crate::app) fn dismiss_completed(&mut self) -> bool {
+        if self.state != AgentLifecycleState::Completed {
+            return false;
         }
+        self.state = AgentLifecycleState::Idle;
+        true
     }
 }
 
@@ -139,7 +54,9 @@ pub(in crate::app) fn aggregate_agent_lifecycle(
     for state in states {
         match state {
             AgentLifecycleState::Working => return Some(AgentLifecycleState::Working),
+            AgentLifecycleState::Error => return Some(AgentLifecycleState::Error),
             AgentLifecycleState::Waiting => has_waiting = true,
+            AgentLifecycleState::Warning => has_waiting = true,
             AgentLifecycleState::Completed => has_completed = true,
             AgentLifecycleState::Idle => {}
         }
@@ -154,25 +71,97 @@ pub(in crate::app) fn aggregate_agent_lifecycle(
 }
 
 impl CoduxApp {
+    pub(in crate::app) fn apply_terminal_status_events(
+        &mut self,
+        events: &[codux_runtime::ai_runtime::AIRuntimeSupervisorEvent],
+    ) -> bool {
+        let mut changed = false;
+        for event in events {
+            let codux_runtime::ai_runtime::AIRuntimeSupervisorEvent::TerminalStatus { status } =
+                event
+            else {
+                continue;
+            };
+            if self.apply_terminal_status_event(status) {
+                changed = true;
+            }
+        }
+        changed
+    }
+
+    fn apply_terminal_status_event(&mut self, status: &TerminalStatusEvent) -> bool {
+        let Some(next) = agent_lifecycle_state_for_terminal_status(status.state) else {
+            return self.clear_pane_agent_lifecycle(&status.terminal_id);
+        };
+        let terminal_id = status.terminal_id.clone();
+        let existed_before = self.pane_agent_lifecycle.contains_key(&terminal_id);
+        let entry = self
+            .pane_agent_lifecycle
+            .entry(terminal_id.clone())
+            .or_insert_with(PaneAgentLifecycle::new);
+        let previous = entry.state;
+        entry.apply_status(next);
+        let changed = pane_lifecycle_sync_entry_changed(existed_before, previous, entry.state);
+        if changed {
+            codux_runtime::runtime_trace::runtime_trace(
+                "agent-lifecycle",
+                &format!(
+                    "terminal={} {:?}->{:?} status_source={}",
+                    status.terminal_id, previous, entry.state, status.source
+                ),
+            );
+        }
+        changed
+    }
+
+    fn clear_pane_agent_lifecycle(&mut self, terminal_id: &str) -> bool {
+        self.pane_agent_lifecycle
+            .remove(terminal_id)
+            .map(|entry| pane_lifecycle_prune_changed(entry.state))
+            .unwrap_or(false)
+    }
+
+    pub(in crate::app) fn dismiss_pane_agent_lifecycle_completion(
+        &mut self,
+        terminal_id: &str,
+    ) -> bool {
+        let Some(entry) = self.pane_agent_lifecycle.get_mut(terminal_id) else {
+            return false;
+        };
+        let changed = entry.dismiss_completed();
+        if changed {
+            codux_runtime::runtime_trace::runtime_trace(
+                "agent-lifecycle",
+                &format!("terminal={terminal_id} Completed->Idle dismissed"),
+            );
+        }
+        changed
+    }
+
+    pub(in crate::app) fn dismiss_worktree_pane_agent_lifecycle_completion(
+        &mut self,
+        worktree_id: &str,
+    ) -> bool {
+        let terminal_ids = self.terminal_ids_for_worktree_id(worktree_id);
+        let mut changed = false;
+        for terminal_id in terminal_ids {
+            changed |= self.dismiss_pane_agent_lifecycle_completion(&terminal_id);
+        }
+        changed
+    }
+
     pub(in crate::app) fn worktree_agent_lifecycle(
         &self,
         worktree: &WorktreeInfo,
     ) -> Option<AgentLifecycleState> {
-        aggregate_agent_lifecycle(
-            self.state
-                .ai_runtime_state
-                .sessions
-                .iter()
-                .filter(|session| {
-                    session.project_id == worktree.id
-                        || (worktree.is_default && session.project_id == worktree.project_id)
-                })
-                .filter_map(|session| {
-                    self.pane_agent_lifecycle
-                        .get(&session.terminal_id)
-                        .map(|lifecycle| lifecycle.state)
-                }),
-        )
+        self.aggregate_terminal_lifecycle(self.terminal_ids_for_worktree(worktree))
+    }
+
+    pub(in crate::app) fn project_agent_lifecycle(
+        &self,
+        project: &ProjectInfo,
+    ) -> Option<AgentLifecycleState> {
+        self.aggregate_terminal_lifecycle(self.terminal_ids_for_project(project))
     }
 
     pub(in crate::app) fn any_pane_agent_working(&self) -> bool {
@@ -197,38 +186,10 @@ impl CoduxApp {
     }
 
     pub(in crate::app) fn sync_pane_agent_lifecycle(&mut self) -> bool {
-        let now = Instant::now();
-        let sessions = &self.state.ai_runtime_state.sessions;
         let mut changed = false;
-
-        for session in sessions {
-            let input = AgentLifecycleState::from_session_state(&session.state);
-            let terminal_id = session.terminal_id.clone();
-            let existed_before = self.pane_agent_lifecycle.contains_key(&terminal_id);
-            let entry = self
-                .pane_agent_lifecycle
-                .entry(terminal_id)
-                .or_insert_with(|| PaneAgentLifecycle::new(now));
-            let state_before_tick = entry.state;
-            entry.tick(input, now);
-            if pane_lifecycle_sync_entry_changed(existed_before, state_before_tick, entry.state) {
-                codux_runtime::runtime_trace::runtime_trace(
-                    "agent-lifecycle",
-                    &format!(
-                        "terminal={} {:?}->{:?} session_state={}",
-                        session.terminal_id, state_before_tick, entry.state, session.state
-                    ),
-                );
-                changed = true;
-            }
-        }
-
-        let active_terminal_ids: HashSet<&str> = sessions
-            .iter()
-            .map(|session| session.terminal_id.as_str())
-            .collect();
+        let active_terminal_ids = self.active_terminal_lifecycle_ids();
         self.pane_agent_lifecycle.retain(|terminal_id, entry| {
-            if active_terminal_ids.contains(terminal_id.as_str()) {
+            if active_terminal_ids.contains(terminal_id) {
                 true
             } else {
                 if pane_lifecycle_prune_changed(entry.state) {
@@ -243,199 +204,149 @@ impl CoduxApp {
         });
         changed
     }
+
+    fn active_terminal_lifecycle_ids(&self) -> HashSet<String> {
+        let mut ids = HashSet::new();
+        if let Some(tab) = self.main_terminal() {
+            for (index, slot) in tab.panes.iter().enumerate() {
+                if let Some(id) = Self::terminal_slot_terminal_id(tab, index, slot) {
+                    ids.insert(id);
+                }
+            }
+        }
+        for slot in &self.collapsed_terminal_panes {
+            if let Some(id) = slot.terminal_id.as_ref().filter(|id| !id.trim().is_empty()) {
+                ids.insert(id.clone());
+            }
+        }
+        ids
+    }
+
+    fn aggregate_terminal_lifecycle(
+        &self,
+        terminal_ids: impl IntoIterator<Item = String>,
+    ) -> Option<AgentLifecycleState> {
+        aggregate_agent_lifecycle(terminal_ids.into_iter().filter_map(|terminal_id| {
+            self.pane_agent_lifecycle
+                .get(&terminal_id)
+                .map(|lifecycle| lifecycle.state)
+        }))
+    }
+
+    fn terminal_ids_for_project(&self, project: &ProjectInfo) -> Vec<String> {
+        let mut ids = Vec::new();
+        for session in &self.state.terminal_runtime.sessions {
+            if session.project_id == project.id {
+                push_unique_terminal_id(&mut ids, &session.terminal_id);
+            }
+        }
+        for worktree in self
+            .state
+            .worktrees
+            .worktrees
+            .iter()
+            .filter(|worktree| worktree.project_id == project.id)
+        {
+            for terminal_id in self.terminal_ids_for_worktree(worktree) {
+                push_unique_terminal_id(&mut ids, &terminal_id);
+            }
+        }
+        ids
+    }
+
+    fn terminal_ids_for_worktree_id(&self, worktree_id: &str) -> Vec<String> {
+        self.state
+            .worktrees
+            .worktrees
+            .iter()
+            .find(|worktree| worktree.id == worktree_id)
+            .map(|worktree| self.terminal_ids_for_worktree(worktree))
+            .unwrap_or_default()
+    }
+
+    fn terminal_ids_for_worktree(&self, worktree: &WorktreeInfo) -> Vec<String> {
+        let mut ids = Vec::new();
+        for session in &self.state.terminal_runtime.sessions {
+            if terminal_runtime_session_belongs_to_worktree(session.project_id.as_str(), worktree) {
+                push_unique_terminal_id(&mut ids, &session.terminal_id);
+            }
+        }
+        if super::ai_runtime_status::terminal_layout_owner_id(&self.state).as_deref()
+            == Some(worktree.id.as_str())
+        {
+            for terminal_id in self.active_terminal_lifecycle_ids() {
+                push_unique_terminal_id(&mut ids, &terminal_id);
+            }
+        }
+        ids
+    }
+}
+
+fn terminal_runtime_session_belongs_to_worktree(project_id: &str, worktree: &WorktreeInfo) -> bool {
+    project_id == worktree.id || (worktree.is_default && project_id == worktree.project_id)
+}
+
+fn push_unique_terminal_id(ids: &mut Vec<String>, terminal_id: &str) {
+    let terminal_id = terminal_id.trim();
+    if terminal_id.is_empty() || ids.iter().any(|id| id == terminal_id) {
+        return;
+    }
+    ids.push(terminal_id.to_string());
+}
+
+fn agent_lifecycle_state_for_terminal_status(
+    state: TerminalStatusState,
+) -> Option<AgentLifecycleState> {
+    match state {
+        TerminalStatusState::Idle => None,
+        TerminalStatusState::Working => Some(AgentLifecycleState::Working),
+        TerminalStatusState::Waiting => Some(AgentLifecycleState::Waiting),
+        TerminalStatusState::Completed => Some(AgentLifecycleState::Completed),
+        TerminalStatusState::Error => Some(AgentLifecycleState::Error),
+        TerminalStatusState::Warning => Some(AgentLifecycleState::Warning),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn base_instant() -> Instant {
-        Instant::now()
-    }
-
     #[test]
-    fn minimum_hold_blocks_prompt_within_window() {
-        let base = base_instant();
-        let mut lifecycle = PaneAgentLifecycle::new(base);
-        lifecycle.tick(Some(AgentLifecycleInput::Busy), base);
+    fn pane_lifecycle_applies_status_directly() {
+        let mut lifecycle = PaneAgentLifecycle::new();
+
+        lifecycle.apply_status(AgentLifecycleState::Working);
         assert_eq!(lifecycle.state, AgentLifecycleState::Working);
 
-        let early = base + Duration::from_millis(500);
-        lifecycle.tick(Some(AgentLifecycleInput::Prompt), early);
-        assert_eq!(lifecycle.state, AgentLifecycleState::Working);
+        lifecycle.apply_status(AgentLifecycleState::Completed);
+        assert_eq!(lifecycle.state, AgentLifecycleState::Completed);
     }
 
     #[test]
-    fn minimum_hold_blocks_settle_within_window() {
-        let base = base_instant();
-        let mut lifecycle = PaneAgentLifecycle::new(base);
-        lifecycle.tick(Some(AgentLifecycleInput::Busy), base);
+    fn completed_status_stays_until_dismissed() {
+        let mut lifecycle = PaneAgentLifecycle::new();
+        lifecycle.apply_status(AgentLifecycleState::Completed);
 
-        let early = base + Duration::from_millis(500);
-        lifecycle.tick(Some(AgentLifecycleInput::Settle), early);
-        assert_eq!(lifecycle.state, AgentLifecycleState::Working);
-    }
-
-    #[test]
-    fn minimum_hold_allows_prompt_after_window() {
-        let base = base_instant();
-        let mut lifecycle = PaneAgentLifecycle::new(base);
-        lifecycle.tick(Some(AgentLifecycleInput::Busy), base);
-
-        let later = base + Duration::from_millis(2000);
-        lifecycle.tick(Some(AgentLifecycleInput::Prompt), later);
-        assert_eq!(lifecycle.state, AgentLifecycleState::Waiting);
-    }
-
-    #[test]
-    fn working_idle_debounce_does_not_trigger_before_threshold() {
-        let base = base_instant();
-        let mut lifecycle = PaneAgentLifecycle::new(base);
-        lifecycle.tick(Some(AgentLifecycleInput::Busy), base);
-
-        let silent = base + Duration::from_millis(5000);
-        lifecycle.tick(None, silent);
-        assert_eq!(lifecycle.state, AgentLifecycleState::Working);
-    }
-
-    #[test]
-    fn working_idle_debounce_triggers_after_threshold() {
-        let base = base_instant();
-        let mut lifecycle = PaneAgentLifecycle::new(base);
-        lifecycle.tick(Some(AgentLifecycleInput::Busy), base);
-
-        let silent = base + Duration::from_millis(8000);
-        lifecycle.tick(None, silent);
+        assert!(lifecycle.dismiss_completed());
         assert_eq!(lifecycle.state, AgentLifecycleState::Idle);
     }
 
     #[test]
-    fn completed_decay_returns_to_idle() {
-        let base = base_instant();
-        let mut lifecycle = PaneAgentLifecycle::new(base);
-        lifecycle.tick(Some(AgentLifecycleInput::Busy), base);
-        let after_hold = base + Duration::from_millis(2000);
-        lifecycle.tick(Some(AgentLifecycleInput::Settle), after_hold);
-        assert_eq!(lifecycle.state, AgentLifecycleState::Completed);
+    fn dismiss_completed_ignores_non_completed_state() {
+        let mut lifecycle = PaneAgentLifecycle::new();
+        lifecycle.apply_status(AgentLifecycleState::Working);
 
-        let decayed = after_hold + Duration::from_millis(3000);
-        lifecycle.tick(Some(AgentLifecycleInput::Settle), decayed);
-        assert_eq!(lifecycle.state, AgentLifecycleState::Idle);
-    }
-
-    #[test]
-    fn completed_decay_interrupted_by_busy() {
-        let base = base_instant();
-        let mut lifecycle = PaneAgentLifecycle::new(base);
-        lifecycle.tick(Some(AgentLifecycleInput::Busy), base);
-        let after_hold = base + Duration::from_millis(2000);
-        lifecycle.tick(Some(AgentLifecycleInput::Settle), after_hold);
-        assert_eq!(lifecycle.state, AgentLifecycleState::Completed);
-
-        let busy_again = after_hold + Duration::from_millis(1000);
-        lifecycle.tick(Some(AgentLifecycleInput::Busy), busy_again);
+        assert!(!lifecycle.dismiss_completed());
         assert_eq!(lifecycle.state, AgentLifecycleState::Working);
     }
 
     #[test]
-    fn transition_lock_suppresses_reverse_within_window() {
-        let base = base_instant();
-        let mut lifecycle = PaneAgentLifecycle::new(base);
-        lifecycle.tick(Some(AgentLifecycleInput::Busy), base);
-        let after_hold = base + Duration::from_millis(2000);
-        lifecycle.tick(Some(AgentLifecycleInput::Prompt), after_hold);
-        assert_eq!(lifecycle.state, AgentLifecycleState::Waiting);
+    fn completed_status_is_overwritten_by_following_loading() {
+        let mut lifecycle = PaneAgentLifecycle::new();
+        lifecycle.apply_status(AgentLifecycleState::Completed);
+        lifecycle.apply_status(AgentLifecycleState::Working);
 
-        let too_soon = after_hold + Duration::from_millis(200);
-        lifecycle.tick(Some(AgentLifecycleInput::Busy), too_soon);
-        assert_eq!(lifecycle.state, AgentLifecycleState::Waiting);
-    }
-
-    #[test]
-    fn transition_lock_cleared_after_leaving_the_pair() {
-        // Working->Waiting sets a Busy lock; once the machine moves on to
-        // Completed, a genuine resume (Busy) must not be suppressed.
-        let base = base_instant();
-        let mut lifecycle = PaneAgentLifecycle::new(base);
-        lifecycle.tick(Some(AgentLifecycleInput::Busy), base);
-        let after_hold = base + Duration::from_millis(2000);
-        lifecycle.tick(Some(AgentLifecycleInput::Prompt), after_hold);
-        assert_eq!(lifecycle.state, AgentLifecycleState::Waiting);
-
-        let settle = after_hold + Duration::from_millis(100);
-        lifecycle.tick(Some(AgentLifecycleInput::Settle), settle);
-        assert_eq!(lifecycle.state, AgentLifecycleState::Completed);
-
-        let resume = settle + Duration::from_millis(100);
-        lifecycle.tick(Some(AgentLifecycleInput::Busy), resume);
         assert_eq!(lifecycle.state, AgentLifecycleState::Working);
-    }
-
-    #[test]
-    fn transition_lock_allows_reverse_after_window() {
-        let base = base_instant();
-        let mut lifecycle = PaneAgentLifecycle::new(base);
-        lifecycle.tick(Some(AgentLifecycleInput::Busy), base);
-        let after_hold = base + Duration::from_millis(2000);
-        lifecycle.tick(Some(AgentLifecycleInput::Prompt), after_hold);
-        assert_eq!(lifecycle.state, AgentLifecycleState::Waiting);
-
-        let after_lock = after_hold + Duration::from_millis(600);
-        lifecycle.tick(Some(AgentLifecycleInput::Busy), after_lock);
-        assert_eq!(lifecycle.state, AgentLifecycleState::Working);
-    }
-
-    #[test]
-    fn session_state_sequence_reaches_expected_final_state() {
-        let base = base_instant();
-        let mut lifecycle = PaneAgentLifecycle::new(base);
-
-        let t0 = base;
-        lifecycle.tick(AgentLifecycleState::from_session_state("running"), t0);
-        assert_eq!(lifecycle.state, AgentLifecycleState::Working);
-
-        let t1 = t0 + Duration::from_millis(2000);
-        lifecycle.tick(AgentLifecycleState::from_session_state("needs-input"), t1);
-        assert_eq!(lifecycle.state, AgentLifecycleState::Waiting);
-
-        let t2 = t1 + Duration::from_millis(600);
-        lifecycle.tick(AgentLifecycleState::from_session_state("running"), t2);
-        assert_eq!(lifecycle.state, AgentLifecycleState::Working);
-
-        let t3 = t2 + Duration::from_millis(2000);
-        lifecycle.tick(AgentLifecycleState::from_session_state("idle"), t3);
-        assert_eq!(lifecycle.state, AgentLifecycleState::Completed);
-
-        let t4 = t3 + Duration::from_millis(3000);
-        lifecycle.tick(AgentLifecycleState::from_session_state("idle"), t4);
-        assert_eq!(lifecycle.state, AgentLifecycleState::Idle);
-    }
-
-    #[test]
-    fn sync_entry_changed_on_session_state_transition() {
-        let base = base_instant();
-        let mut lifecycle = PaneAgentLifecycle::new(base);
-        let before = lifecycle.state;
-        lifecycle.tick(Some(AgentLifecycleInput::Busy), base);
-        assert!(pane_lifecycle_sync_entry_changed(
-            false,
-            before,
-            lifecycle.state,
-        ));
-    }
-
-    #[test]
-    fn sync_entry_unchanged_on_steady_state() {
-        let base = base_instant();
-        let mut lifecycle = PaneAgentLifecycle::new(base);
-        lifecycle.tick(Some(AgentLifecycleInput::Busy), base);
-        let before = lifecycle.state;
-        lifecycle.tick(AgentLifecycleState::from_session_state("responding"), base);
-        assert!(!pane_lifecycle_sync_entry_changed(
-            true,
-            before,
-            lifecycle.state,
-        ));
     }
 
     #[test]
@@ -486,5 +397,49 @@ mod tests {
             aggregate_agent_lifecycle([AgentLifecycleState::Idle].into_iter()),
             None
         );
+    }
+
+    #[test]
+    fn default_worktree_accepts_root_project_terminal_runtime_sessions() {
+        let worktree = WorktreeInfo {
+            id: "project-a".to_string(),
+            project_id: "project-a".to_string(),
+            name: "main".to_string(),
+            branch: "main".to_string(),
+            path: "/tmp/project-a".to_string(),
+            status: "active".to_string(),
+            is_default: true,
+            exists: true,
+            git_summary: Default::default(),
+        };
+
+        assert!(terminal_runtime_session_belongs_to_worktree(
+            "project-a",
+            &worktree
+        ));
+    }
+
+    #[test]
+    fn linked_worktree_accepts_own_terminal_runtime_sessions() {
+        let worktree = WorktreeInfo {
+            id: "worktree-a".to_string(),
+            project_id: "project-a".to_string(),
+            name: "feature".to_string(),
+            branch: "feature".to_string(),
+            path: "/tmp/project-a-feature".to_string(),
+            status: "active".to_string(),
+            is_default: false,
+            exists: true,
+            git_summary: Default::default(),
+        };
+
+        assert!(terminal_runtime_session_belongs_to_worktree(
+            "worktree-a",
+            &worktree
+        ));
+        assert!(!terminal_runtime_session_belongs_to_worktree(
+            "project-a",
+            &worktree
+        ));
     }
 }

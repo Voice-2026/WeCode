@@ -218,7 +218,7 @@ impl CoduxApp {
                 self.ssh_draft_private_key_path = path;
                 self.clear_ssh_test_result();
                 self.status_message = "SSH private key selected".to_string();
-                self.sync_project_activity_state(cx);
+                self.sync_project_lifecycle_state(cx);
                 self.invalidate_task_column(cx);
                 self.invalidate_remote_panel(cx);
             }

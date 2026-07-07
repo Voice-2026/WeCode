@@ -1,5 +1,7 @@
 use super::*;
-#[cfg(unix)]
+use crate::ai_runtime::{
+    AIHookEventPayload, AIRuntimeSupervisorEvent, TerminalStatusEvent, TerminalStatusState,
+};
 use std::time::{Duration, Instant};
 
 mod capture;
@@ -46,4 +48,25 @@ fn wait_for_session_state(
         "terminal {terminal_id} did not reach state {state}; snapshot={:?}",
         bridge.runtime_state_snapshot().sessions
     );
+}
+
+fn wait_for_terminal_status(
+    bridge: &AIRuntimeBridge,
+    terminal_id: &str,
+    state: TerminalStatusState,
+) -> TerminalStatusEvent {
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let mut seen = Vec::new();
+    while Instant::now() < deadline {
+        for event in bridge.drain_supervisor_events() {
+            if let AIRuntimeSupervisorEvent::TerminalStatus { status } = event {
+                if status.terminal_id == terminal_id && status.state == state {
+                    return status;
+                }
+                seen.push(status);
+            }
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    panic!("terminal {terminal_id} did not emit status {state:?}; seen={seen:?}");
 }

@@ -1,7 +1,7 @@
 use gpui_component::{InteractiveElementExt as _, menu::ContextMenuExt as _};
 
 use super::agent_display::{agent_lifecycle_color, agent_lifecycle_status_dot, spin_icon};
-use super::ai_runtime_status::{AIActivityState, AgentLifecycleState};
+use super::ai_runtime_status::AgentLifecycleState;
 use super::scroll_compat::codux_uniform_list_with_sizing;
 use super::ui_helpers::{codux_tooltip_container, titlebar_drag_area};
 use super::{
@@ -55,7 +55,6 @@ struct TaskWorktreeRow {
     path: String,
     is_default: bool,
     active: bool,
-    activity_state: AIActivityState,
     git_changes: usize,
     git_additions: i64,
     git_deletions: i64,
@@ -250,6 +249,7 @@ impl Render for TaskWorktreeListView {
 
 #[derive(Clone, PartialEq)]
 struct TaskTerminalRow {
+    terminal_id: Option<String>,
     pane_index: usize,
     title: String,
     subtitle: Option<String>,
@@ -452,7 +452,6 @@ impl CoduxApp {
                     path: worktree.path.clone(),
                     is_default: worktree.is_default,
                     active,
-                    activity_state: self.ai_activity_for_worktree(worktree),
                     git_changes: worktree.git_summary.changes,
                     git_additions: worktree.git_summary.additions,
                     git_deletions: worktree.git_summary.deletions,
@@ -485,16 +484,19 @@ impl CoduxApp {
                             osc_title.map(String::as_str),
                             &labels.language,
                         );
+                        let lifecycle = terminal_id
+                            .as_deref()
+                            .and_then(|id| self.pane_agent_lifecycle.get(id))
+                            .map(|lifecycle| lifecycle.state);
+                        let active = !active_terminal_id.is_empty()
+                            && terminal_id.as_deref() == Some(active_terminal_id.as_str());
                         TaskTerminalRow {
+                            terminal_id,
                             pane_index: index,
                             title,
                             subtitle,
-                            lifecycle: terminal_id
-                                .as_deref()
-                                .and_then(|id| self.pane_agent_lifecycle.get(id))
-                                .map(|lifecycle| lifecycle.state),
-                            active: !active_terminal_id.is_empty()
-                                && terminal_id.as_deref() == Some(active_terminal_id.as_str()),
+                            lifecycle,
+                            active,
                             collapsed: false,
                             collapsed_index: None,
                         }
@@ -515,6 +517,7 @@ impl CoduxApp {
                 &labels.language,
             );
             terminals.push(TaskTerminalRow {
+                terminal_id: slot.terminal_id.clone(),
                 pane_index: 0,
                 title,
                 subtitle,
@@ -982,6 +985,8 @@ fn terminal_compact_row(
     let collapsed = terminal.collapsed;
     let collapsed_index = terminal.collapsed_index;
     let pane_index = terminal.pane_index;
+    let terminal_id = terminal.terminal_id.clone();
+    let lifecycle = terminal.lifecycle;
     let row_id = if collapsed {
         SharedString::from(format!(
             "compact-terminal-collapsed-{}",
@@ -1021,6 +1026,13 @@ fn terminal_compact_row(
         .hover(|style| style.bg(theme::elevate(color(theme::BG_COLUMN), 0.07)))
         .on_click(move |_, window, cx| {
             cx.update_entity(&app_entity, |app, cx| {
+                if lifecycle == Some(AgentLifecycleState::Completed)
+                    && terminal_id
+                        .as_deref()
+                        .is_some_and(|id| app.dismiss_pane_agent_lifecycle_completion(id))
+                {
+                    app.invalidate_task_column(cx);
+                }
                 if app.workspace_view != WorkspaceView::Terminal {
                     app.set_workspace_view(WorkspaceView::Terminal, window, cx);
                 }
@@ -1155,13 +1167,12 @@ fn worktree_compact_row(
     let menu_worktree_id = worktree.id.clone();
     let menu_worktree_path = worktree.path.clone();
     let is_default = worktree.is_default;
-    let activity_dismiss_id = if worktree.is_default {
+    let lifecycle_dismiss_id = if worktree.is_default {
         worktree.project_id.clone()
     } else {
         worktree.id.clone()
     };
-    let activity_state = worktree.activity_state;
-    let dot_pulsing = worktree.lifecycle == Some(AgentLifecycleState::Working);
+    let lifecycle = worktree.lifecycle;
     let select_entity = app_entity.clone();
     div()
         .id(SharedString::from(format!(
@@ -1183,13 +1194,15 @@ fn worktree_compact_row(
         .hover(|style| style.bg(theme::elevate(color(theme::BG_COLUMN), 0.07)))
         .on_click(move |_, window, cx| {
             cx.update_entity(&select_entity, |app, cx| {
-                if activity_state == AIActivityState::Done {
-                    app.dismiss_worktree_ai_completion(&activity_dismiss_id, cx);
+                if lifecycle == Some(AgentLifecycleState::Completed)
+                    && app.dismiss_worktree_pane_agent_lifecycle_completion(&lifecycle_dismiss_id)
+                {
+                    app.invalidate_task_column(cx);
                 }
                 app.select_worktree(worktree_id.clone(), window, cx)
             });
         })
-        .child(worktree_activity_dot(activity_state, dot_pulsing))
+        .child(worktree_activity_dot(lifecycle))
         .child(
             div()
                 .flex()
@@ -1288,22 +1301,18 @@ fn worktree_compact_row(
         })
 }
 
-fn worktree_activity_dot(state: AIActivityState, pulsing: bool) -> AnyElement {
+fn worktree_activity_dot(lifecycle: Option<AgentLifecycleState>) -> AnyElement {
     // Fixed-width slot centring the indicator, so the row text never shifts as
     // it swaps between a 10px static dot and the 12px ring spinner.
-    let inner = if pulsing {
-        spin_icon(color(theme::ORANGE), 12.0)
-    } else {
-        let dot = div().size(px(10.0)).rounded_full();
-        match state {
-            AIActivityState::Idle => dot.bg(color(theme::ACCENT)).into_any_element(),
-            AIActivityState::Running => dot.bg(color(theme::ORANGE)).into_any_element(),
-            AIActivityState::Review => dot
-                .border_2()
-                .border_color(color(theme::ORANGE))
-                .into_any_element(),
-            AIActivityState::Done => dot.bg(color(theme::GREEN)).into_any_element(),
+    let dot = div().size(px(10.0)).rounded_full();
+    let inner = match lifecycle {
+        Some(AgentLifecycleState::Working) => spin_icon(color(theme::ORANGE), 12.0),
+        Some(AgentLifecycleState::Waiting) | Some(AgentLifecycleState::Warning) => {
+            dot.bg(color(theme::ORANGE)).into_any_element()
         }
+        Some(AgentLifecycleState::Completed) => dot.bg(color(theme::GREEN)).into_any_element(),
+        Some(AgentLifecycleState::Error) => dot.bg(color(theme::RED)).into_any_element(),
+        Some(AgentLifecycleState::Idle) | None => dot.bg(color(theme::ACCENT)).into_any_element(),
     };
     div()
         .flex_none()

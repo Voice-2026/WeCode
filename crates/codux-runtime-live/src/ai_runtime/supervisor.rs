@@ -16,6 +16,7 @@ use crate::ai_runtime::{
     state::canonical_tool_name,
     store::{AIRuntimeStateMutation, AIRuntimeStateStore},
     store::{probe_request_for_session, should_poll_runtime_session},
+    terminal_status::TerminalStatusEvent,
     tool_driver::{runtime_screen_patterns, screen_starts_idle_tool},
 };
 use serde::Serialize;
@@ -35,6 +36,7 @@ enum AIRuntimeSupervisorMessage {
     DrainEventDir,
     Poll,
     ScreenSignal(String),
+    TerminalStatus(TerminalStatusEvent),
     ScanBindings,
     ScanBindingFile(AIRuntimeBindingFileEvent),
     TranscriptTail(Vec<String>),
@@ -51,6 +53,9 @@ pub enum AIRuntimeSupervisorEvent {
     },
     Completion {
         completion: AIRuntimeCompletionEvent,
+    },
+    TerminalStatus {
+        status: TerminalStatusEvent,
     },
 }
 
@@ -152,6 +157,12 @@ impl AIRuntimeSupervisor {
             .is_ok()
     }
 
+    pub fn submit_terminal_status(&self, status: TerminalStatusEvent) -> Result<(), String> {
+        self.tx
+            .send(AIRuntimeSupervisorMessage::TerminalStatus(status))
+            .map_err(|error| error.to_string())
+    }
+
     pub fn drain_events(&self) -> Vec<AIRuntimeSupervisorEvent> {
         self.events
             .lock()
@@ -218,6 +229,9 @@ fn supervisor_loop(
             AIRuntimeSupervisorMessage::ScreenSignal(terminal_id) => {
                 let mutation = apply_screen_signal_for_terminal(&state, &registry, &terminal_id);
                 after_mutation(&state, &transcript_monitors, &events, mutation);
+            }
+            AIRuntimeSupervisorMessage::TerminalStatus(status) => {
+                push_event(&events, AIRuntimeSupervisorEvent::TerminalStatus { status });
             }
             AIRuntimeSupervisorMessage::TranscriptTail(terminal_ids) => {
                 let terminal_ids = terminal_ids.into_iter().collect::<HashSet<_>>();

@@ -207,9 +207,7 @@ pub(in crate::ai_runtime::store) fn merge_snapshot_into_hook(
             .metadata
             .as_ref()
             .and_then(|metadata| metadata.source.as_deref())
-            .is_some_and(|source| {
-                matches!(source, "codewhale-lifecycle" | "terminal-progress-osc")
-            });
+            .is_some_and(|source| source == "codewhale-lifecycle");
     let event_interrupted_completion = event.kind == "turnCompleted"
         && event
             .metadata

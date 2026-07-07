@@ -1,5 +1,5 @@
 use super::agent_display::ping_dot;
-use super::ai_runtime_status::AIActivityState;
+use super::ai_runtime_status::AgentLifecycleState;
 use super::app_state::CoduxTooltipPlacement;
 use super::ui_helpers::{codux_tooltip_container_with_placement, titlebar_drag_area};
 use super::*;
@@ -49,7 +49,7 @@ pub(in crate::app) struct ProjectColumnView {
 pub(in crate::app) struct ProjectListState {
     pub(in crate::app) projects: Rc<Vec<ProjectInfo>>,
     pub(in crate::app) selected_project_id: Option<String>,
-    pub(in crate::app) activity: HashMap<String, AIActivityState>,
+    pub(in crate::app) lifecycle: HashMap<String, AgentLifecycleState>,
     /// Client→host link state per host device id, for the remote connection
     /// badge on a project icon.
     pub(in crate::app) links: HashMap<String, ControllerLinkState>,
@@ -64,7 +64,7 @@ impl ProjectListState {
         Self {
             projects: Rc::new(projects),
             selected_project_id,
-            activity: HashMap::new(),
+            lifecycle: HashMap::new(),
             links: HashMap::new(),
             revision: 0,
         }
@@ -99,15 +99,15 @@ impl ProjectListState {
         cx.notify();
     }
 
-    pub(in crate::app) fn set_activity(
+    pub(in crate::app) fn set_lifecycle(
         &mut self,
-        activity: HashMap<String, AIActivityState>,
+        lifecycle: HashMap<String, AgentLifecycleState>,
         cx: &mut Context<Self>,
     ) {
-        if self.activity == activity {
+        if self.lifecycle == lifecycle {
             return;
         }
-        self.activity = activity;
+        self.lifecycle = lifecycle;
         self.revision = self.revision.wrapping_add(1);
         cx.notify();
     }
@@ -129,12 +129,12 @@ impl ProjectListState {
 impl Render for ProjectColumnView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let collapsed = self.collapsed;
-        let (projects, selected_project_id, activity, links) =
+        let (projects, selected_project_id, lifecycle, links) =
             self.project_list_state.update(cx, |state, _cx| {
                 (
                     state.projects.clone(),
                     state.selected_project_id.clone(),
-                    state.activity.clone(),
+                    state.lifecycle.clone(),
                     state.links.clone(),
                 )
             });
@@ -184,10 +184,10 @@ impl Render for ProjectColumnView {
                                 .as_deref()
                                 .map(|selected| selected == project.id)
                                 .unwrap_or(false);
-                            let activity_state = activity
+                            let lifecycle_state = lifecycle
                                 .get(project.id.as_str())
                                 .copied()
-                                .unwrap_or(AIActivityState::Idle);
+                                .filter(|state| *state != AgentLifecycleState::Idle);
                             let link_state = project
                                 .host_device_id
                                 .as_deref()
@@ -201,7 +201,7 @@ impl Render for ProjectColumnView {
                                     app_entity.clone(),
                                     project_id,
                                     project_order.clone(),
-                                    activity_state,
+                                    lifecycle_state,
                                     link_state,
                                     collapsed,
                                     row_menu_labels.clone(),
@@ -693,7 +693,7 @@ fn project_row(
     app_entity: gpui::Entity<CoduxApp>,
     project_id: String,
     project_order: Vec<String>,
-    activity_state: AIActivityState,
+    lifecycle_state: Option<AgentLifecycleState>,
     // `None` ⇒ local project (no badge). `Some(link)` ⇒ remote project; the inner
     // `Option` is the link state (`None` ⇒ remote but not yet connected).
     link_state: Option<Option<ControllerLinkState>>,
@@ -813,8 +813,8 @@ fn project_row(
                             div()
                                 .relative()
                                 .child(project_icon(&project, active, true))
-                                .when(activity_state.is_active(), |this| {
-                                    this.child(project_activity_badge(activity_state, cx))
+                                .when_some(lifecycle_state, |this, state| {
+                                    this.child(project_lifecycle_badge(state))
                                 })
                                 .when_some(link_state, |this, link| {
                                     this.child(project_remote_badge(link))
@@ -908,8 +908,8 @@ fn project_row(
                     div()
                         .relative()
                         .child(project_icon(&project, active, false))
-                        .when(activity_state.is_active(), |this| {
-                            this.child(project_activity_badge(activity_state, cx))
+                        .when_some(lifecycle_state, |this, state| {
+                            this.child(project_lifecycle_badge(state))
                         })
                         .when_some(link_state, |this, link| {
                             this.child(project_remote_badge(link))
@@ -1008,18 +1008,15 @@ fn project_row_context_menu(
     )
 }
 
-fn project_activity_badge(
-    state: AIActivityState,
-    _cx: &mut Context<ProjectColumnView>,
-) -> AnyElement {
+fn project_lifecycle_badge(state: AgentLifecycleState) -> AnyElement {
     match state {
-        AIActivityState::Running => div()
+        AgentLifecycleState::Working => div()
             .absolute()
             .right(px(-2.0))
             .top(px(-2.0))
             .child(ping_dot(color(theme::ORANGE), 10.0))
             .into_any_element(),
-        AIActivityState::Review => div()
+        AgentLifecycleState::Waiting | AgentLifecycleState::Warning => div()
             .absolute()
             .right(px(-2.0))
             .top(px(-2.0))
@@ -1030,7 +1027,7 @@ fn project_activity_badge(
             .border_color(color(theme::ORANGE))
             .bg(color(theme::BG_COLUMN))
             .into_any_element(),
-        AIActivityState::Done => div()
+        AgentLifecycleState::Completed => div()
             .absolute()
             .right(px(-2.0))
             .top(px(-2.0))
@@ -1039,7 +1036,16 @@ fn project_activity_badge(
             .rounded_full()
             .bg(color(theme::GREEN))
             .into_any_element(),
-        AIActivityState::Idle => div().into_any_element(),
+        AgentLifecycleState::Error => div()
+            .absolute()
+            .right(px(-2.0))
+            .top(px(-2.0))
+            .w(px(10.0))
+            .h(px(10.0))
+            .rounded_full()
+            .bg(color(theme::RED))
+            .into_any_element(),
+        AgentLifecycleState::Idle => div().into_any_element(),
     }
 }
 

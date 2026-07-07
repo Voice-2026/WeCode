@@ -10,6 +10,8 @@ pub(in crate::app) fn agent_lifecycle_color(state: AgentLifecycleState) -> gpui:
     match state {
         AgentLifecycleState::Working => color(theme::ACCENT),
         AgentLifecycleState::Waiting => color(theme::ORANGE),
+        AgentLifecycleState::Error => color(theme::RED),
+        AgentLifecycleState::Warning => color(theme::ORANGE),
         AgentLifecycleState::Completed => color(theme::GREEN),
         AgentLifecycleState::Idle => color(theme::TEXT_DIM),
     }
@@ -82,8 +84,8 @@ pub(in crate::app) fn ping_dot(dot_color: gpui::Hsla, size: f32) -> AnyElement {
         return dot().into_any_element();
     }
     let phase = ping_phase();
-    let ring = size * (1.0 + 1.7 * phase);
-    let ring_alpha = 0.75 * (1.0 - phase);
+    let ring = size * (1.0 + 1.15 * phase);
+    let ring_alpha = 0.42 * (1.0 - phase);
     let offset = (size - ring) / 2.0;
     div()
         .relative()
@@ -121,12 +123,25 @@ pub(in crate::app) fn agent_lifecycle_status_dot(
     lifecycle_state: AgentLifecycleState,
 ) -> AnyElement {
     let inner = match lifecycle_state {
-        AgentLifecycleState::Idle | AgentLifecycleState::Completed => {
-            return div().into_any_element();
-        }
+        AgentLifecycleState::Idle => return div().into_any_element(),
         AgentLifecycleState::Working => spin_icon(color(theme::ACCENT), 12.0),
         AgentLifecycleState::Waiting => div()
             .size(px(6.0))
+            .rounded_full()
+            .bg(color(theme::ORANGE))
+            .into_any_element(),
+        AgentLifecycleState::Completed => div()
+            .size(px(7.0))
+            .rounded_full()
+            .bg(color(theme::GREEN))
+            .into_any_element(),
+        AgentLifecycleState::Error => div()
+            .size(px(7.0))
+            .rounded_full()
+            .bg(color(theme::RED))
+            .into_any_element(),
+        AgentLifecycleState::Warning => div()
+            .size(px(7.0))
             .rounded_full()
             .bg(color(theme::ORANGE))
             .into_any_element(),

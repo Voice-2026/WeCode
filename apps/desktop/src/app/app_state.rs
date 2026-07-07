@@ -260,7 +260,6 @@ pub struct CoduxApp {
     pub(in crate::app) pane_agent_lifecycle:
         HashMap<String, super::agent_lifecycle::PaneAgentLifecycle>,
     pub(in crate::app) agent_git_refresh_after: Option<std::time::Instant>,
-    pub(in crate::app) dismissed_worktree_ai_completion_at: HashMap<String, f64>,
     pub(in crate::app) ai_index_progress_visible_until: f64,
     pub(in crate::app) ai_index_progress_generation: u64,
     pub(in crate::app) ai_history_active_index_count: usize,
