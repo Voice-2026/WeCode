@@ -9,9 +9,9 @@ pub(super) fn canonical_root(root_path: &str) -> Result<PathBuf, String> {
     if trimmed.is_empty() {
         return Err("Project path is empty.".to_string());
     }
-    let root = PathBuf::from(trimmed)
-        .canonicalize()
-        .map_err(|error| error.to_string())?;
+    // dunce: std canonicalize returns \\?\-prefixed paths on Windows, which
+    // the PowerShell recycle-bin helper and explorer reject.
+    let root = dunce::canonicalize(PathBuf::from(trimmed)).map_err(|error| error.to_string())?;
     if !root.is_dir() {
         return Err("Project path is not a directory.".to_string());
     }
@@ -20,10 +20,7 @@ pub(super) fn canonical_root(root_path: &str) -> Result<PathBuf, String> {
 
 pub(super) fn resolve_existing_path(root: &Path, raw_path: &str) -> Result<PathBuf, String> {
     let relative = sanitize_relative_path(raw_path)?;
-    let path = root
-        .join(relative)
-        .canonicalize()
-        .map_err(|error| error.to_string())?;
+    let path = dunce::canonicalize(root.join(relative)).map_err(|error| error.to_string())?;
     if !path.starts_with(root) {
         return Err("Path escapes the project root.".to_string());
     }

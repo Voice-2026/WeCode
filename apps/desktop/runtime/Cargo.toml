@@ -21,6 +21,7 @@ codux-runtime-core = { path = "../../../crates/codux-runtime-core" }
 codux-runtime-live = { path = "../../../crates/codux-runtime-live" }
 codux-terminal-core = { path = "../../../crates/codux-terminal-core" }
 codux-terminal-pty = { path = "../../../crates/codux-terminal-pty" }
+dunce = "1"
 flume = "0.12"
 parking_lot = "0.12"
 redb = "4.1.0"
