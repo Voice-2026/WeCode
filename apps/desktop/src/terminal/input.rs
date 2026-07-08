@@ -42,8 +42,19 @@ impl InputHandler for TerminalInputHandler {
         &mut self,
         _ignore_disabled_input: bool,
         _window: &mut Window,
-        _cx: &mut App,
+        cx: &mut App,
     ) -> Option<UTF16Selection> {
+        if let Some(range) = self
+            .terminal_view
+            .read_with(cx, |view, _| view.marked_text_selection_range())
+            .ok()
+            .flatten()
+        {
+            return Some(UTF16Selection {
+                range,
+                reversed: false,
+            });
+        }
         Some(UTF16Selection {
             range: 0..0,
             reversed: false,
@@ -59,12 +70,15 @@ impl InputHandler for TerminalInputHandler {
 
     fn text_for_range(
         &mut self,
-        _range_utf16: Range<usize>,
+        range_utf16: Range<usize>,
         _adjusted_range: &mut Option<Range<usize>>,
         _window: &mut Window,
-        _cx: &mut App,
+        cx: &mut App,
     ) -> Option<String> {
-        None
+        self.terminal_view
+            .read_with(cx, |view, _| view.marked_text_for_range(range_utf16))
+            .ok()
+            .flatten()
     }
 
     fn replace_text_in_range(
@@ -87,7 +101,7 @@ impl InputHandler for TerminalInputHandler {
         &mut self,
         _range_utf16: Option<Range<usize>>,
         new_text: &str,
-        _new_selected_range: Option<Range<usize>>,
+        new_selected_range: Option<Range<usize>>,
         window: &mut Window,
         cx: &mut App,
     ) {
@@ -95,7 +109,7 @@ impl InputHandler for TerminalInputHandler {
             .update(cx, |model, cx| model.prepare_input_viewport(cx));
         let _ = self.terminal_view.update(cx, |view, cx| {
             view.clear_pending_view_scroll();
-            view.set_marked_text(terminal_input_marked_text(new_text), cx)
+            view.set_marked_text(terminal_input_marked_text(new_text), new_selected_range, cx)
         });
         window.invalidate_character_coordinates();
     }
@@ -119,7 +133,14 @@ impl InputHandler for TerminalInputHandler {
             .current_ime_cursor_bounds(&layout)
             .or_else(|| layout.last_ime_cursor_bounds())
             .or_else(|| layout.first_cell_ime_bounds());
-        ime_bounds_for_range(cursor_bounds, &layout, range_utf16)
+        let marked_text = self
+            .terminal_view
+            .read_with(cx, |view, _| {
+                view.marked_text.as_ref().map(|marked| marked.text.clone())
+            })
+            .ok()
+            .flatten();
+        ime_bounds_for_range(cursor_bounds, &layout, marked_text.as_deref(), range_utf16)
     }
 
     fn character_index_for_point(
@@ -179,11 +200,46 @@ fn terminal_marked_text_looks_like_escape_sequence(text: &str) -> bool {
 fn ime_bounds_for_range(
     cursor_bounds: Option<Bounds<Pixels>>,
     layout: &TerminalLayoutMetrics,
+    marked_text: Option<&str>,
     range_utf16: Range<usize>,
 ) -> Option<Bounds<Pixels>> {
     let mut bounds = cursor_bounds?;
-    bounds.origin.x += layout.cell_width * range_utf16.start as f32;
+    let col_offset = marked_text
+        .map(|text| terminal_utf16_prefix_width(text, range_utf16.start))
+        .unwrap_or(range_utf16.start);
+    bounds.origin.x += layout.cell_width * col_offset as f32;
     Some(bounds)
+}
+
+fn terminal_utf16_prefix_width(text: &str, utf16_offset: usize) -> usize {
+    let mut consumed_utf16 = 0usize;
+    let mut width = 0usize;
+    for ch in text.chars() {
+        let next = consumed_utf16 + ch.len_utf16();
+        if next > utf16_offset {
+            break;
+        }
+        consumed_utf16 = next;
+        width += terminal_char_width(ch);
+    }
+    width
+}
+
+fn clamp_utf16_range(range: Range<usize>, len: usize) -> Range<usize> {
+    let start = range.start.min(len);
+    let end = range.end.min(len).max(start);
+    start..end
+}
+
+fn utf16_substring(text: &str, range: Range<usize>) -> String {
+    text.chars()
+        .scan(0usize, |offset, ch| {
+            let start = *offset;
+            *offset += ch.len_utf16();
+            Some((start, *offset, ch))
+        })
+        .filter_map(|(start, end, ch)| (start >= range.start && end <= range.end).then_some(ch))
+        .collect()
 }
 
 fn ime_cursor_bounds_from_content(

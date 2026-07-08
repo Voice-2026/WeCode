@@ -325,7 +325,13 @@ fn codex_wrapper_applies_tool_permissions_when_helper_is_broken() {
 #[test]
 fn wrapper_helper_allowlist_includes_agent_binary() {
     assert!(current_exe_can_act_as_wrapper_helper(Path::new("codux")));
+    assert!(current_exe_can_act_as_wrapper_helper(Path::new(
+        "codux.exe"
+    )));
     assert!(current_exe_can_act_as_wrapper_helper(Path::new("Codux")));
+    assert!(current_exe_can_act_as_wrapper_helper(Path::new(
+        "Codux.exe"
+    )));
     assert!(current_exe_can_act_as_wrapper_helper(Path::new(
         "Codux Dev"
     )));

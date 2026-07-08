@@ -1,10 +1,10 @@
 $ErrorActionPreference = "Stop"
 $argv = @($args)
 $profileId = if ($argv.Count -gt 0) { [string]$argv[0] } else { "" }
-$helper = Join-Path $PSScriptRoot "codux-wrapper-helper.exe"
-if (-not (Test-Path $helper)) {
-  $helper = Join-Path $PSScriptRoot "codux-wrapper-helper"
-}
+$wrapperDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+if ($wrapperDir.StartsWith('\\?\UNC\')) { $wrapperDir = '\\' + $wrapperDir.Substring(8) }
+elseif ($wrapperDir.StartsWith('\\?\')) { $wrapperDir = $wrapperDir.Substring(4) }
+$helper = Join-Path $wrapperDir "codux-wrapper-helper.exe"
 $jsonOutput = "false"
 
 function Usage {

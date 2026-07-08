@@ -17,7 +17,6 @@ fn tracks_synchronized_output_across_chunks() {
             entered_from_idle: true,
             exited_to_idle: false,
             should_notify: false,
-            ended_at_sync_exit: false,
         }
     );
     assert_eq!(depth, 1);
@@ -28,7 +27,6 @@ fn tracks_synchronized_output_across_chunks() {
             entered_from_idle: false,
             exited_to_idle: true,
             should_notify: true,
-            ended_at_sync_exit: true,
         }
     );
     assert_eq!(depth, 0);
@@ -44,23 +42,6 @@ fn reports_notify_when_synchronized_output_ends() {
             entered_from_idle: true,
             exited_to_idle: true,
             should_notify: true,
-            ended_at_sync_exit: true,
-        }
-    );
-    assert_eq!(depth, 0);
-
-    // Bytes after the frame commit mean the cursor correction already arrived.
-    assert_eq!(
-        update_synchronized_output_state(
-            b"\x1b[?2026hframe\x1b[?2026l\x1b[23;3H\x1b[?25h",
-            &mut depth,
-            &mut tail,
-        ),
-        SyncOutputUpdate {
-            entered_from_idle: true,
-            exited_to_idle: true,
-            should_notify: true,
-            ended_at_sync_exit: false,
         }
     );
     assert_eq!(depth, 0);
@@ -80,7 +61,6 @@ fn tracks_nested_synchronized_output() {
             entered_from_idle: true,
             exited_to_idle: false,
             should_notify: false,
-            ended_at_sync_exit: false,
         }
     );
     assert_eq!(depth, 2);
@@ -91,7 +71,6 @@ fn tracks_nested_synchronized_output() {
             entered_from_idle: false,
             exited_to_idle: false,
             should_notify: true,
-            ended_at_sync_exit: false,
         }
     );
     assert_eq!(depth, 1);
@@ -102,7 +81,6 @@ fn tracks_nested_synchronized_output() {
             entered_from_idle: false,
             exited_to_idle: true,
             should_notify: true,
-            ended_at_sync_exit: true,
         }
     );
     assert_eq!(depth, 0);
@@ -239,86 +217,40 @@ fn color_scheme_queries_write_current_scheme() {
     assert_eq!(state.written_bytes_for_test(), b"\x1b[?997;2n\x1b[?997;2n");
 }
 // Drive one output chunk through the sync scanner and a snapshot publish,
-// the way process_output_bytes + the async publish do in production: the
-// hold decision is latched when the snapshot is scheduled.
-fn feed(state: &mut TerminalModel, bytes: &[u8]) {
-    let update = state.update_synchronized_output_state(bytes);
-    state.note_output_sync_boundary(update);
-    state.process_bytes(bytes);
-}
-
+// the way process_output_bytes + the async publish do in production.
 fn feed_and_publish(state: &mut TerminalModel, bytes: &[u8]) {
-    feed(state, bytes);
-    let hold_cursor = state.cursor_correction_pending;
+    let _update = state.update_synchronized_output_state(bytes);
+    state.process_bytes(bytes);
     let snapshot = state.handle.screen.lock().snapshot();
-    state.publish_completed_snapshot(snapshot, Duration::ZERO, hold_cursor);
+    state.publish_completed_snapshot(snapshot, Duration::ZERO);
 }
 
 #[test]
-fn conpty_frame_commit_keeps_previous_cursor_until_correction() {
+fn synchronized_frame_commit_publishes_snapshot_cursor() {
     let mut state = TerminalModel::new_for_test(80, 25, 100);
-    state.conpty_output = true;
 
     // Settled state: prompt drawn, cursor at row 23 col 3 (1-based).
     feed_and_publish(&mut state, b"codex\x1b[23;3H");
     let settled = state.handle.snapshot().cursor;
     assert_eq!((settled.row, settled.col, settled.visible), (22, 2, true));
 
-    // ConPTY frame commit: the chunk ends at 2026l with the cursor parked at
-    // its repaint scan position (25;31). The publish must keep the settled
-    // cursor instead of rendering the transient one.
+    // Publish the cursor reported by the terminal engine for this frame. Do
+    // not hold an older cursor: Windows TUI input relies on the latest cursor
+    // position moving with typed text.
     feed_and_publish(
         &mut state,
         b"\x1b[?2026h\x1b[?25l\x1b[19;2H\x1b[Kworking\x1b[25;31H\x1b[K\x1b[?25h\x1b[?2026l",
     );
-    let held = state.handle.snapshot().cursor;
-    assert_eq!((held.row, held.col, held.visible), (22, 2, true));
+    let frame = state.handle.snapshot().cursor;
+    assert_eq!((frame.row, frame.col, frame.visible), (24, 30, true));
 
-    // The follow-up correction restores the real cursor and publishes it.
+    // A later correction still publishes normally.
     feed_and_publish(&mut state, b"\x1b[?25l\x1b[24;6H\x1b[?25h");
     let corrected = state.handle.snapshot().cursor;
-    assert_eq!((corrected.row, corrected.col, corrected.visible), (23, 5, true));
-}
-
-#[test]
-fn conpty_cursor_hold_survives_correction_arriving_mid_publish() {
-    let mut state = TerminalModel::new_for_test(80, 25, 100);
-    state.conpty_output = true;
-    feed_and_publish(&mut state, b"codex\x1b[23;3H");
-
-    // Frame commit: publish scheduled (hold latched, snapshot taken) but not
-    // yet landed.
-    feed(
-        &mut state,
-        b"\x1b[?2026h\x1b[?25l\x1b[19;2H\x1b[Kworking\x1b[25;31H\x1b[K\x1b[?25h\x1b[?2026l",
+    assert_eq!(
+        (corrected.row, corrected.col, corrected.visible),
+        (23, 5, true)
     );
-    let hold_at_schedule = state.cursor_correction_pending;
-    let in_flight = state.handle.screen.lock().snapshot();
-
-    // The correction chunk lands on the main thread first and clears the flag.
-    feed(&mut state, b"\x1b[?25l\x1b[24;6H\x1b[?25h");
-    assert!(!state.cursor_correction_pending);
-
-    // The stale in-flight snapshot must still hold, not leak its parked
-    // cursor (25;31) through the now-cleared flag.
-    state.publish_completed_snapshot(in_flight, Duration::ZERO, hold_at_schedule);
-    let held = state.handle.snapshot().cursor;
-    assert_eq!((held.row, held.col, held.visible), (22, 2, true));
-}
-
-#[test]
-fn frame_commit_cursor_publishes_unchanged_without_conpty() {
-    let mut state = TerminalModel::new_for_test(80, 25, 100);
-
-    feed_and_publish(&mut state, b"codex\x1b[23;3H");
-    // Same commit-terminated chunk: a native emitter (mac codex) ends its
-    // frame with the cursor already at the right spot, so it must publish.
-    feed_and_publish(
-        &mut state,
-        b"\x1b[?2026h\x1b[?25l\x1b[19;2H\x1b[Kworking\x1b[25;31H\x1b[K\x1b[?25h\x1b[?2026l",
-    );
-    let cursor = state.handle.snapshot().cursor;
-    assert_eq!((cursor.row, cursor.col, cursor.visible), (24, 30, true));
 }
 
 #[test]

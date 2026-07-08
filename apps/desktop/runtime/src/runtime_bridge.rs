@@ -138,11 +138,65 @@ fn stage_embedded_runtime_bootstrap_assets(staged_root: &Path) -> Result<(), Str
 }
 
 fn stage_wrapper_helper(staged_root: &Path) -> Result<(), String> {
-    let helper_path = staged_root.join("scripts/wrappers/codux-wrapper-helper");
-    let current_exe = std::env::current_exe().map_err(|error| error.to_string())?;
-    write_if_changed_from_file(&helper_path, &current_exe)?;
-    set_executable(&helper_path);
+    let helper_path = staged_root
+        .join("scripts/wrappers")
+        .join(wrapper_helper_file_name());
+    // Old versions staged the GUI desktop exe under the extensionless name.
+    #[cfg(windows)]
+    let _ = fs::remove_file(staged_root.join("scripts/wrappers/codux-wrapper-helper"));
+    #[cfg(all(windows, test))]
+    {
+        if let Some(parent) = helper_path.parent() {
+            fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+        }
+        fs::write(&helper_path, b"test helper").map_err(|error| error.to_string())?;
+    }
+    #[cfg(all(windows, not(test)))]
+    {
+        if let Some(source_helper) =
+            packaged_wrapper_helper_path().or_else(sibling_wrapper_helper_path)
+        {
+            write_if_changed_from_file(&helper_path, &source_helper)?;
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let current_exe = std::env::current_exe().map_err(|error| error.to_string())?;
+        write_if_changed_from_file(&helper_path, &current_exe)?;
+        set_executable(&helper_path);
+    }
     Ok(())
+}
+
+#[cfg(windows)]
+fn wrapper_helper_file_name() -> &'static str {
+    "codux-wrapper-helper.exe"
+}
+
+#[cfg(all(windows, not(test)))]
+fn packaged_wrapper_helper_path() -> Option<PathBuf> {
+    let helper_path = std::env::current_exe()
+        .ok()?
+        .parent()?
+        .join("runtime-root")
+        .join("scripts")
+        .join("wrappers")
+        .join("codux-wrapper-helper.exe");
+    helper_path.is_file().then_some(helper_path)
+}
+
+#[cfg(all(windows, not(test)))]
+fn sibling_wrapper_helper_path() -> Option<PathBuf> {
+    let helper_path = std::env::current_exe()
+        .ok()?
+        .parent()?
+        .join("codux-wrapper-helper.exe");
+    helper_path.is_file().then_some(helper_path)
+}
+
+#[cfg(not(windows))]
+fn wrapper_helper_file_name() -> &'static str {
+    "codux-wrapper-helper"
 }
 
 fn copy_dir_recursive(source: &Path, destination: &Path) -> Result<(), String> {
@@ -197,18 +251,16 @@ fn write_if_changed_from_file(destination: &Path, source: &Path) -> Result<(), S
     fs::rename(&tmp, destination).map_err(|error| error.to_string())
 }
 
-#[cfg(windows)]
+#[cfg(all(windows, not(test)))]
 fn write_if_changed_from_file(destination: &Path, source: &Path) -> Result<(), String> {
-    if matches!(fs::read(destination), Ok(existing) if matches!(fs::read(source), Ok(source_bytes) if existing == source_bytes))
-    {
+    let source_bytes = fs::read(source).map_err(|error| error.to_string())?;
+    if matches!(fs::read(destination), Ok(existing) if existing == source_bytes) {
         return Ok(());
     }
     if let Some(parent) = destination.parent() {
         fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
-    fs::copy(source, destination)
-        .map(|_| ())
-        .map_err(|error| error.to_string())
+    fs::write(destination, source_bytes).map_err(|error| error.to_string())
 }
 
 #[cfg(unix)]
@@ -289,7 +341,8 @@ mod tests {
         );
         assert!(
             target
-                .join("scripts/wrappers/codux-wrapper-helper")
+                .join("scripts/wrappers")
+                .join(wrapper_helper_file_name())
                 .exists()
         );
 

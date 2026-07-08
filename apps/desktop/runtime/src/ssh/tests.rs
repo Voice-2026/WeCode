@@ -443,7 +443,10 @@ fn codux_ssh_scp_expands_remote_colon_path_and_invokes_scp() {
         "{recorded}"
     );
     assert!(recorded.contains("./local.log"), "{recorded}");
-    assert!(recorded.contains("StrictHostKeyChecking=accept-new"), "{recorded}");
+    assert!(
+        recorded.contains("StrictHostKeyChecking=accept-new"),
+        "{recorded}"
+    );
     assert!(recorded.lines().any(|line| line == "-i"), "{recorded}");
 
     fs::remove_dir_all(dir).ok();

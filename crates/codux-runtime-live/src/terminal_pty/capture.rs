@@ -59,7 +59,13 @@ fn raw_capture_file(session_id: &str) -> Option<RawCapture> {
     std::fs::create_dir_all(&dir).ok()?;
     let name: String = session_id
         .chars()
-        .map(|ch| if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' { ch } else { '_' })
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
+                ch
+            } else {
+                '_'
+            }
+        })
         .collect();
     let open = |extension: &str| {
         std::fs::OpenOptions::new()

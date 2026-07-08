@@ -23,9 +23,7 @@ pub fn runtime_temp_dir() -> PathBuf {
     ROOT.get_or_init(|| {
         let base = std::env::temp_dir();
         // Resolve the temp root's real path so codex's macOS Seatbelt sees /private/var, not the /var alias (the mismatch EPERMs sandboxed writes). dunce keeps that resolution but drops the \\?\ verbatim prefix std::fs::canonicalize adds on Windows, which breaks the PowerShell tool wrappers (Join-Path/$PSScriptRoot).
-        dunce::canonicalize(&base)
-            .unwrap_or(base)
-            .join(app_slug())
+        dunce::canonicalize(&base).unwrap_or(base).join(app_slug())
     })
     .clone()
 }

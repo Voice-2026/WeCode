@@ -15,12 +15,11 @@ use gpui::{
     App, AppContext, Bounds, ClipboardEntry, ClipboardItem, ContentMask, Context, Corners,
     CursorStyle, Edges, Element, ElementId, Entity, ExternalPaths, FocusHandle, Focusable, Font,
     FontFeatures, FontStyle, FontWeight, GlobalElementId, Hsla, ImageFormat, InputHandler,
-    InspectorElementId, RenderImage,
-    InteractiveElement, IntoElement, KeyDownEvent, Keystroke, LayoutId, Modifiers,
-    ModifiersChangedEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
-    NavigationDirection, ParentElement, Pixels, Point, Render, ScrollWheelEvent, SharedString,
-    Size, StatefulInteractiveElement, Style, Styled, Subscription, Task, TextAlign, TextRun,
-    TouchPhase, UTF16Selection, UnderlineStyle, WeakEntity, Window, div, px, quad, rgb,
+    InspectorElementId, InteractiveElement, IntoElement, KeyDownEvent, Keystroke, LayoutId,
+    Modifiers, ModifiersChangedEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
+    NavigationDirection, ParentElement, Pixels, Point, Render, RenderImage, ScrollWheelEvent,
+    SharedString, Size, StatefulInteractiveElement, Style, Styled, Subscription, Task, TextAlign,
+    TextRun, TouchPhase, UTF16Selection, UnderlineStyle, WeakEntity, Window, div, px, quad, rgb,
     transparent_black,
 };
 use gpui_component::input::{Input, InputEvent, InputState};

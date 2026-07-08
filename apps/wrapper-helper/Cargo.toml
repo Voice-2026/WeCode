@@ -1,0 +1,11 @@
+[package]
+name = "codux-wrapper-helper"
+version = "2.0.0-beta.6"
+edition = "2024"
+
+[dependencies]
+codux-runtime-live = { path = "../../crates/codux-runtime-live" }
+
+[[bin]]
+name = "codux-wrapper-helper"
+path = "src/main.rs"

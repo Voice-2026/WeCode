@@ -8,7 +8,7 @@ pub struct TerminalView {
     layout: Arc<Mutex<TerminalLayoutMetrics>>,
     selection: Arc<Mutex<SelectionState>>,
     scroll_handle: TerminalScrollHandle,
-    marked_text: Option<String>,
+    marked_text: Option<TerminalMarkedText>,
     hover_link: Option<TerminalLink>,
     suppressed_text_input: Option<TerminalSuppressedTextInput>,
     scroll_input: TerminalScrollInputState,
@@ -46,6 +46,30 @@ struct TerminalScrollInputState {
 struct TerminalSuppressedTextInput {
     text: String,
     expires_at: Instant,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct TerminalMarkedText {
+    text: String,
+    selected_range_utf16: Range<usize>,
+}
+
+impl TerminalMarkedText {
+    fn new(text: String, selected_range_utf16: Option<Range<usize>>) -> Option<Self> {
+        if text.is_empty() {
+            return None;
+        }
+        let len = text.encode_utf16().count();
+        let selected_range_utf16 = clamp_utf16_range(selected_range_utf16.unwrap_or(len..len), len);
+        Some(Self {
+            text,
+            selected_range_utf16,
+        })
+    }
+
+    fn marked_range_utf16(&self) -> Range<usize> {
+        0..self.text.encode_utf16().count()
+    }
 }
 
 const TERMINAL_TEXT_INPUT_SUPPRESS_WINDOW: Duration = Duration::from_millis(350);
@@ -1174,13 +1198,27 @@ impl TerminalView {
         true
     }
 
-    fn set_marked_text(&mut self, text: String, cx: &mut Context<Self>) {
-        if text.is_empty() {
+    fn set_marked_text(
+        &mut self,
+        text: String,
+        selected_range_utf16: Option<Range<usize>>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(marked_text) = TerminalMarkedText::new(text, selected_range_utf16) else {
             self.clear_marked_text(cx);
             return;
+        };
+        if terminal_trace_enabled() {
+            terminal_trace(&format!(
+                "ime_marked_text len_utf16={} selected={:?}",
+                marked_text.marked_range_utf16().end,
+                marked_text.selected_range_utf16
+            ));
         }
-        self.marked_text = Some(text);
-        cx.notify();
+        if self.marked_text.as_ref() != Some(&marked_text) {
+            self.marked_text = Some(marked_text);
+            cx.notify();
+        }
     }
 
     fn clear_marked_text(&mut self, cx: &mut Context<Self>) {
@@ -1192,7 +1230,20 @@ impl TerminalView {
     fn marked_text_range(&self) -> Option<Range<usize>> {
         self.marked_text
             .as_ref()
-            .map(|text| 0..text.encode_utf16().count())
+            .map(TerminalMarkedText::marked_range_utf16)
+    }
+
+    fn marked_text_selection_range(&self) -> Option<Range<usize>> {
+        self.marked_text
+            .as_ref()
+            .map(|marked_text| marked_text.selected_range_utf16.clone())
+    }
+
+    fn marked_text_for_range(&self, range_utf16: Range<usize>) -> Option<String> {
+        let marked_text = self.marked_text.as_ref()?;
+        let len = marked_text.text.encode_utf16().count();
+        let range = clamp_utf16_range(range_utf16, len);
+        Some(utf16_substring(&marked_text.text, range))
     }
 }
 

@@ -23,7 +23,10 @@ impl Render for TerminalView {
             focus_handle: self.focus_handle.clone(),
             terminal_view: cx.weak_entity(),
             padding: self.config.padding,
-            marked_text: self.marked_text.clone(),
+            marked_text: self
+                .marked_text
+                .as_ref()
+                .map(|marked_text| marked_text.text.clone()),
             hover_link: self.hover_link.clone(),
             cursor_visible,
             cursor_focused: terminal_focused,

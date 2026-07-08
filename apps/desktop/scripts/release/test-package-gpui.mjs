@@ -9,7 +9,7 @@ import path from "node:path";
 process.env.CODUX_PACKAGE_GPUI_TEST_MODE = "true";
 process.env.RELEASE_STAGE_DIR = "target/release-package-test";
 
-const { __testStageRuntimeAssets, __testWindowsNsisScript } = await import("./package-gpui.mjs");
+const { __testPackageWindows, __testStageRuntimeAssets, __testWindowsNsisScript } = await import("./package-gpui.mjs");
 
 const script = __testWindowsNsisScript(
   path.join("C:", "tmp", "Codux"),
@@ -47,7 +47,13 @@ try {
     "scripts/shell-hooks/zsh/.zshrc",
     "scripts/wrappers/tool-wrapper.sh",
     "scripts/wrappers/dmux-ai-state.sh",
+    "scripts/wrappers/codux-ssh.ps1",
+    "scripts/wrappers/codux-db.ps1",
     "scripts/wrappers/bin/codex",
+    "scripts/wrappers/bin/codux-ssh",
+    "scripts/wrappers/bin/codux-ssh.ps1",
+    "scripts/wrappers/bin/codux-db",
+    "scripts/wrappers/bin/codux-db.ps1",
   ]) {
     assert.equal(fs.existsSync(path.join(runtimeRoot, relativePath)), true, `${relativePath} should be packaged`);
   }
@@ -57,6 +63,45 @@ try {
 }
 
 console.log("package-gpui installer test passed");
+
+if (process.platform === "win32") {
+  const binaryDir = fs.mkdtempSync(path.join(os.tmpdir(), "codux-package-binaries-"));
+  const packageDir = fs.mkdtempSync(path.join(os.tmpdir(), "codux-package-output-"));
+  try {
+    fs.writeFileSync(path.join(binaryDir, "codux.exe"), "gui");
+    fs.writeFileSync(path.join(binaryDir, "codux-wrapper-helper.exe"), "console-helper");
+    const oldBinaryDir = process.env.CODUX_RELEASE_BINARY_DIR;
+    const oldTestPackageDir = process.env.CODUX_TEST_PACKAGE_DIR;
+    const oldSkipMakensis = process.env.CODUX_TEST_SKIP_MAKENSIS;
+    process.env.CODUX_RELEASE_BINARY_DIR = binaryDir;
+    process.env.CODUX_TEST_PACKAGE_DIR = packageDir;
+    process.env.CODUX_TEST_SKIP_MAKENSIS = "true";
+    __testPackageWindows();
+    process.env.CODUX_RELEASE_BINARY_DIR = oldBinaryDir;
+    process.env.CODUX_TEST_PACKAGE_DIR = oldTestPackageDir;
+    process.env.CODUX_TEST_SKIP_MAKENSIS = oldSkipMakensis;
+
+    assert.equal(
+      fs.readFileSync(path.join(packageDir, "runtime-root", "scripts", "wrappers", "codux-wrapper-helper.exe"), "utf8"),
+      "console-helper",
+      "Windows package should include the console wrapper helper",
+    );
+
+    const outputDir = path.join(
+      process.cwd(),
+      process.env.RELEASE_STAGE_DIR,
+      process.env.RELEASE_BUILD_ID || `${process.platform}-${process.arch}`,
+    );
+    assert.equal(
+      fs.readdirSync(outputDir).some((name) => name.endsWith("-setup.exe")),
+      true,
+      "mock installer should be produced",
+    );
+  } finally {
+    fs.rmSync(binaryDir, { recursive: true, force: true });
+    fs.rmSync(packageDir, { recursive: true, force: true });
+  }
+}
 
 function assertNoSymlinks(root) {
   for (const entry of fs.readdirSync(root, { withFileTypes: true })) {

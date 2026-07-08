@@ -69,18 +69,22 @@ fn multiple_same_tool_sessions_are_isolated_by_terminal_id() {
     let snapshot = store.snapshot();
     assert_eq!(snapshot.running_count, 1);
     assert_eq!(snapshot.global_totals.running, 2);
-    assert!(snapshot
-        .sessions
-        .iter()
-        .any(|session| session.terminal_id == "codex-term-1"
-            && session.ai_session_id.as_deref() == Some("codex-session-1")
-            && session.state == "responding"));
-    assert!(snapshot
-        .sessions
-        .iter()
-        .any(|session| session.terminal_id == "codex-term-2"
-            && session.ai_session_id.as_deref() == Some("codex-session-2")
-            && session.state == "responding"));
+    assert!(
+        snapshot
+            .sessions
+            .iter()
+            .any(|session| session.terminal_id == "codex-term-1"
+                && session.ai_session_id.as_deref() == Some("codex-session-1")
+                && session.state == "responding")
+    );
+    assert!(
+        snapshot
+            .sessions
+            .iter()
+            .any(|session| session.terminal_id == "codex-term-2"
+                && session.ai_session_id.as_deref() == Some("codex-session-2")
+                && session.state == "responding")
+    );
 
     assert!(
         store
@@ -99,16 +103,20 @@ fn multiple_same_tool_sessions_are_isolated_by_terminal_id() {
     let snapshot = store.snapshot();
     assert_eq!(snapshot.running_count, 1);
     assert_eq!(snapshot.global_totals.running, 1);
-    assert!(snapshot
-        .sessions
-        .iter()
-        .any(|session| session.terminal_id == "codex-term-1" && session.state == "idle"));
-    assert!(snapshot
-        .sessions
-        .iter()
-        .any(|session| session.terminal_id == "codex-term-2"
-            && session.ai_session_id.as_deref() == Some("codex-session-2")
-            && session.state == "responding"));
+    assert!(
+        snapshot
+            .sessions
+            .iter()
+            .any(|session| session.terminal_id == "codex-term-1" && session.state == "idle")
+    );
+    assert!(
+        snapshot
+            .sessions
+            .iter()
+            .any(|session| session.terminal_id == "codex-term-2"
+                && session.ai_session_id.as_deref() == Some("codex-session-2")
+                && session.state == "responding")
+    );
 }
 #[test]
 fn multiple_claude_sessions_are_isolated_by_terminal_id_and_external_session_id() {
@@ -137,18 +145,22 @@ fn multiple_claude_sessions_are_isolated_by_terminal_id_and_external_session_id(
     let snapshot = store.snapshot();
     assert_eq!(snapshot.running_count, 1);
     assert_eq!(snapshot.global_totals.running, 2);
-    assert!(snapshot
-        .sessions
-        .iter()
-        .any(|session| session.terminal_id == "claude-term-1"
-            && session.tool == "claude"
-            && session.ai_session_id.as_deref() == Some("claude-external-1")));
-    assert!(snapshot
-        .sessions
-        .iter()
-        .any(|session| session.terminal_id == "claude-term-2"
-            && session.tool == "claude"
-            && session.ai_session_id.as_deref() == Some("claude-external-2")));
+    assert!(
+        snapshot
+            .sessions
+            .iter()
+            .any(|session| session.terminal_id == "claude-term-1"
+                && session.tool == "claude"
+                && session.ai_session_id.as_deref() == Some("claude-external-1"))
+    );
+    assert!(
+        snapshot
+            .sessions
+            .iter()
+            .any(|session| session.terminal_id == "claude-term-2"
+                && session.tool == "claude"
+                && session.ai_session_id.as_deref() == Some("claude-external-2"))
+    );
 }
 #[test]
 fn stale_runtime_completion_snapshot_after_prompt_stays_running() {

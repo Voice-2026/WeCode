@@ -120,18 +120,20 @@ fn same_session_next_prompt_completion_notifies_again() {
             .apply_hook(test_hook("promptSubmitted", 1020.0))
             .did_change
     );
-    assert!(store
-        .apply_hook(AIHookEventPayload {
-            kind: "turnCompleted".to_string(),
-            updated_at: 1030.0,
-            metadata: Some(AIHookEventMetadata {
-                has_completed_turn: Some(true),
-                ..empty_metadata()
-            }),
-            ..test_hook("turnCompleted", 1030.0)
-        })
-        .completion
-        .is_some());
+    assert!(
+        store
+            .apply_hook(AIHookEventPayload {
+                kind: "turnCompleted".to_string(),
+                updated_at: 1030.0,
+                metadata: Some(AIHookEventMetadata {
+                    has_completed_turn: Some(true),
+                    ..empty_metadata()
+                }),
+                ..test_hook("turnCompleted", 1030.0)
+            })
+            .completion
+            .is_some()
+    );
 
     assert!(
         store
@@ -283,18 +285,20 @@ fn timed_out_unfinished_session_still_suppresses_old_completion() {
             .apply_hook(test_hook_for("codex", "terminal-a", "session-a", 1000.0))
             .did_change
     );
-    assert!(store
-        .apply_hook(AIHookEventPayload {
-            kind: "turnCompleted".to_string(),
-            updated_at: 1010.0,
-            metadata: Some(AIHookEventMetadata {
-                has_completed_turn: Some(true),
-                ..empty_metadata()
-            }),
-            ..test_hook_for("codex", "terminal-a", "session-a", 1010.0)
-        })
-        .completion
-        .is_some());
+    assert!(
+        store
+            .apply_hook(AIHookEventPayload {
+                kind: "turnCompleted".to_string(),
+                updated_at: 1010.0,
+                metadata: Some(AIHookEventMetadata {
+                    has_completed_turn: Some(true),
+                    ..empty_metadata()
+                }),
+                ..test_hook_for("codex", "terminal-a", "session-a", 1010.0)
+            })
+            .completion
+            .is_some()
+    );
     assert!(
         store
             .apply_hook(test_hook_for("codex", "terminal-b", "session-b", 1020.0))

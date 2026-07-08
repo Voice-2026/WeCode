@@ -164,7 +164,39 @@ impl AIRuntimeBridge {
     }
 
     #[cfg(windows)]
-    fn stage_wrapper_helper(&self, _wrapper_dir: &Path) -> Result<(), String> {
+    fn stage_wrapper_helper(&self, wrapper_dir: &Path) -> Result<(), String> {
+        let helper_path = wrapper_dir.join("codux-wrapper-helper.exe");
+        // Old versions staged the GUI desktop exe under the extensionless
+        // name; the PS wrappers must never pick that up again.
+        let _ = fs::remove_file(wrapper_dir.join("codux-wrapper-helper"));
+        #[cfg(test)]
+        {
+            write_if_changed(&helper_path, b"test helper")?;
+        }
+        #[cfg(not(test))]
+        {
+            if let Some(source_helper) =
+                packaged_wrapper_helper_path().or_else(sibling_wrapper_helper_path)
+            {
+                write_if_changed_from_file(&helper_path, &source_helper)?;
+                return Ok(());
+            }
+            let current_exe = std::env::current_exe().map_err(|error| error.to_string())?;
+            if windows_console_exe_can_act_as_wrapper_helper(&current_exe) {
+                write_if_changed_from_file(&helper_path, &current_exe)?;
+                return Ok(());
+            }
+            if helper_path.exists() {
+                return Ok(());
+            }
+            runtime_log_line(
+                "runtime-startup",
+                &format!(
+                    "skip wrapper helper staging: packaged helper is missing current_exe={}",
+                    current_exe.display()
+                ),
+            );
+        }
         Ok(())
     }
 
@@ -261,6 +293,18 @@ fn write_if_changed_from_file(destination: &Path, source: &Path) -> Result<(), S
     fs::rename(&tmp, destination).map_err(|error| error.to_string())
 }
 
+#[cfg(all(not(test), windows))]
+fn write_if_changed_from_file(destination: &Path, source: &Path) -> Result<(), String> {
+    let source_bytes = fs::read(source).map_err(|error| error.to_string())?;
+    if matches!(fs::read(destination), Ok(existing) if existing == source_bytes) {
+        return Ok(());
+    }
+    if let Some(parent) = destination.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    fs::write(destination, source_bytes).map_err(|error| error.to_string())
+}
+
 #[cfg(unix)]
 fn set_executable(path: &Path) {
     use std::os::unix::fs::PermissionsExt;
@@ -270,11 +314,42 @@ fn set_executable(path: &Path) {
     let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o755));
 }
 
-#[cfg(not(windows))]
+#[cfg(any(test, not(windows)))]
 pub(super) fn current_exe_can_act_as_wrapper_helper(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
+        .map(|name| name.strip_suffix(".exe").unwrap_or(name))
         .is_some_and(|name| matches!(name, "codux" | "Codux" | "Codux Dev" | "codux-agent"))
+}
+
+// Desktop binaries are windows-subsystem (no console stdout); only the
+// console-subsystem agent can stand in for the packaged helper.
+#[cfg(all(not(test), windows))]
+fn windows_console_exe_can_act_as_wrapper_helper(path: &Path) -> bool {
+    path.file_stem()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.eq_ignore_ascii_case("codux-agent"))
+}
+
+#[cfg(all(not(test), windows))]
+fn packaged_wrapper_helper_path() -> Option<PathBuf> {
+    let helper_path = std::env::current_exe()
+        .ok()?
+        .parent()?
+        .join("runtime-root")
+        .join("scripts")
+        .join("wrappers")
+        .join("codux-wrapper-helper.exe");
+    helper_path.is_file().then_some(helper_path)
+}
+
+#[cfg(all(not(test), windows))]
+fn sibling_wrapper_helper_path() -> Option<PathBuf> {
+    let helper_path = std::env::current_exe()
+        .ok()?
+        .parent()?
+        .join("codux-wrapper-helper.exe");
+    helper_path.is_file().then_some(helper_path)
 }
 
 #[cfg(all(test, not(windows)))]

@@ -29,9 +29,19 @@ fn bridge_stages_runtime_assets_without_installing_hooks() {
 
         assert!(bridge.wrapper_bin_dir().join("codex.ps1").is_file());
         assert!(bridge.wrapper_bin_dir().join("kiro-cli.ps1").is_file());
+        assert!(
+            bridge
+                .wrapper_bin_dir()
+                .parent()
+                .unwrap()
+                .join("codux-wrapper-helper.exe")
+                .is_file()
+        );
         assert!(!bridge.wrapper_bin_dir().join("kiro.ps1").exists());
         assert!(!bridge.wrapper_bin_dir().join("kiro.cmd").exists());
         assert!(bridge.wrapper_bin_dir().join("codewhale.ps1").is_file());
+        assert!(bridge.wrapper_bin_dir().join("codux-ssh.ps1").is_file());
+        assert!(bridge.wrapper_bin_dir().join("codux-db.ps1").is_file());
         assert!(bridge.wrapper_bin_dir().join("kimi.ps1").is_file());
         assert!(bridge.wrapper_bin_dir().join("kimi-code.ps1").is_file());
         assert!(bridge.wrapper_bin_dir().join("mimo.ps1").is_file());

@@ -87,11 +87,69 @@ fn ime_bounds_for_range_offsets_from_current_cursor_cell() {
         },
     };
 
-    let bounds = ime_bounds_for_range(Some(cursor), &layout, 2..4).unwrap();
+    let bounds = ime_bounds_for_range(Some(cursor), &layout, None, 2..4).unwrap();
 
     assert_eq!(bounds.origin.x, px(45.0));
     assert_eq!(bounds.origin.y, px(42.0));
 }
+
+#[test]
+fn ime_bounds_for_range_uses_marked_text_terminal_width() {
+    let mut layout = TerminalLayoutMetrics::default();
+    layout.update(
+        Bounds {
+            origin: Point {
+                x: px(10.0),
+                y: px(20.0),
+            },
+            size: Size {
+                width: px(100.0),
+                height: px(80.0),
+            },
+        },
+        Edges::all(px(0.0)),
+        px(10.0),
+        px(20.0),
+        10,
+        4,
+    );
+    let cursor = Bounds {
+        origin: Point {
+            x: px(30.0),
+            y: px(60.0),
+        },
+        size: Size {
+            width: px(10.0),
+            height: px(20.0),
+        },
+    };
+
+    let bounds = ime_bounds_for_range(Some(cursor), &layout, Some("你好abc"), 2..2).unwrap();
+
+    assert_eq!(bounds.origin.x, px(70.0));
+    assert_eq!(bounds.origin.y, px(60.0));
+}
+
+#[test]
+fn terminal_marked_text_keeps_ime_selection_range() {
+    let marked = TerminalMarkedText::new("你好今天".to_string(), Some(2..2)).unwrap();
+
+    assert_eq!(marked.marked_range_utf16(), 0..4);
+    assert_eq!(marked.selected_range_utf16, 2..2);
+
+    let defaulted = TerminalMarkedText::new("你好".to_string(), None).unwrap();
+    assert_eq!(defaulted.selected_range_utf16, 2..2);
+
+    let clamped = TerminalMarkedText::new("你好".to_string(), Some(9..10)).unwrap();
+    assert_eq!(clamped.selected_range_utf16, 2..2);
+}
+
+#[test]
+fn marked_text_range_extracts_utf16_substring() {
+    assert_eq!(utf16_substring("a你b", 1..2), "你");
+    assert_eq!(utf16_substring("a你b", 2..3), "b");
+}
+
 #[test]
 fn ime_bounds_fall_back_to_first_cell_when_terminal_has_no_cursor_rect() {
     let mut layout = TerminalLayoutMetrics::default();
@@ -118,7 +176,7 @@ fn ime_bounds_fall_back_to_first_cell_when_terminal_has_no_cursor_rect() {
         4,
     );
 
-    let bounds = ime_bounds_for_range(layout.first_cell_ime_bounds(), &layout, 0..0).unwrap();
+    let bounds = ime_bounds_for_range(layout.first_cell_ime_bounds(), &layout, None, 0..0).unwrap();
 
     assert_eq!(bounds.origin.x, px(15.0));
     assert_eq!(bounds.origin.y, px(22.0));
@@ -158,7 +216,8 @@ fn ime_bounds_reuse_last_valid_cursor_when_current_cursor_is_missing() {
     layout.record_ime_cursor_bounds(Some(cursor));
     layout.record_ime_cursor_bounds(None);
 
-    let bounds = ime_bounds_for_range(layout.last_ime_cursor_bounds(), &layout, 1..1).unwrap();
+    let bounds =
+        ime_bounds_for_range(layout.last_ime_cursor_bounds(), &layout, None, 1..1).unwrap();
 
     assert_eq!(bounds.origin.x, px(40.0));
     assert_eq!(bounds.origin.y, px(60.0));
@@ -246,7 +305,7 @@ fn ime_bounds_ignore_cached_cursor_outside_current_terminal_bounds() {
     }));
 
     assert!(layout.last_ime_cursor_bounds().is_none());
-    let bounds = ime_bounds_for_range(layout.first_cell_ime_bounds(), &layout, 0..0).unwrap();
+    let bounds = ime_bounds_for_range(layout.first_cell_ime_bounds(), &layout, None, 0..0).unwrap();
 
     assert_eq!(bounds.origin.x, px(15.0));
     assert_eq!(bounds.origin.y, px(22.0));

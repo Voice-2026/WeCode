@@ -110,10 +110,6 @@ struct SyncOutputUpdate {
     entered_from_idle: bool,
     exited_to_idle: bool,
     should_notify: bool,
-    // The scanned bytes end exactly at a frame commit (2026l with depth 0):
-    // ConPTY restores the real cursor position only after the frame, so the
-    // cursor state at this boundary is its transient repaint scan position.
-    ended_at_sync_exit: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -165,7 +161,6 @@ fn update_synchronized_output_state(
                 }
             }
             index += END.len();
-            update.ended_at_sync_exit = *depth == 0 && index == scan.len();
             continue;
         }
         index += 1;

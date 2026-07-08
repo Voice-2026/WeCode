@@ -1579,6 +1579,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "codux-wrapper-helper"
+version = "2.0.0-beta.6"
+dependencies = [
+ "codux-runtime-live",
+]
+
+[[package]]
 name = "collections"
 version = "0.1.0"
 source = "git+https://github.com/zed-industries/zed#b328711bbe13b09784de4f4ac5a64c1b3d3b9e2f"

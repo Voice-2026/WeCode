@@ -14,9 +14,6 @@ pub struct TerminalConfig {
     pub language: String,
     /// User-preferred shell for newly spawned local PTYs; None = platform default.
     pub shell: Option<String>,
-    /// Output comes from ConPTY (local PTY on Windows), which parks the cursor
-    /// at its repaint scan position when a synchronized frame commits.
-    pub conpty_output: bool,
 }
 
 pub fn terminal_config() -> TerminalConfig {
@@ -54,7 +51,6 @@ pub fn terminal_config() -> TerminalConfig {
         paste_images_as_paths: true,
         language: String::new(),
         shell: None,
-        conpty_output: false,
     }
 }
 

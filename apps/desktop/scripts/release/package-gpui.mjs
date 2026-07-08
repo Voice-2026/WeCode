@@ -154,18 +154,34 @@ function appleNotaryConfigured() {
 
 function packageWindows() {
   const exePath = releaseBinaryPath(".exe");
+  const helperPath = releaseBinaryPath(".exe", "codux-wrapper-helper");
   withTempDir("codux-windows-", (tempDir) => {
     const packageDir = path.join(tempDir, appName);
     fs.mkdirSync(packageDir, { recursive: true });
     fs.copyFileSync(exePath, path.join(packageDir, `${appName}.exe`));
     fs.copyFileSync(path.join(desktopAssetsRoot, "icons", "icon.ico"), path.join(packageDir, "icon.ico"));
     stageRuntimeAssets(path.join(packageDir, "runtime-root"));
+    fs.copyFileSync(
+      helperPath,
+      path.join(packageDir, "runtime-root", "scripts", "wrappers", "codux-wrapper-helper.exe"),
+    );
+    if (process.env.CODUX_TEST_PACKAGE_DIR) {
+      fs.rmSync(process.env.CODUX_TEST_PACKAGE_DIR, { recursive: true, force: true });
+      fs.cpSync(packageDir, process.env.CODUX_TEST_PACKAGE_DIR, {
+        recursive: true,
+        dereference: true,
+      });
+    }
 
     const installerScriptPath = path.join(tempDir, `${appName}.nsi`);
     const installerPath = path.join(outputDir, `${artifactBaseName("windows")}-setup.exe`);
     // BOM so makensis reads the localized LangStrings as UTF-8.
     fs.writeFileSync(installerScriptPath, "\ufeff" + windowsNsisScript(packageDir, installerPath), "utf8");
-    run(windowsMakensisCommand(), [installerScriptPath]);
+    if (process.env.CODUX_TEST_SKIP_MAKENSIS === "true") {
+      fs.writeFileSync(installerPath, "");
+    } else {
+      run(windowsMakensisCommand(), [installerScriptPath]);
+    }
     writeSha256(installerPath);
     signTauriUpdaterArtifact(installerPath);
     writeStableAliasCopy(installerPath, `${stableArtifactBaseName("windows")}-setup.exe`);
@@ -233,7 +249,13 @@ function assertRuntimeBootstrapAssets(runtimeRoot) {
     "scripts/shell-hooks/zsh/.zshrc",
     "scripts/wrappers/tool-wrapper.sh",
     "scripts/wrappers/dmux-ai-state.sh",
+    "scripts/wrappers/codux-ssh.ps1",
+    "scripts/wrappers/codux-db.ps1",
     "scripts/wrappers/bin/codex",
+    "scripts/wrappers/bin/codux-ssh",
+    "scripts/wrappers/bin/codux-ssh.ps1",
+    "scripts/wrappers/bin/codux-db",
+    "scripts/wrappers/bin/codux-db.ps1",
   ];
   const missing = required.filter((relativePath) => !fs.existsSync(path.join(runtimeRoot, relativePath)));
   if (missing.length > 0) {
@@ -241,10 +263,18 @@ function assertRuntimeBootstrapAssets(runtimeRoot) {
   }
 }
 
-function releaseBinaryPath(extension) {
+function releaseBinaryPath(extension, name = binaryName) {
+  const releaseBinaryOverrideDir = process.env.CODUX_RELEASE_BINARY_DIR?.trim() || "";
+  if (releaseBinaryOverrideDir) {
+    const binaryPath = path.join(releaseBinaryOverrideDir, `${name}${extension}`);
+    if (!fs.existsSync(binaryPath)) {
+      throw new Error(`Built binary not found: ${binaryPath}`);
+    }
+    return binaryPath;
+  }
   const segments = [root, "target"];
   if (target) segments.push(target);
-  segments.push(profile, `${binaryName}${extension}`);
+  segments.push(profile, `${name}${extension}`);
   const binaryPath = path.join(...segments);
   if (!fs.existsSync(binaryPath)) {
     throw new Error(`Built binary not found: ${binaryPath}`);
@@ -573,4 +603,8 @@ export function __testWindowsNsisScript(packageDir, installerPath) {
 
 export function __testStageRuntimeAssets(destination) {
   stageRuntimeAssets(destination);
+}
+
+export function __testPackageWindows() {
+  packageWindows();
 }

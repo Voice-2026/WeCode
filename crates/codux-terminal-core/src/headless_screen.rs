@@ -4,12 +4,12 @@ use std::sync::{Arc, mpsc};
 use std::thread;
 
 use alacritty_terminal::event::{Event, EventListener, WindowSize};
-use base64::{Engine as _, engine::general_purpose};
 use alacritty_terminal::grid::{Dimensions, Scroll};
 use alacritty_terminal::index::{Column, Line, Point};
 use alacritty_terminal::term::cell::{Cell, Flags};
 use alacritty_terminal::term::{Config as AlacrittyConfig, Term, TermMode};
 use alacritty_terminal::vte::ansi::{Color, CursorShape, NamedColor, Processor};
+use base64::{Engine as _, engine::general_purpose};
 use serde::Serialize;
 
 use crate::TerminalInputMode;
@@ -1981,7 +1981,11 @@ mod tests {
         assert_eq!(cell("c").underline, TerminalScreenUnderline::Curly);
         assert_eq!(
             cell("c").underline_color,
-            Some(TerminalScreenColor::Rgb { r: 255, g: 0, b: 10 })
+            Some(TerminalScreenColor::Rgb {
+                r: 255,
+                g: 0,
+                b: 10
+            })
         );
         assert_eq!(cell("d").underline, TerminalScreenUnderline::Double);
         assert_eq!(cell("d").underline_color, None);
@@ -2003,7 +2007,11 @@ mod tests {
         assert_eq!(dst_cell.underline, TerminalScreenUnderline::Curly);
         assert_eq!(
             dst_cell.underline_color,
-            Some(TerminalScreenColor::Rgb { r: 255, g: 0, b: 10 })
+            Some(TerminalScreenColor::Rgb {
+                r: 255,
+                g: 0,
+                b: 10
+            })
         );
     }
 

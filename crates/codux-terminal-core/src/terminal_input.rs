@@ -402,9 +402,7 @@ pub fn terminal_is_paste_shortcut(input: TerminalKeyInput<'_>) -> bool {
         "v" if modifiers.control && !modifiers.alt && !modifiers.platform => {
             modifiers.shift || cfg!(windows)
         }
-        "insert" => {
-            modifiers.shift && !modifiers.control && !modifiers.alt && !modifiers.platform
-        }
+        "insert" => modifiers.shift && !modifiers.control && !modifiers.alt && !modifiers.platform,
         _ => false,
     }
 }
@@ -546,7 +544,10 @@ fn kitty_key_sequence(input: &TerminalKeyInput<'_>) -> Option<Vec<u8>> {
             (chars.next().is_none() && !ch.is_control()).then_some(ch)
         }
     }?;
-    Some(kitty_csi_u(codepoint.to_lowercase().next()? as u32, *modifiers))
+    Some(kitty_csi_u(
+        codepoint.to_lowercase().next()? as u32,
+        *modifiers,
+    ))
 }
 
 fn kitty_csi_u(codepoint: u32, modifiers: TerminalKeyInputModifiers) -> Vec<u8> {

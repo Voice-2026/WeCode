@@ -11,11 +11,10 @@ mod terminal_input;
 pub use buffer_assembler::{TerminalBufferAssembler, TerminalBufferAssemblyResult};
 pub use headless_screen::{
     HeadlessTerminalScreen, HeadlessTerminalSnapshotRequest, TerminalPtyResponder,
-    TerminalScreenEvent, TerminalScreenEventSink,
     TerminalScreenCellSnapshot, TerminalScreenColor, TerminalScreenCursorShape,
-    TerminalScreenCursorSnapshot, TerminalScreenImage, TerminalScreenSnapshot,
-    TerminalScreenUnderline, TerminalSelectionSpan, TerminalSelectionSpanKind,
-    stack_scrolled_snapshots,
+    TerminalScreenCursorSnapshot, TerminalScreenEvent, TerminalScreenEventSink,
+    TerminalScreenImage, TerminalScreenSnapshot, TerminalScreenUnderline, TerminalSelectionSpan,
+    TerminalSelectionSpanKind, stack_scrolled_snapshots,
 };
 pub use output_sequence::{
     TerminalOutputSequenceAction, TerminalOutputSequenceResult, TerminalOutputSequencer,

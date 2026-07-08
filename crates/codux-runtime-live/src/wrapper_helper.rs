@@ -28,6 +28,16 @@ const DB_URL_ENCODE_SET: &AsciiSet = &CONTROLS
     .add(b'|');
 
 pub fn handle_args(args: &[String]) -> Result<bool, String> {
+    // ssh execs $SSH_ASKPASS (always the staged helper binary) with the prompt
+    // as argv; only that binary answers, so a leaked askpass env var can never
+    // hijack a desktop or agent launch.
+    if args.first().map(String::as_str) != Some("--codux-wrapper-helper")
+        && env_value("CODUX_WRAPPER_HELPER_ASKPASS") == "1"
+        && invoked_as_wrapper_helper()
+    {
+        print_ssh_askpass(args)?;
+        return Ok(true);
+    }
     let Some(command) = args.first().map(String::as_str) else {
         return Ok(false);
     };
@@ -52,6 +62,7 @@ pub fn handle_args(args: &[String]) -> Result<bool, String> {
         "ssh-list-profiles" => print_ssh_profiles(),
         "ssh-profile-shell" => print_ssh_profile_shell(),
         "scp-profile-shell" => print_scp_profile_shell(),
+        "ssh-askpass" => print_ssh_askpass(&args[2..]),
         "db-list-profiles" => print_db_profiles(),
         "db-query" => print_db_query(),
         _ => return Err(format!("unknown wrapper helper subcommand: {subcommand}")),
@@ -330,10 +341,34 @@ fn ssh_hardening_options() -> [String; 4] {
     ]
 }
 
+fn ssh_password_auth_options() -> [String; 6] {
+    [
+        "-o".to_string(),
+        // keyboard-interactive keeps PAM-only servers reachable; both prompt
+        // kinds reach the expect flow (unix) or askpass (windows) the same way.
+        "PreferredAuthentications=password,keyboard-interactive".to_string(),
+        "-o".to_string(),
+        "PubkeyAuthentication=no".to_string(),
+        "-o".to_string(),
+        "NumberOfPasswordPrompts=1".to_string(),
+    ]
+}
+
+fn ssh_identities_only_options() -> [String; 2] {
+    ["-o".to_string(), "IdentitiesOnly=yes".to_string()]
+}
+
 fn print_ssh_profile_shell() -> Result<(), String> {
     let (profile_id, profile) = resolve_ssh_profile()?;
-    let mut ssh_args = vec!["ssh".to_string(), "-p".to_string(), profile.port.to_string()];
+    let mut ssh_args = vec![
+        "ssh".to_string(),
+        "-p".to_string(),
+        profile.port.to_string(),
+    ];
     ssh_args.extend(ssh_hardening_options());
+    if profile.credential_kind == "password" {
+        ssh_args.extend(ssh_password_auth_options());
+    }
     if let Some(control_path) = ssh_control_path(&profile_id) {
         ssh_args.extend([
             "-o".to_string(),
@@ -345,12 +380,16 @@ fn print_ssh_profile_shell() -> Result<(), String> {
         ]);
     }
     if profile.credential_kind == "privateKey" && !profile.private_key_path.is_empty() {
+        ssh_args.extend(ssh_identities_only_options());
         ssh_args.push("-i".to_string());
         ssh_args.push(expand_home(&profile.private_key_path));
     }
     ssh_args.push(format!("{}@{}", profile.username, profile.host));
     println!("ssh_password={}", shell_quote(&profile.password));
-    println!("ssh_key_passphrase={}", shell_quote(&profile.key_passphrase));
+    println!(
+        "ssh_key_passphrase={}",
+        shell_quote(&profile.key_passphrase)
+    );
     println!(
         "ssh_args=({})",
         ssh_args
@@ -365,14 +404,25 @@ fn print_ssh_profile_shell() -> Result<(), String> {
 fn print_scp_profile_shell() -> Result<(), String> {
     let (_profile_id, profile) = resolve_ssh_profile()?;
     // scp takes the port as -P (uppercase); the host is a path prefix, not a trailing arg.
-    let mut scp_args = vec!["scp".to_string(), "-P".to_string(), profile.port.to_string()];
+    let mut scp_args = vec![
+        "scp".to_string(),
+        "-P".to_string(),
+        profile.port.to_string(),
+    ];
     scp_args.extend(ssh_hardening_options());
+    if profile.credential_kind == "password" {
+        scp_args.extend(ssh_password_auth_options());
+    }
     if profile.credential_kind == "privateKey" && !profile.private_key_path.is_empty() {
+        scp_args.extend(ssh_identities_only_options());
         scp_args.push("-i".to_string());
         scp_args.push(expand_home(&profile.private_key_path));
     }
     println!("ssh_password={}", shell_quote(&profile.password));
-    println!("ssh_key_passphrase={}", shell_quote(&profile.key_passphrase));
+    println!(
+        "ssh_key_passphrase={}",
+        shell_quote(&profile.key_passphrase)
+    );
     println!(
         "ssh_remote={}",
         shell_quote(&format!("{}@{}", profile.username, profile.host))
@@ -386,6 +436,46 @@ fn print_scp_profile_shell() -> Result<(), String> {
             .join(" ")
     );
     Ok(())
+}
+
+fn invoked_as_wrapper_helper() -> bool {
+    std::env::current_exe()
+        .ok()
+        .and_then(|path| {
+            path.file_stem()
+                .map(|stem| stem.to_string_lossy().into_owned())
+        })
+        .is_some_and(|stem| is_wrapper_helper_exe_name(&stem))
+}
+
+fn is_wrapper_helper_exe_name(name: &str) -> bool {
+    name.eq_ignore_ascii_case("codux-wrapper-helper")
+}
+
+fn print_ssh_askpass(args: &[String]) -> Result<(), String> {
+    let prompt = args.join(" ");
+    let password = env_value("CODUX_SSH_PASSWORD");
+    let key_passphrase = env_value("CODUX_SSH_KEY_PASSPHRASE");
+    let Some(response) = ssh_askpass_response(&prompt, &password, &key_passphrase) else {
+        return Err("codux-ssh: no saved credential matches the SSH prompt".to_string());
+    };
+    println!("{response}");
+    Ok(())
+}
+
+fn ssh_askpass_response<'a>(
+    prompt: &str,
+    password: &'a str,
+    key_passphrase: &'a str,
+) -> Option<&'a str> {
+    let prompt = prompt.to_ascii_lowercase();
+    if prompt.contains("passphrase") && !key_passphrase.is_empty() {
+        return Some(key_passphrase);
+    }
+    if prompt.contains("password") && !password.is_empty() {
+        return Some(password);
+    }
+    None
 }
 
 fn print_db_profiles() -> Result<(), String> {
@@ -423,6 +513,12 @@ fn print_db_query() -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(windows)]
+fn ssh_control_path(_profile_id: &str) -> Option<String> {
+    None
+}
+
+#[cfg(not(windows))]
 fn ssh_control_path(profile_id: &str) -> Option<String> {
     let socket_name = format!("cxs-{:016x}", stable_hash64(profile_id.as_bytes()));
     #[cfg(target_os = "macos")]
@@ -447,6 +543,7 @@ fn ssh_control_path(profile_id: &str) -> Option<String> {
     Some(dir.join(socket_name).display().to_string())
 }
 
+#[cfg(not(windows))]
 fn stable_hash64(bytes: &[u8]) -> u64 {
     let mut hash = 0xcbf29ce484222325u64;
     for byte in bytes {
@@ -564,16 +661,24 @@ fn env_list(key: &str) -> Vec<String> {
         .collect()
 }
 
-fn ssh_profiles_array(root: &Value) -> Option<&Vec<Value>> {
+fn ssh_profiles_array(root: &Value) -> Option<&[Value]> {
+    if root.is_null() {
+        return Some(&[]);
+    }
     root.get("sshProfiles")
         .and_then(Value::as_array)
-        .or_else(|| root.as_array())
+        .map(Vec::as_slice)
+        .or_else(|| root.as_array().map(Vec::as_slice))
 }
 
-fn db_profiles_array(root: &Value) -> Option<&Vec<Value>> {
+fn db_profiles_array(root: &Value) -> Option<&[Value]> {
+    if root.is_null() {
+        return Some(&[]);
+    }
     root.get("dbProfiles")
         .and_then(Value::as_array)
-        .or_else(|| root.as_array())
+        .map(Vec::as_slice)
+        .or_else(|| root.as_array().map(Vec::as_slice))
 }
 
 fn public_ssh_profile(profile: &Value) -> Option<Value> {
@@ -1103,7 +1208,12 @@ fn encode_sqlite_path(value: &str) -> String {
     if value == ":memory:" {
         return ":memory:".to_string();
     }
-    value.replace('\\', "/")
+    let path = value.replace('\\', "/");
+    if path.as_bytes().get(1) == Some(&b':') {
+        format!("/{path}")
+    } else {
+        path
+    }
 }
 
 fn normalized_db_ssl_mode(value: &str, scheme: &str) -> &'static str {
@@ -1163,12 +1273,20 @@ fn db_port_field(profile: &Value) -> u16 {
     raw.clamp(1, 65535) as u16
 }
 
+fn home_dir_env() -> String {
+    let home = env_value("HOME");
+    if !home.is_empty() {
+        return home;
+    }
+    env_value("USERPROFILE")
+}
+
 fn expand_home(path: &str) -> String {
     if path == "~" {
-        return env_value("HOME");
+        return home_dir_env();
     }
-    if let Some(rest) = path.strip_prefix("~/") {
-        let home = env_value("HOME");
+    if let Some(rest) = path.strip_prefix("~/").or_else(|| path.strip_prefix("~\\")) {
+        let home = home_dir_env();
         if !home.is_empty() {
             return Path::new(&home).join(rest).display().to_string();
         }
@@ -1252,6 +1370,13 @@ mod tests {
     }
 
     #[test]
+    fn null_profile_files_are_empty_lists() {
+        let root = Value::Null;
+        assert_eq!(ssh_profiles_array(&root).map(<[Value]>::len), Some(0));
+        assert_eq!(db_profiles_array(&root).map(<[Value]>::len), Some(0));
+    }
+
+    #[test]
     fn recursive_number_field_ignores_bool_values() {
         let value = serde_json::json!({
             "outer": {
@@ -1282,6 +1407,45 @@ mod tests {
             path.len() < 104,
             "ControlPath must fit macOS sockaddr_un.sun_path: {path}"
         );
+    }
+
+    #[test]
+    fn ssh_askpass_selects_matching_saved_secret() {
+        assert_eq!(
+            ssh_askpass_response("root@example.com's password:", "secret", ""),
+            Some("secret")
+        );
+        assert_eq!(
+            ssh_askpass_response("Enter passphrase for key 'id_ed25519':", "", "phrase"),
+            Some("phrase")
+        );
+        assert_eq!(
+            ssh_askpass_response("Password:", "secret", "phrase"),
+            Some("secret")
+        );
+        assert_eq!(ssh_askpass_response("Password:", "", ""), None);
+    }
+
+    #[test]
+    fn askpass_mode_only_answers_from_the_helper_binary_name() {
+        assert!(is_wrapper_helper_exe_name("codux-wrapper-helper"));
+        assert!(is_wrapper_helper_exe_name("CODUX-WRAPPER-HELPER"));
+        assert!(!is_wrapper_helper_exe_name("codux"));
+        assert!(!is_wrapper_helper_exe_name("codux-agent"));
+    }
+
+    #[test]
+    fn ssh_auth_options_pin_saved_credential_strategy() {
+        let password_options = ssh_password_auth_options();
+        assert!(
+            password_options
+                .contains(&"PreferredAuthentications=password,keyboard-interactive".to_string())
+        );
+        assert!(password_options.contains(&"PubkeyAuthentication=no".to_string()));
+        assert!(password_options.contains(&"NumberOfPasswordPrompts=1".to_string()));
+
+        let key_options = ssh_identities_only_options();
+        assert!(key_options.contains(&"IdentitiesOnly=yes".to_string()));
     }
 
     #[test]
@@ -1332,6 +1496,14 @@ mod tests {
             &profile,
             "-- delete is a comment\nSELECT 1"
         ));
+    }
+
+    #[test]
+    fn sqlite_path_encoder_preserves_windows_drive_paths_as_absolute() {
+        assert_eq!(
+            encode_sqlite_path(r"F:\codux\app.sqlite3"),
+            "/F:/codux/app.sqlite3"
+        );
     }
 
     #[test]

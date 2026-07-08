@@ -12,9 +12,11 @@ fn search_buffer_finds_case_insensitive_matches_across_scrollback() {
     assert_eq!(matches[0].start.line, 0);
     assert_eq!(matches[0].start.col, 0);
     assert_eq!(matches[0].end.col, 5);
-    assert!(matches
-        .windows(2)
-        .all(|pair| pair[0].start.line < pair[1].start.line));
+    assert!(
+        matches
+            .windows(2)
+            .all(|pair| pair[0].start.line < pair[1].start.line)
+    );
 
     assert!(state.search_buffer("nothing-here", 100).is_empty());
     assert_eq!(state.search_buffer("alpha", 2).len(), 2);
@@ -98,9 +100,11 @@ fn double_click_on_blank_selects_nothing() {
     state.process_bytes(b"foo");
     state.handle.publish_snapshot();
 
-    assert!(state
-        .select_word_at(TerminalSelectionPoint { line: 0, col: 10 })
-        .is_none());
+    assert!(
+        state
+            .select_word_at(TerminalSelectionPoint { line: 0, col: 10 })
+            .is_none()
+    );
 }
 #[test]
 fn triple_click_selects_whole_wrapped_line() {

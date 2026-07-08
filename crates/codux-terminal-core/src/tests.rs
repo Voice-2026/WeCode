@@ -125,10 +125,7 @@ fn kitty_disambiguate_mode_encodes_csi_u_sequences() {
 
     // Legacy mode is untouched.
     assert_eq!(
-        terminal_key_input(key_input(
-            "escape", None, false, false, false, false, false
-        ))
-        .as_deref(),
+        terminal_key_input(key_input("escape", None, false, false, false, false, false)).as_deref(),
         Some("\x1b")
     );
     assert_eq!(

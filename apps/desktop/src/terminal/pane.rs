@@ -57,7 +57,6 @@ impl TerminalPane {
         let (session_event_tx, session_event_rx) = flume::unbounded();
         let (session_event_wake_tx, session_event_wake_rx) = flume::bounded(1);
         let emit = terminal_ui_event_sink(session_event_tx, session_event_wake_tx);
-        let conpty_output = cfg!(windows) && config.host_device_id.is_none();
         let terminal_id = config.terminal_id.clone();
         let attach_started_at = Instant::now();
         let (session, output_rx) =
@@ -72,8 +71,6 @@ impl TerminalPane {
         );
         let session = TerminalSessionBinding::attached(session);
         let writer = TerminalSessionWriter::new(session.clone());
-        let mut terminal_config = terminal_config;
-        terminal_config.conpty_output = conpty_output;
         let view_started_at = Instant::now();
         let view = cx.new(|cx| {
             TerminalView::new(
@@ -134,10 +131,6 @@ impl TerminalPane {
             .as_ref()
             .map(|output| output.tail.len())
             .unwrap_or_default();
-        let mut terminal_config = terminal_config;
-        // Remote host terminals (host_device_id set) forward the host's PTY
-        // bytes; only local Windows PTYs are guaranteed to be ConPTY output.
-        terminal_config.conpty_output = cfg!(windows) && config.host_device_id.is_none();
         let view_started_at = Instant::now();
         let view = cx.new(|cx| {
             TerminalView::new(
