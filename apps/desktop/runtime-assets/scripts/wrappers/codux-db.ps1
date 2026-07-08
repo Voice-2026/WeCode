@@ -33,15 +33,15 @@ if ([string]::IsNullOrWhiteSpace($profilesFile)) {
 }
 
 if ([string]::IsNullOrWhiteSpace($env:CODUX_DB_PROJECT_ID)) {
-  Write-Error "codux-db: missing Codux project context"
+  [Console]::Error.WriteLine("codux-db: missing Codux project context")
   exit 64
 }
 if (-not (Test-Path $profilesFile)) {
-  Write-Error "codux-db: unable to read database profile file"
+  [Console]::Error.WriteLine("codux-db: unable to read database profile file")
   exit 66
 }
 if (-not (Test-Path $helper)) {
-  Write-Error "codux-db: bundled helper is missing"
+  [Console]::Error.WriteLine("codux-db: bundled helper is missing")
   exit 127
 }
 
@@ -52,7 +52,7 @@ if ($profileId -eq "list" -or $profileId -eq "--list" -or $profileId -eq "profil
 }
 
 if ([string]::IsNullOrWhiteSpace($profileId)) {
-  Write-Error "codux-db: missing profile id"
+  [Console]::Error.WriteLine("codux-db: missing profile id")
   exit 64
 }
 
@@ -66,18 +66,18 @@ $statement = ""
 if ($remaining.Count -gt 0 -and [string]$remaining[0] -eq "--") {
   $remaining = @($remaining | Select-Object -Skip 1)
   if ($remaining.Count -eq 0) {
-    Write-Error "codux-db: missing statement after --"
+    [Console]::Error.WriteLine("codux-db: missing statement after --")
     exit 64
   }
   $statement = ($remaining -join " ")
 } elseif ($remaining.Count -gt 0 -and [string]$remaining[0] -eq "--file") {
   if ($remaining.Count -lt 2) {
-    Write-Error "codux-db: missing path after --file"
+    [Console]::Error.WriteLine("codux-db: missing path after --file")
     exit 64
   }
   $statementPath = [string]$remaining[1]
   if (-not (Test-Path $statementPath)) {
-    Write-Error "codux-db: unable to read statement file"
+    [Console]::Error.WriteLine("codux-db: unable to read statement file")
     exit 66
   }
   $statement = Get-Content -Raw -LiteralPath $statementPath
@@ -85,7 +85,7 @@ if ($remaining.Count -gt 0 -and [string]$remaining[0] -eq "--") {
   Usage
   exit 64
 } else {
-  Write-Error "codux-db: missing SQL statement"
+  [Console]::Error.WriteLine("codux-db: missing SQL statement")
   exit 64
 }
 

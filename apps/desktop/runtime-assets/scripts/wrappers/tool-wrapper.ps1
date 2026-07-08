@@ -1,5 +1,5 @@
 if ($args.Count -lt 1) {
-  Write-Error "Missing tool name."
+  [Console]::Error.WriteLine("Missing tool name.")
   exit 64
 }
 
@@ -543,7 +543,7 @@ $runtimePath = Join-PathList @($wrapperBin, $searchPath)
 $realBin = Find-Real-Binary $Tool $searchPath
 if ([string]::IsNullOrWhiteSpace($realBin)) {
   Write-Live-Log "launch failed tool=$Tool reason=missing-binary"
-  Write-Error "$Tool is not installed or not available in PATH."
+  [Console]::Error.WriteLine("$Tool is not installed or not available in PATH.")
   exit 127
 }
 
