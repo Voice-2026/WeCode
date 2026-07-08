@@ -109,6 +109,88 @@ fn terminal_notification_osc_emits_waiting_status() {
 
     let _ = std::fs::remove_dir_all(dir);
 }
+#[test]
+fn terminal_notification_osc_survives_chunk_split() {
+    let dir = std::env::temp_dir().join(format!("codux-terminal-osc-split-{}", Uuid::new_v4()));
+    let bridge = Arc::new(AIRuntimeBridge::with_paths(
+        dir.join("root"),
+        dir.join("temp"),
+        dir.join("home"),
+    ));
+    bridge.ensure_started().expect("runtime should start");
+    let terminal_id = format!("test-terminal-osc-split-{}", Uuid::new_v4());
+    let binding = AIRuntimeTerminalBinding {
+        terminal_id: terminal_id.clone(),
+        project_id: "project-1".to_string(),
+        slot_id: "slot-1".to_string(),
+        title: "Terminal".to_string(),
+        cwd: "/tmp/project".to_string(),
+        tool: None,
+        is_active: false,
+        session_key: Some("codex-session-1".to_string()),
+        terminal_instance_id: Some("terminal-instance-1".to_string()),
+    };
+    let mut watcher = AIRuntimeTerminalOutputWatcher::new(binding.clone(), Arc::clone(&bridge));
+
+    // Split beyond the old 32-byte tail so the prefix must survive the read gap.
+    let sequence = b"\x1b]9;Approval requested: allow codex to run cargo build --release\x07";
+    let (first, second) = sequence.split_at(48);
+    for chunk in [first, second] {
+        watcher.handle_terminal_event(&TerminalEvent::Output {
+            session_id: terminal_id.clone(),
+            text: String::new(),
+            bytes: chunk.to_vec(),
+        });
+    }
+
+    let status = wait_for_terminal_status(&bridge, &terminal_id, TerminalStatusState::Waiting);
+    assert_eq!(status.source, "terminal-notification-osc");
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn oversized_unterminated_osc_is_dropped_and_parser_recovers() {
+    let dir = std::env::temp_dir().join(format!("codux-terminal-osc-oversized-{}", Uuid::new_v4()));
+    let bridge = Arc::new(AIRuntimeBridge::with_paths(
+        dir.join("root"),
+        dir.join("temp"),
+        dir.join("home"),
+    ));
+    bridge.ensure_started().expect("runtime should start");
+    let terminal_id = format!("test-terminal-osc-oversized-{}", Uuid::new_v4());
+    let binding = AIRuntimeTerminalBinding {
+        terminal_id: terminal_id.clone(),
+        project_id: "project-1".to_string(),
+        slot_id: "slot-1".to_string(),
+        title: "Terminal".to_string(),
+        cwd: "/tmp/project".to_string(),
+        tool: None,
+        is_active: false,
+        session_key: Some("codex-session-1".to_string()),
+        terminal_instance_id: Some("terminal-instance-1".to_string()),
+    };
+    let mut watcher = AIRuntimeTerminalOutputWatcher::new(binding.clone(), Arc::clone(&bridge));
+
+    let mut oversized = b"\x1b]9;".to_vec();
+    oversized.extend(std::iter::repeat(b'x').take(2048));
+    watcher.handle_terminal_event(&TerminalEvent::Output {
+        session_id: terminal_id.clone(),
+        text: String::new(),
+        bytes: oversized,
+    });
+    watcher.handle_terminal_event(&TerminalEvent::Output {
+        session_id: terminal_id.clone(),
+        text: String::new(),
+        bytes: b"\x1b]9;4;3\x07".to_vec(),
+    });
+
+    let status = wait_for_terminal_status(&bridge, &terminal_id, TerminalStatusState::Working);
+    assert_eq!(status.source, "terminal-progress-osc");
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 #[cfg(unix)]
 #[test]
 fn terminal_output_refreshes_kiro_screen_signal_without_poll() {

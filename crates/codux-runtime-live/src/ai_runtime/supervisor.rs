@@ -671,8 +671,16 @@ fn start_binding_dir_watcher(tx: SyncSender<AIRuntimeSupervisorMessage>, binding
         });
 }
 
+// The agent host never drains this queue; drop the oldest past the cap so an
+// undrained host stays bounded.
+const MAX_PENDING_SUPERVISOR_EVENTS: usize = 256;
+
 fn push_event(events: &Arc<Mutex<Vec<AIRuntimeSupervisorEvent>>>, event: AIRuntimeSupervisorEvent) {
     if let Ok(mut events) = events.lock() {
+        if events.len() >= MAX_PENDING_SUPERVISOR_EVENTS {
+            let overflow = events.len() + 1 - MAX_PENDING_SUPERVISOR_EVENTS;
+            events.drain(..overflow);
+        }
         events.push(event);
     }
 }

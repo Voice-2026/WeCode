@@ -18,6 +18,10 @@ pub(super) enum TerminalNotificationKind {
     PlanModePrompt,
 }
 
+// Notification payloads ("Approval requested: …") can span PTY reads; anything
+// longer than this without a terminator is not one of ours and gets dropped.
+const MAX_UNTERMINATED_OSC: usize = 512;
+
 #[derive(Debug, Default)]
 pub(super) struct TerminalProgressOscParser {
     scan_tail: Vec<u8>,
@@ -69,11 +73,14 @@ impl TerminalProgressOscParser {
             consumed_until = index;
         }
 
+        // The tail is only ever a partial prefix or an unterminated OSC; keep it
+        // whole (truncating would chop the ESC prefix and lose the event) or,
+        // past the cap, drop it entirely so the buffer stays bounded.
         let tail = &scan[consumed_until.min(scan.len())..];
-        let tail_len = tail.len().min(32);
         self.scan_tail.clear();
-        self.scan_tail
-            .extend_from_slice(&tail[tail.len().saturating_sub(tail_len)..]);
+        if tail.len() <= MAX_UNTERMINATED_OSC {
+            self.scan_tail.extend_from_slice(tail);
+        }
         events
     }
 }

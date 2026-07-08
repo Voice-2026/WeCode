@@ -2,19 +2,27 @@ use super::ai_runtime_status::AgentLifecycleState;
 use super::{CoduxApp, ProjectInfo, WorktreeInfo};
 use codux_runtime::ai_runtime::{TerminalStatusEvent, TerminalStatusState};
 use std::collections::HashSet;
+use std::time::{Duration, Instant};
+
+// A crashed/killed CLI never sends its closing OSC; give the runtime probes
+// this long to confirm a live turn before garbage-collecting Working/Waiting.
+const STALE_ACTIVE_GRACE: Duration = Duration::from_secs(30);
 
 pub(in crate::app) struct PaneAgentLifecycle {
     pub state: AgentLifecycleState,
+    updated_at: Instant,
 }
 
 impl PaneAgentLifecycle {
     pub(in crate::app) fn new() -> Self {
         Self {
             state: AgentLifecycleState::Idle,
+            updated_at: Instant::now(),
         }
     }
 
     pub(in crate::app) fn apply_status(&mut self, state: AgentLifecycleState) {
+        self.updated_at = Instant::now();
         if self.state == state {
             return;
         }
@@ -26,7 +34,16 @@ impl PaneAgentLifecycle {
             return false;
         }
         self.state = AgentLifecycleState::Idle;
+        self.updated_at = Instant::now();
         true
+    }
+
+    fn is_stale_active(&self, has_live_turn: bool, now: Instant) -> bool {
+        matches!(
+            self.state,
+            AgentLifecycleState::Working | AgentLifecycleState::Waiting
+        ) && !has_live_turn
+            && now.duration_since(self.updated_at) >= STALE_ACTIVE_GRACE
     }
 }
 
@@ -187,11 +204,32 @@ impl CoduxApp {
 
     pub(in crate::app) fn sync_pane_agent_lifecycle(&mut self) -> bool {
         let mut changed = false;
-        let active_terminal_ids = self.active_terminal_lifecycle_ids();
+        // OSC status is one-shot, so entries must survive layout switches: keep
+        // every live host terminal, not just the visible layout, or background
+        // projects lose their dots the tick after switching away.
+        let mut retained_terminal_ids = self.active_terminal_lifecycle_ids();
+        for session in &self.state.terminal_runtime.sessions {
+            let terminal_id = session.terminal_id.trim();
+            if !terminal_id.is_empty() {
+                retained_terminal_ids.insert(terminal_id.to_string());
+            }
+        }
+        let live_turn_terminal_ids: HashSet<&str> = self
+            .state
+            .ai_runtime_state
+            .sessions
+            .iter()
+            .filter(|session| {
+                matches!(
+                    session.state.as_str(),
+                    "running" | "responding" | "needs-input" | "needsInput"
+                )
+            })
+            .map(|session| session.terminal_id.as_str())
+            .collect();
+        let now = Instant::now();
         self.pane_agent_lifecycle.retain(|terminal_id, entry| {
-            if active_terminal_ids.contains(terminal_id) {
-                true
-            } else {
+            if !retained_terminal_ids.contains(terminal_id) {
                 if pane_lifecycle_prune_changed(entry.state) {
                     codux_runtime::runtime_trace::runtime_trace(
                         "agent-lifecycle",
@@ -199,8 +237,17 @@ impl CoduxApp {
                     );
                     changed = true;
                 }
-                false
+                return false;
             }
+            if entry.is_stale_active(live_turn_terminal_ids.contains(terminal_id.as_str()), now) {
+                codux_runtime::runtime_trace::runtime_trace(
+                    "agent-lifecycle",
+                    &format!("terminal={terminal_id} stale {:?} cleared", entry.state),
+                );
+                changed = true;
+                return false;
+            }
+            true
         });
         changed
     }
@@ -353,6 +400,29 @@ mod tests {
     fn sync_prune_changed_for_non_idle() {
         assert!(pane_lifecycle_prune_changed(AgentLifecycleState::Working));
         assert!(!pane_lifecycle_prune_changed(AgentLifecycleState::Idle));
+    }
+
+    #[test]
+    fn stale_working_is_collected_only_without_live_turn_after_grace() {
+        let mut lifecycle = PaneAgentLifecycle::new();
+        lifecycle.apply_status(AgentLifecycleState::Working);
+        let after_grace = lifecycle.updated_at + STALE_ACTIVE_GRACE;
+
+        assert!(!lifecycle.is_stale_active(false, lifecycle.updated_at));
+        assert!(!lifecycle.is_stale_active(true, after_grace));
+        assert!(lifecycle.is_stale_active(false, after_grace));
+    }
+
+    #[test]
+    fn stale_collection_skips_terminal_states() {
+        let mut lifecycle = PaneAgentLifecycle::new();
+        lifecycle.apply_status(AgentLifecycleState::Completed);
+        let after_grace = lifecycle.updated_at + STALE_ACTIVE_GRACE;
+
+        assert!(!lifecycle.is_stale_active(false, after_grace));
+
+        lifecycle.apply_status(AgentLifecycleState::Waiting);
+        assert!(lifecycle.is_stale_active(false, lifecycle.updated_at + STALE_ACTIVE_GRACE));
     }
 
     #[test]
