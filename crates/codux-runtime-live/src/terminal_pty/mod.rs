@@ -1,4 +1,4 @@
-use crate::ai_runtime::{AIRuntimeBridge, AIRuntimeTerminalBinding};
+use crate::ai_runtime::{AIRuntimeBridge, AIRuntimeStateSnapshot, AIRuntimeTerminalBinding};
 use anyhow::{Context, Result, anyhow};
 use codux_terminal_core::{
     HeadlessTerminalScreen, TerminalDriver as CoreTerminalDriver, TerminalEventSink,

@@ -536,6 +536,7 @@ fn terminal_pane(
     let float_id = SharedString::from(format!("terminal-pane-float-{index}"));
     let collapse_id = SharedString::from(format!("terminal-pane-collapse-{index}"));
     let add_id = SharedString::from(format!("terminal-pane-add-{index}"));
+    let agent_id = SharedString::from(format!("terminal-pane-agent-{index}"));
     let session_drop_entity = app_entity.clone();
     let pane_view = slot.view.clone();
     let drop_terminal_id = slot.terminal_id.clone();
@@ -601,6 +602,13 @@ fn terminal_pane(
                         style.opacity(1.0)
                     })
                     .child(terminal_pane_drag_handle(app_entity.clone(), index, cx))
+                    .child(terminal_pane_agent_button(
+                        app_entity.clone(),
+                        agent_id,
+                        language,
+                        true,
+                        cx,
+                    ))
                     .child(terminal_pane_control_button(
                         app_entity.clone(),
                         float_id,
@@ -963,6 +971,165 @@ fn terminal_split_direction_icon(
         frame.child(old_cell).child(new_cell)
     }
     .into_any_element()
+}
+
+fn terminal_pane_agent_button(
+    app_entity: gpui::Entity<CoduxApp>,
+    id: SharedString,
+    language: &str,
+    enabled: bool,
+    cx: &mut Context<TerminalWorkspaceView>,
+) -> AnyElement {
+    let gateway_status = GatewayService::global_status();
+    let gateway_ready = gateway_status.addr.is_some() && gateway_status.error.is_none();
+    let gateway_hint = if let Some(error) = gateway_status.error {
+        format!("Gateway failed: {error}")
+    } else if gateway_status.enabled {
+        workspace_i18n(
+            language,
+            "terminal.agent.gateway_starting",
+            "Gateway starting",
+        )
+    } else {
+        workspace_i18n(
+            language,
+            "terminal.agent.gateway_disabled",
+            "Gateway disabled",
+        )
+    };
+    let text_color = if enabled {
+        cx.theme().secondary_foreground
+    } else {
+        color(theme::TEXT_DIM)
+    };
+    let button = Button::new(id)
+        .compact()
+        .ghost()
+        .h(px(28.0))
+        .w(px(30.0))
+        .disabled(!enabled)
+        .text_color(text_color)
+        .child(
+            Icon::new(HeroIconName::Sparkles)
+                .size_3p5()
+                .text_color(text_color),
+        );
+
+    if !enabled {
+        return button.opacity(0.45).into_any_element();
+    }
+
+    button
+        .cursor_pointer()
+        .dropdown_menu(move |menu, _window, _cx| {
+            let mut menu = menu
+                .item(quick_agent_menu_item(
+                    app_entity.clone(),
+                    "Claude Code",
+                    HeroIconName::CommandLine,
+                    "claude",
+                ))
+                .item(quick_agent_menu_item(
+                    app_entity.clone(),
+                    "Codex",
+                    HeroIconName::CommandLine,
+                    "codex",
+                ))
+                .item(quick_agent_menu_item(
+                    app_entity.clone(),
+                    "Kiro",
+                    HeroIconName::Sparkles,
+                    "kiro",
+                ))
+                .separator();
+            if gateway_ready {
+                menu = menu
+                    .item(quick_agent_menu_item(
+                        app_entity.clone(),
+                        "Kiro Gateway · Claude · Opus 4.8",
+                        HeroIconName::ServerStack,
+                        "kiro-gateway-claude",
+                    ))
+                    .separator()
+                    .item(quick_agent_menu_item(
+                        app_entity.clone(),
+                        "Gateway · Haiku 4.5",
+                        HeroIconName::ServerStack,
+                        "kiro-gateway-claude-haiku-4-5",
+                    ))
+                    .item(quick_agent_menu_item(
+                        app_entity.clone(),
+                        "Gateway · Sonnet 4.6",
+                        HeroIconName::ServerStack,
+                        "kiro-gateway-claude-sonnet-4-6",
+                    ))
+                    .item(quick_agent_menu_item(
+                        app_entity.clone(),
+                        "Gateway · Opus 4.6",
+                        HeroIconName::ServerStack,
+                        "kiro-gateway-claude-opus-4-6",
+                    ))
+                    .item(quick_agent_menu_item(
+                        app_entity.clone(),
+                        "Gateway · Opus 4.7",
+                        HeroIconName::ServerStack,
+                        "kiro-gateway-claude-opus-4-7",
+                    ))
+                    .item(quick_agent_menu_item(
+                        app_entity.clone(),
+                        "Gateway · Opus 4.8",
+                        HeroIconName::ServerStack,
+                        "kiro-gateway-claude-opus-4-8",
+                    ))
+                    .item(quick_agent_menu_item(
+                        app_entity.clone(),
+                        "Gateway · DeepSeek 3.2",
+                        HeroIconName::ServerStack,
+                        "kiro-gateway-claude-deepseek-3-2",
+                    ))
+                    .item(quick_agent_menu_item(
+                        app_entity.clone(),
+                        "Gateway · GLM 5",
+                        HeroIconName::ServerStack,
+                        "kiro-gateway-claude-glm-5",
+                    ))
+                    .item(quick_agent_menu_item(
+                        app_entity.clone(),
+                        "Gateway · MiniMax M2.5",
+                        HeroIconName::ServerStack,
+                        "kiro-gateway-claude-minimax-m2-5",
+                    ))
+                    .item(quick_agent_menu_item(
+                        app_entity.clone(),
+                        "Gateway · Qwen3 Coder",
+                        HeroIconName::ServerStack,
+                        "kiro-gateway-claude-qwen3-coder-next",
+                    ));
+            } else {
+                menu = menu.item(
+                    PopupMenuItem::new(gateway_hint.clone())
+                        .icon(HeroIconName::ServerStack)
+                        .disabled(true),
+                );
+            }
+            menu
+        })
+        .into_any_element()
+}
+
+fn quick_agent_menu_item(
+    app_entity: gpui::Entity<CoduxApp>,
+    label: &'static str,
+    icon: HeroIconName,
+    target: &'static str,
+) -> PopupMenuItem {
+    PopupMenuItem::new(label)
+        .icon(icon)
+        .on_click(move |_, window, cx| {
+            cx.update_entity(&app_entity, |app, app_cx| {
+                app.launch_quick_agent(target, window, app_cx);
+            });
+        })
 }
 
 fn terminal_pane_control_button(

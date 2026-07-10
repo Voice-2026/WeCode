@@ -28,6 +28,8 @@ impl CoduxApp {
         );
         let runtime = RuntimeInventory::load();
         let runtime_service = RuntimeService::new(state.support_dir.clone());
+        let gateway_settings = GatewaySettings::load(state.support_dir.clone());
+        let gateway_service = GatewayService::start(gateway_settings.clone());
         let _ = runtime_service.recover_interrupted_memory_extraction_queue();
         let power_sync_error = runtime_service.start_power_settings_sync().err();
         state.power = runtime_service.power_summary(&state.settings.sleep_mode);
@@ -66,6 +68,10 @@ impl CoduxApp {
             .unwrap_or_default();
         let terminal_config = terminal_config_for_settings(&state.settings, window.appearance());
         let terminal_manager = runtime_service.terminal_manager();
+        codux_runtime::wechat_bridge_service::set_wechat_bridge_terminals(terminal_manager.clone());
+        if codux_runtime::wechat_bridge_service::wechat_bridge_snapshot().has_credentials {
+            codux_runtime::wechat_bridge_service::wechat_bridge_start_saved();
+        }
         let terminal_pane_registry = HashMap::new();
         // Boot restore runs during App construction, before a `Context<Self>`
         // exists to drive the async attach chokepoint. Local terminals spawn
@@ -167,6 +173,8 @@ impl CoduxApp {
             runtime,
             state,
             runtime_service,
+            gateway_settings,
+            gateway_service,
             window_appearance: window.appearance(),
             main_window_fullscreen: window.is_fullscreen(),
             main_window_lost_to_external_app: false,
@@ -404,6 +412,7 @@ impl CoduxApp {
             ssh_draft_key_passphrase: String::new(),
             selected_remote_device_id,
             remote_reconnecting: false,
+            wechat_bridge_watching: false,
             remote_pairing_sheet_open: false,
             remote_pairing_creating: false,
             remote_pairing_error: None,

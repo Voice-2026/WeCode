@@ -22,6 +22,7 @@ use codux_runtime::{
     },
     file_editor_layout::{FileEditorLayoutSummary, FileEditorTabSummary},
     files::FileChangeEvent,
+    gateway_service::{CredentialSource, GatewayService, GatewaySettings},
     git::{
         GitBranchSummary, GitCommitSummary, GitCredentials, GitFileStatus, GitRemoteSummary,
         GitReviewContentSummary, GitReviewSummary, GitSummary,
@@ -146,6 +147,7 @@ mod tests;
 mod types;
 mod ui_helpers;
 mod ui_invalidation;
+mod wechat_actions;
 mod window_actions;
 mod window_shell;
 mod work_scheduler;
@@ -171,6 +173,8 @@ pub(crate) const MAIN_WINDOW_MIN_HEIGHT: f32 = 640.0;
 pub(crate) const PROJECT_COLUMN_COLLAPSED_WIDTH: f32 = 80.0;
 pub(crate) const PROJECT_COLUMN_EXPANDED_WIDTH: f32 = 232.0;
 pub(crate) const TASK_COLUMN_FIXED_WIDTH: f32 = 240.0;
+pub(crate) const TASK_COLUMN_MIN_WIDTH: f32 = 200.0;
+pub(crate) const TASK_COLUMN_MAX_WIDTH: f32 = 420.0;
 pub(crate) const ASSISTANT_PANEL_WIDTH: f32 = 320.0;
 
 use self::{

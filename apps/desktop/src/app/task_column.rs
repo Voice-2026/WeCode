@@ -64,11 +64,14 @@ struct TaskWorktreeRow {
 #[derive(Clone, PartialEq)]
 struct TaskSessionRow {
     id: String,
+    session_key: String,
+    external_session_id: Option<String>,
     title: String,
     source: String,
     last_seen_at: f64,
     total_tokens: i64,
     usage_amounts: Vec<codux_runtime::ai_history::AIUsageAmount>,
+    active: bool,
 }
 
 impl Render for TaskColumnView {
@@ -136,10 +139,13 @@ struct TaskColumnLabels {
     create: String,
     refresh: String,
     open: String,
+    rename: String,
     new_session: String,
     open_folder: String,
     merge: String,
     delete: String,
+    bind_wechat: String,
+    wechat_bound: String,
 }
 
 fn task_column_labels(language: &str) -> TaskColumnLabels {
@@ -157,21 +163,36 @@ fn task_column_labels(language: &str) -> TaskColumnLabels {
         create: tr("worktree.create.title", "New Worktree"),
         refresh: tr("common.refresh", "Refresh"),
         open: tr("common.open", "Open"),
+        rename: tr("common.rename", "Rename"),
         new_session: tr("ai.sessions.new_session", "New Session"),
         open_folder: tr("worktree.menu.open_folder", "Open Folder"),
         merge: tr("worktree.menu.merge", "Merge to Mainline"),
         delete: tr("common.delete", "Delete"),
+        bind_wechat: tr("terminal.wechat.bind", "Bind WeChat to this terminal"),
+        wechat_bound: tr("terminal.wechat.bound", "WeChat bound"),
     }
 }
 
-fn task_session_row(session: &AISessionSummary) -> TaskSessionRow {
+fn task_session_row(
+    session: &AISessionSummary,
+    active_ai_session_id: Option<&str>,
+) -> TaskSessionRow {
     TaskSessionRow {
         id: session.id.clone(),
+        session_key: session.session_key.clone(),
+        external_session_id: session.external_session_id.clone(),
         title: session.title.clone(),
         source: session.source.clone(),
         last_seen_at: session.last_seen_at,
         total_tokens: session.total_tokens,
         usage_amounts: session.usage_amounts.clone(),
+        active: active_ai_session_id
+            .map(|id| {
+                id == session.id
+                    || id == session.session_key
+                    || session.external_session_id.as_deref() == Some(id)
+            })
+            .unwrap_or(false),
     }
 }
 
@@ -255,6 +276,7 @@ struct TaskTerminalRow {
     subtitle: Option<String>,
     lifecycle: Option<AgentLifecycleState>,
     active: bool,
+    wechat_bound: bool,
     collapsed: bool,
     collapsed_index: Option<usize>,
 }
@@ -467,6 +489,8 @@ impl CoduxApp {
         let labels = task_column_labels(&self.state.settings.language);
         let ai_titles = terminal_ai_titles_by_terminal_id(&self.state.ai_runtime_state.sessions);
         let active_terminal_id = self.active_terminal_runtime_id();
+        let wechat_bound_session_ids =
+            codux_runtime::wechat_bridge_service::wechat_bridge_bound_session_ids();
         let mut terminals = self
             .main_terminal()
             .map(|tab| {
@@ -491,6 +515,9 @@ impl CoduxApp {
                         let active = !active_terminal_id.is_empty()
                             && terminal_id.as_deref() == Some(active_terminal_id.as_str());
                         TaskTerminalRow {
+                            wechat_bound: terminal_id.as_deref().is_some_and(|id| {
+                                wechat_bound_session_ids.iter().any(|bound| bound == id)
+                            }),
                             terminal_id,
                             pane_index: index,
                             title,
@@ -517,6 +544,10 @@ impl CoduxApp {
                 &labels.language,
             );
             terminals.push(TaskTerminalRow {
+                wechat_bound: slot
+                    .terminal_id
+                    .as_deref()
+                    .is_some_and(|id| wechat_bound_session_ids.iter().any(|bound| bound == id)),
                 terminal_id: slot.terminal_id.clone(),
                 pane_index: 0,
                 title,
@@ -541,12 +572,23 @@ impl CoduxApp {
 
     fn task_session_list_snapshot(&self) -> TaskSessionListSnapshot {
         let labels = task_column_labels(&self.state.settings.language);
+        let active_terminal_id = self.active_terminal_runtime_id();
+        let active_ai_session_id = (!active_terminal_id.is_empty())
+            .then(|| {
+                self.state
+                    .ai_runtime_state
+                    .sessions
+                    .iter()
+                    .find(|session| session.terminal_id == active_terminal_id)
+                    .and_then(|session| session.ai_session_id.as_deref())
+            })
+            .flatten();
         let sessions = self
             .state
             .ai_history
             .sessions
             .iter()
-            .map(task_session_row)
+            .map(|session| task_session_row(session, active_ai_session_id))
             .collect::<Vec<_>>();
 
         TaskSessionListSnapshot {
@@ -969,7 +1011,12 @@ fn terminal_list_area(
                             .min_w_0()
                             .h(px(TERMINAL_LIST_ROW_HEIGHT))
                             .pb(px(4.0))
-                            .child(terminal_compact_row(terminal, app_entity.clone(), cx))
+                            .child(terminal_compact_row(
+                                terminal,
+                                labels.clone(),
+                                app_entity.clone(),
+                                cx,
+                            ))
                             .into_any_element()
                     },
                 )),
@@ -979,6 +1026,7 @@ fn terminal_list_area(
 
 fn terminal_compact_row(
     terminal: TaskTerminalRow,
+    labels: TaskColumnLabels,
     app_entity: gpui::Entity<CoduxApp>,
     cx: &mut Context<TaskTerminalListView>,
 ) -> impl IntoElement {
@@ -986,7 +1034,10 @@ fn terminal_compact_row(
     let collapsed_index = terminal.collapsed_index;
     let pane_index = terminal.pane_index;
     let terminal_id = terminal.terminal_id.clone();
+    let terminal_id_for_click = terminal_id.clone();
+    let terminal_id_for_wechat = terminal_id.clone();
     let lifecycle = terminal.lifecycle;
+    let app_entity_for_row = app_entity.clone();
     let row_id = if collapsed {
         SharedString::from(format!(
             "compact-terminal-collapsed-{}",
@@ -1025,9 +1076,9 @@ fn terminal_compact_row(
         .cursor_pointer()
         .hover(|style| style.bg(theme::elevate(color(theme::BG_COLUMN), 0.07)))
         .on_click(move |_, window, cx| {
-            cx.update_entity(&app_entity, |app, cx| {
+            cx.update_entity(&app_entity_for_row, |app, cx| {
                 if lifecycle == Some(AgentLifecycleState::Completed)
-                    && terminal_id
+                    && terminal_id_for_click
                         .as_deref()
                         .is_some_and(|id| app.dismiss_pane_agent_lifecycle_completion(id))
                 {
@@ -1065,6 +1116,47 @@ fn terminal_compact_row(
                 .filter(|state| *state != AgentLifecycleState::Idle),
             |this, state| this.child(agent_lifecycle_status_dot(state)),
         )
+        .when_some(terminal_id_for_wechat, |this, terminal_id| {
+            let bound = terminal.wechat_bound;
+            let app_entity_for_tooltip = app_entity.clone();
+            let app_entity_for_click = app_entity.clone();
+            let tooltip = if bound {
+                labels.wechat_bound.clone()
+            } else {
+                labels.bind_wechat.clone()
+            };
+            let icon_color = if bound {
+                color(theme::GREEN)
+            } else {
+                color(theme::TEXT_DIM)
+            };
+            let button = codux_tooltip_container(
+                app_entity_for_tooltip,
+                format!("task-terminal-wechat-{terminal_id}"),
+                tooltip,
+            )
+            .size(px(22.0))
+            .flex_none()
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(6.0))
+            .text_color(icon_color)
+            .hover(|style| style.bg(theme::elevate(color(theme::BG_COLUMN), 0.11)))
+            .on_click(move |_event, window, cx| {
+                cx.stop_propagation();
+                window.prevent_default();
+                cx.update_entity(&app_entity_for_click, |app, cx| {
+                    app.wechat_bind_terminal_session(&terminal_id, cx);
+                });
+            })
+            .child(
+                Icon::new(HeroIconName::ChatBubbleLeftRight)
+                    .size_3()
+                    .text_color(icon_color),
+            );
+            this.child(button)
+        })
         .when(
             collapsed
                 && terminal
@@ -1391,16 +1483,18 @@ fn ai_session_compact_row(
     session: TaskSessionRow,
     labels: TaskColumnLabels,
     app_entity: gpui::Entity<CoduxApp>,
-    _cx: &mut Context<TaskSessionListView>,
+    cx: &mut Context<TaskSessionListView>,
 ) -> impl IntoElement {
     let restore_session_id = session.id.clone();
     let menu_session_id = session.id.clone();
+    let menu_session_title = session.title.clone();
     let last_seen = relative_time_label_for_language(session.last_seen_at, &labels.language);
     let restore_entity = app_entity.clone();
     let drag_payload = TaskSessionDrag {
         session_id: session.id.clone(),
         title: session.title.clone(),
     };
+    let session_active = session.active;
     div()
         .id(SharedString::from(format!(
             "compact-session-{}",
@@ -1412,10 +1506,24 @@ fn ai_session_compact_row(
         .flex_col()
         .gap(px(4.0))
         .rounded(px(8.0))
+        .border_1()
+        .border_color(if session_active {
+            color(theme::ACCENT)
+        } else {
+            cx.theme().transparent
+        })
         .px_3()
         .py(px(8.0))
         .cursor_pointer()
-        .hover(|style| style.bg(theme::elevate(color(theme::BG_COLUMN), 0.07)))
+        .when(session_active, |style| {
+            style.bg(theme::elevate(color(theme::BG_COLUMN), 0.11))
+        })
+        .hover(move |style| {
+            style.bg(theme::elevate(
+                color(theme::BG_COLUMN),
+                if session_active { 0.14 } else { 0.07 },
+            ))
+        })
         .on_drag(drag_payload, move |drag, _, _, cx| {
             cx.stop_propagation();
             cx.new(|_| drag.clone())
@@ -1463,6 +1571,9 @@ fn ai_session_compact_row(
             let fork_entity = app_entity.clone();
             let fork_session_id = menu_session_id.clone();
             let fork_label = labels.new_session.clone();
+            let rename_entity = app_entity.clone();
+            let rename_session_id = menu_session_id.clone();
+            let rename_session_title = menu_session_title.clone();
             let remove_entity = app_entity.clone();
             let remove_session_id = menu_session_id.clone();
 
@@ -1504,6 +1615,20 @@ fn ai_session_compact_row(
                             )
                         })
                 },
+            )
+            .item(
+                PopupMenuItem::new(labels.rename.clone())
+                    .icon(HeroIconName::PencilSquare)
+                    .on_click(move |_, window, cx| {
+                        cx.update_entity(&rename_entity, |app, cx| {
+                            app.request_rename_ai_session(
+                                rename_session_id.clone(),
+                                rename_session_title.clone(),
+                                window,
+                                cx,
+                            );
+                        });
+                    }),
             )
             .item(
                 PopupMenuItem::new(labels.delete.clone())

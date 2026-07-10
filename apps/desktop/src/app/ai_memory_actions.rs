@@ -2,6 +2,7 @@ use super::*;
 use crate::app::app_events::{
     ChildWindowUpdateKind, publish_child_window_update, publish_memory_update,
 };
+use crate::app::quick_input::show_quick_input;
 
 const MAX_AUTOMATIC_MEMORY_PROCESS_TASKS: usize = 10;
 
@@ -395,6 +396,108 @@ impl CoduxApp {
     pub(super) fn cancel_remove_ai_session(&mut self, cx: &mut Context<Self>) {
         self.ai_session_delete_confirm_id = None;
         self.status_message = "AI session removal cancelled".to_string();
+        self.invalidate_memory_panel(cx);
+    }
+
+    pub(super) fn request_rename_ai_session(
+        &mut self,
+        session_id: String,
+        current_title: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some((session_id, session_title)) = self
+            .state
+            .ai_history
+            .sessions
+            .iter()
+            .find(|session| session.id == session_id)
+            .map(|session| (session.id.clone(), session.title.clone()))
+            .or_else(|| Some((session_id.clone(), current_title.clone())))
+        else {
+            self.status_message = "AI session is no longer available".to_string();
+            self.normalize_selected_ai_session();
+            self.invalidate_memory_panel(cx);
+            return;
+        };
+        self.selected_ai_session_id = Some(session_id.clone());
+        self.reload_selected_ai_session_detail();
+        let app_entity = cx.entity();
+        show_quick_input(
+            self.text("ai.sessions.rename_title", "Rename Session"),
+            self.text("ai.sessions.rename_placeholder", "Enter a session name"),
+            session_title,
+            false,
+            move |title, _window, cx| {
+                app_entity.update(cx, |app, cx| {
+                    app.rename_ai_session_title(session_id.clone(), title, cx);
+                });
+            },
+            window,
+            cx,
+        );
+        self.status_message = "renaming AI session".to_string();
+        self.invalidate_memory_panel(cx);
+    }
+
+    fn rename_ai_session_title(
+        &mut self,
+        session_id: String,
+        title: String,
+        cx: &mut Context<Self>,
+    ) {
+        let title = title.trim().to_string();
+        if title.is_empty() {
+            self.status_message = "AI session name cannot be empty".to_string();
+            self.invalidate_memory_panel(cx);
+            return;
+        }
+        let Some(project) = &self.state.selected_project else {
+            self.status_message = "no selected project for AI session rename".to_string();
+            self.invalidate_memory_panel(cx);
+            return;
+        };
+        let Some(current_title) = self
+            .state
+            .ai_history
+            .sessions
+            .iter()
+            .find(|session| session.id == session_id)
+            .map(|session| session.title.as_str())
+        else {
+            self.status_message = "no AI session to rename".to_string();
+            self.normalize_selected_ai_session();
+            self.invalidate_memory_panel(cx);
+            return;
+        };
+        if current_title == title {
+            self.status_message = "AI session name unchanged".to_string();
+            self.invalidate_memory_panel(cx);
+            return;
+        }
+        let worktree = super::ai_runtime_status::selected_worktree_info(&self.state);
+        let project_request = ai_history_worktree_request(project, worktree.as_ref());
+        match self.runtime_service.rename_indexed_ai_session(
+            project_request,
+            session_id.clone(),
+            title.clone(),
+        ) {
+            Ok(state) => {
+                if let Some(summary) = ai_history_summary_from_project_state(&state) {
+                    self.state.ai_history = summary;
+                    self.state.refresh_ai_history_stats();
+                }
+                self.refresh_ai_global_history_summary(cx);
+                self.selected_ai_session_id = Some(session_id);
+                self.normalize_selected_ai_session();
+                self.reload_selected_ai_session_detail();
+                self.status_message = format!("AI session renamed to {title}");
+                self.runtime_service.broadcast_remote_ai_session_changed();
+            }
+            Err(error) => {
+                self.status_message = format!("failed to rename AI session: {error}");
+            }
+        }
         self.invalidate_memory_panel(cx);
     }
 

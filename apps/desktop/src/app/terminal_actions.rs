@@ -995,15 +995,31 @@ impl CoduxApp {
         &mut self,
         title: String,
         command: String,
+        window: Option<&mut Window>,
+        cx: &mut Context<Self>,
+    ) {
+        self.launch_command_in_main_split_internal(title, command, None, window, cx);
+    }
+
+    fn launch_command_in_main_split_internal(
+        &mut self,
+        title: String,
+        command: String,
+        env: Option<HashMap<String, String>>,
         mut window: Option<&mut Window>,
         cx: &mut Context<Self>,
     ) {
         prepare_memory_launch_artifacts(&self.runtime_service, &self.state);
         let launch_context = self.current_terminal_launch_context();
-        let base_pty_config = launch_context
+        let mut base_pty_config = launch_context
             .as_ref()
             .map(TerminalLaunchContext::to_config)
             .unwrap_or_default();
+        if let Some(env) = env {
+            let mut merged = base_pty_config.env.unwrap_or_default();
+            merged.extend(env);
+            base_pty_config.env = Some(merged);
+        }
         let Some(active_tab) = self.main_terminal() else {
             self.status_message = self.text(
                 "terminal.ai_restore.no_main_terminal",
@@ -1120,5 +1136,130 @@ impl CoduxApp {
         self.sync_terminal_state_after_layout_change(cx);
         self.spawn_attach_pending_terminals(None, vec![(pty_config, attach)], cx);
         self.invalidate_terminal_workspace(cx);
+    }
+
+    pub(in crate::app) fn launch_quick_agent(
+        &mut self,
+        target: &'static str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let launch = match target {
+            "codex" => Some(("Codex".to_string(), "codex".to_string(), None)),
+            "claude" => Some(("Claude Code".to_string(), "claude".to_string(), None)),
+            "kiro" => Some(("Kiro".to_string(), "kiro-cli".to_string(), None)),
+            "kiro-gateway-claude" => {
+                self.kiro_gateway_quick_launch("claude", Some("claude-opus-4.8"))
+            }
+            "kiro-gateway-claude-haiku-4-5" => {
+                self.kiro_gateway_quick_launch("claude", Some("claude-haiku-4.5"))
+            }
+            "kiro-gateway-claude-sonnet-4-6" => {
+                self.kiro_gateway_quick_launch("claude", Some("claude-sonnet-4.6"))
+            }
+            "kiro-gateway-claude-opus-4-6" => {
+                self.kiro_gateway_quick_launch("claude", Some("claude-opus-4.6"))
+            }
+            "kiro-gateway-claude-opus-4-7" => {
+                self.kiro_gateway_quick_launch("claude", Some("claude-opus-4.7"))
+            }
+            "kiro-gateway-claude-opus-4-8" => {
+                self.kiro_gateway_quick_launch("claude", Some("claude-opus-4.8"))
+            }
+            "kiro-gateway-claude-deepseek-3-2" => {
+                self.kiro_gateway_quick_launch("claude", Some("deepseek-3.2"))
+            }
+            "kiro-gateway-claude-glm-5" => self.kiro_gateway_quick_launch("claude", Some("glm-5")),
+            "kiro-gateway-claude-minimax-m2-5" => {
+                self.kiro_gateway_quick_launch("claude", Some("minimax-m2.5"))
+            }
+            "kiro-gateway-claude-qwen3-coder-next" => {
+                self.kiro_gateway_quick_launch("claude", Some("qwen3-coder-next"))
+            }
+            "kiro-gateway-codex" => self.kiro_gateway_quick_launch("codex", None),
+            _ => None,
+        };
+        let Some((title, command, env)) = launch else {
+            if self.status_message.is_empty() {
+                self.status_message = "unknown quick agent target".to_string();
+            }
+            self.invalidate_terminal_workspace(cx);
+            return;
+        };
+        self.launch_command_in_main_split_internal(title, command, env, Some(window), cx);
+    }
+
+    fn kiro_gateway_quick_launch(
+        &mut self,
+        client: &str,
+        model_override: Option<&str>,
+    ) -> Option<(String, String, Option<HashMap<String, String>>)> {
+        let status = GatewayService::global_status();
+        let Some(addr) = status.addr else {
+            self.status_message = if let Some(error) = status.error {
+                format!("Kiro Gateway failed: {error}")
+            } else if status.enabled {
+                "Kiro Gateway is enabled but not listening yet.".to_string()
+            } else {
+                "Enable Kiro Gateway in Settings first.".to_string()
+            };
+            return None;
+        };
+        let model = model_override
+            .map(str::to_string)
+            .unwrap_or_else(|| quick_gateway_model(&self.state.tool_permissions.kiro_model));
+        let api_key = self.gateway_settings.config.api_key.clone();
+        let base_url = format!("http://{addr}");
+        let mut env = HashMap::new();
+        env.insert("CODUX_KIRO_GATEWAY".to_string(), "1".to_string());
+        env.insert("CODUX_KIRO_GATEWAY_MODEL".to_string(), model.clone());
+
+        match client {
+            "claude" => {
+                let claude_model = quick_gateway_claude_model(&model);
+                env.insert("ANTHROPIC_API_KEY".to_string(), api_key);
+                env.insert("ANTHROPIC_BASE_URL".to_string(), base_url);
+                env.insert("CLAUDE_CODE_SIMPLE".to_string(), "1".to_string());
+                Some((
+                    format!("Kiro Gateway · Claude · {claude_model}"),
+                    format!(
+                        "claude --bare --permission-mode bypassPermissions --model {}",
+                        shell_quote(&claude_model)
+                    ),
+                    Some(env),
+                ))
+            }
+            "codex" => {
+                self.status_message =
+                    "Kiro Gateway Codex is disabled because Kiro does not provide GPT models."
+                        .to_string();
+                None
+            }
+            _ => None,
+        }
+    }
+}
+
+fn quick_gateway_model(model: &str) -> String {
+    let model = model.trim();
+    if model.is_empty() {
+        "auto".to_string()
+    } else {
+        model.to_string()
+    }
+}
+
+fn quick_gateway_claude_model(model: &str) -> String {
+    let model = model.trim();
+    if model.is_empty() || model == "auto" || model.starts_with("gpt-") {
+        "claude-opus-4.8".to_string()
+    } else if model == "haiku" {
+        "claude-haiku-4.5".to_string()
+    } else if model == "sonnet" {
+        "claude-sonnet-4.6".to_string()
+    } else if model == "opus" {
+        "claude-opus-4.8".to_string()
+    } else {
+        model.to_string()
     }
 }

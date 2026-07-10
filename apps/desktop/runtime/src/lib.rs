@@ -28,6 +28,7 @@ pub mod dialog;
 pub mod dock_badge;
 pub mod file_editor_layout;
 pub mod files;
+pub mod gateway_service;
 pub mod host_browser;
 // The git engine (GitService + git_* commands + GitWatchManager + the shared
 // `wire` dispatch) lives in the AppKit-free `codux-git` crate so the headless
@@ -63,5 +64,6 @@ pub mod terminal_layout;
 pub mod terminal_runtime;
 pub mod tool_permissions;
 pub mod update;
+pub mod wechat_bridge_service;
 pub mod worktree;
 pub use codux_runtime_live::wrapper_helper;

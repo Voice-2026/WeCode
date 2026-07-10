@@ -1,0 +1,21 @@
+Needs — combined monorepo
+=========================
+
+This repository combines two upstream projects:
+
+1. Codux (https://github.com/duxweb/codux) — Rust + GPUI desktop AI coding
+   terminal, originally licensed under GPL-3.0. Its code lives in apps/ and
+   crates/ (except crates/codux-gateway).
+
+2. Kiro Gateway (https://github.com/jwadow/kiro-gateway) — Python/FastAPI
+   proxy gateway for the Kiro API (Amazon Q Developer / AWS CodeWhisperer),
+   licensed under AGPL-3.0. It is being rewritten in Rust as
+   crates/codux-gateway; the original Python source is vendored read-only
+   under reference/kiro-gateway/ for behavioral parity during the port and
+   will be removed once parity is reached.
+
+Because the gateway rewrite is a derivative work of AGPL-3.0 code, the
+combined work in this repository is distributed under the terms of the
+GNU Affero General Public License v3.0 (see LICENSE). GPL-3.0-licensed
+Codux code is combined with AGPL-3.0 code as permitted by GPLv3 §13;
+per-crate `license` fields remain accurate for each component's origin.

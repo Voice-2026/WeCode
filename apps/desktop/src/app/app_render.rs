@@ -305,7 +305,7 @@ impl Render for CoduxApp {
         } else {
             PROJECT_COLUMN_EXPANDED_WIDTH
         });
-        let task_column_width = TASK_COLUMN_FIXED_WIDTH;
+        let task_column_width = px(TASK_COLUMN_FIXED_WIDTH);
 
         self.ensure_pet_level_up_ticker(cx);
         let pet_level_up_overlay = self
@@ -369,64 +369,12 @@ impl Render for CoduxApp {
                             .min_w_0()
                             .min_h_0()
                             .overflow_hidden()
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_1()
-                                    .flex_basis(px(0.0))
-                                    .w_full()
-                                    .min_w_0()
-                                    .min_h_0()
-                                    .overflow_hidden()
-                                    .when_some(task_column_view, |this, task_column_view| {
-                                        this.child(
-                                            div()
-                                                .flex_none()
-                                                .flex_shrink_0()
-                                                .flex_basis(px(task_column_width))
-                                                .w(px(task_column_width))
-                                                .min_w(px(task_column_width))
-                                                .max_w(px(task_column_width))
-                                                .h_full()
-                                                .overflow_hidden()
-                                                .border_r_1()
-                                                .border_color(cx.theme().border)
-                                                .child(
-                                                    gpui::AnyView::from(task_column_view).cached(
-                                                        gpui::StyleRefinement::default()
-                                                            .flex()
-                                                            .flex_none()
-                                                            .h_full()
-                                                            .min_w(px(task_column_width))
-                                                            .max_w(px(task_column_width))
-                                                            .w_full(),
-                                                    ),
-                                                ),
-                                        )
-                                    })
-                                    .child(
-                                        div()
-                                            .flex()
-                                            .flex_1()
-                                            .flex_basis(px(0.0))
-                                            .w_full()
-                                            .min_w_0()
-                                            .min_h_0()
-                                            .overflow_hidden()
-                                            .child(
-                                                gpui::AnyView::from(workspace_column_view).cached(
-                                                    gpui::StyleRefinement::default()
-                                                        .flex()
-                                                        .flex_1()
-                                                        .flex_basis(px(0.0))
-                                                        .w_full()
-                                                        .h_full()
-                                                        .min_w(px(0.0))
-                                                        .min_h(px(0.0)),
-                                                ),
-                                            ),
-                                    ),
-                            )
+                            .child(main_workspace_split(
+                                task_column_view,
+                                workspace_column_view,
+                                task_column_width,
+                                cx,
+                            ))
                             .child(
                                 gpui::AnyView::from(status_bar_view).cached(
                                     gpui::StyleRefinement::default()
@@ -472,4 +420,73 @@ impl Render for CoduxApp {
         self.register_native_menu_actions(root, cx)
             .into_any_element()
     }
+}
+
+fn main_workspace_split(
+    task_column_view: Option<gpui::Entity<TaskColumnView>>,
+    workspace_column_view: gpui::Entity<WorkspaceColumnView>,
+    task_column_width: Pixels,
+    cx: &mut Context<CoduxApp>,
+) -> AnyElement {
+    if let Some(task_column_view) = task_column_view {
+        h_resizable("main-task-workspace-split")
+            .child(
+                resizable_panel()
+                    .size(task_column_width)
+                    .size_range(px(TASK_COLUMN_MIN_WIDTH)..px(TASK_COLUMN_MAX_WIDTH))
+                    .child(task_column_panel(task_column_view, cx)),
+            )
+            .child(
+                resizable_panel()
+                    .size_range(px(520.0)..Pixels::MAX)
+                    .child(workspace_column_panel(workspace_column_view)),
+            )
+            .into_any_element()
+    } else {
+        workspace_column_panel(workspace_column_view).into_any_element()
+    }
+}
+
+fn task_column_panel(
+    task_column_view: gpui::Entity<TaskColumnView>,
+    cx: &mut Context<CoduxApp>,
+) -> gpui::Div {
+    div()
+        .size_full()
+        .overflow_hidden()
+        .border_r_1()
+        .border_color(cx.theme().border)
+        .child(
+            gpui::AnyView::from(task_column_view).cached(
+                gpui::StyleRefinement::default()
+                    .flex()
+                    .flex_none()
+                    .h_full()
+                    .min_w(px(TASK_COLUMN_MIN_WIDTH))
+                    .w_full(),
+            ),
+        )
+}
+
+fn workspace_column_panel(workspace_column_view: gpui::Entity<WorkspaceColumnView>) -> gpui::Div {
+    div()
+        .flex()
+        .flex_1()
+        .flex_basis(px(0.0))
+        .w_full()
+        .min_w_0()
+        .min_h_0()
+        .overflow_hidden()
+        .child(
+            gpui::AnyView::from(workspace_column_view).cached(
+                gpui::StyleRefinement::default()
+                    .flex()
+                    .flex_1()
+                    .flex_basis(px(0.0))
+                    .w_full()
+                    .h_full()
+                    .min_w(px(0.0))
+                    .min_h(px(0.0)),
+            ),
+        )
 }

@@ -191,6 +191,7 @@ impl CoduxApp {
 
         self.settings_seen_revision = event.revision;
         let settings = self.runtime_service.reload_settings();
+        self.reload_gateway_settings_from_disk(cx);
         self.state.tool_permissions = self.runtime_service.sync_tool_permissions();
         if event.statistics_revision == event.revision {
             self.apply_settings_summary_local(settings);
@@ -334,6 +335,264 @@ impl CoduxApp {
             });
         })
         .detach();
+    }
+
+    fn save_gateway_settings(
+        &mut self,
+        action: &'static str,
+        settings: GatewaySettings,
+        cx: &mut Context<Self>,
+    ) {
+        let support_dir = self.state.support_dir.clone();
+        self.runtime_trace("settings", &format!("{action} start"));
+        match settings.save(support_dir.clone()) {
+            Ok(()) => {
+                self.gateway_settings = settings;
+                if self.window_mode == AppWindowMode::Main {
+                    self.gateway_service =
+                        self.gateway_service.restart_from_support_dir(support_dir);
+                }
+                self.status_message = "gateway settings saved".to_string();
+                self.runtime_trace("settings", &format!("{action} ok"));
+                let revision = publish_settings_update();
+                publish_child_window_update(ChildWindowUpdateKind::Settings);
+                if revision > 0 {
+                    self.settings_seen_revision = revision;
+                }
+            }
+            Err(error) => {
+                self.status_message = format!("failed to save gateway settings: {error}");
+                self.runtime_trace("settings", &format!("{action} failed error={error}"));
+            }
+        }
+        self.invalidate_ui_region(cx, UiRegion::Root);
+    }
+
+    pub(super) fn reload_gateway_settings_from_disk(&mut self, cx: &mut Context<Self>) {
+        let settings = GatewaySettings::load(self.state.support_dir.clone());
+        let changed = serde_json::to_value(&self.gateway_settings).ok()
+            != serde_json::to_value(&settings).ok();
+        self.gateway_settings = settings;
+        if changed && self.window_mode == AppWindowMode::Main {
+            self.gateway_service = self
+                .gateway_service
+                .restart_from_support_dir(self.state.support_dir.clone());
+            self.runtime_trace("settings", "gateway settings reloaded");
+            self.invalidate_ui_region(cx, UiRegion::Root);
+        }
+    }
+
+    pub(super) fn set_gateway_enabled(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        if self.gateway_settings.enabled == enabled {
+            return;
+        }
+        let mut settings = self.gateway_settings.clone();
+        settings.enabled = enabled;
+        self.save_gateway_settings("set_gateway_enabled", settings, cx);
+    }
+
+    pub(super) fn set_gateway_host(&mut self, host: String, cx: &mut Context<Self>) {
+        let host = host.trim().to_string();
+        if host.is_empty() || self.gateway_settings.config.host == host {
+            return;
+        }
+        let mut settings = self.gateway_settings.clone();
+        settings.config.host = host;
+        self.save_gateway_settings("set_gateway_host", settings, cx);
+    }
+
+    pub(super) fn set_gateway_port(&mut self, port: String, cx: &mut Context<Self>) {
+        let value = port.trim();
+        let Ok(port) = value.parse::<u16>() else {
+            self.status_message = "gateway port must be between 0 and 65535".to_string();
+            self.invalidate_ui_region(cx, UiRegion::Root);
+            return;
+        };
+        if self.gateway_settings.config.port == port {
+            return;
+        }
+        let mut settings = self.gateway_settings.clone();
+        settings.config.port = port;
+        self.save_gateway_settings("set_gateway_port", settings, cx);
+    }
+
+    pub(super) fn set_gateway_api_key(&mut self, api_key: String, cx: &mut Context<Self>) {
+        if self.gateway_settings.config.api_key == api_key {
+            return;
+        }
+        let mut settings = self.gateway_settings.clone();
+        settings.config.api_key = api_key;
+        self.save_gateway_settings("set_gateway_api_key", settings, cx);
+    }
+
+    pub(super) fn set_gateway_region(&mut self, region: String, cx: &mut Context<Self>) {
+        let region = region.trim().to_string();
+        if region.is_empty() || self.gateway_settings.config.region == region {
+            return;
+        }
+        let mut settings = self.gateway_settings.clone();
+        settings.config.region = region;
+        self.save_gateway_settings("set_gateway_region", settings, cx);
+    }
+
+    pub(super) fn set_gateway_web_search_enabled(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        if self.gateway_settings.config.web_search_enabled == enabled {
+            return;
+        }
+        let mut settings = self.gateway_settings.clone();
+        settings.config.web_search_enabled = enabled;
+        self.save_gateway_settings("set_gateway_web_search_enabled", settings, cx);
+    }
+
+    pub(super) fn set_gateway_credential_source(&mut self, source: String, cx: &mut Context<Self>) {
+        let current = self.gateway_settings.config.credentials.clone();
+        let next = match source.as_str() {
+            "file" => CredentialSource::File {
+                path: match current {
+                    CredentialSource::File { path } => path,
+                    _ => PathBuf::new(),
+                },
+            },
+            "refresh-token" => CredentialSource::RefreshToken {
+                refresh_token: match current {
+                    CredentialSource::RefreshToken { refresh_token, .. } => refresh_token,
+                    _ => String::new(),
+                },
+                profile_arn: match &self.gateway_settings.config.credentials {
+                    CredentialSource::RefreshToken { profile_arn, .. } => profile_arn.clone(),
+                    _ => None,
+                },
+                region: match &self.gateway_settings.config.credentials {
+                    CredentialSource::RefreshToken { region, .. } => region.clone(),
+                    _ => None,
+                },
+            },
+            _ => CredentialSource::KiroCli {
+                path: match current {
+                    CredentialSource::KiroCli { path, .. } => path,
+                    _ => None,
+                },
+                readonly: match &self.gateway_settings.config.credentials {
+                    CredentialSource::KiroCli { readonly, .. } => *readonly,
+                    _ => false,
+                },
+            },
+        };
+        let mut settings = self.gateway_settings.clone();
+        settings.config.credentials = next;
+        self.save_gateway_settings("set_gateway_credential_source", settings, cx);
+    }
+
+    pub(super) fn set_gateway_credential_file_path(
+        &mut self,
+        path: String,
+        cx: &mut Context<Self>,
+    ) {
+        let mut settings = self.gateway_settings.clone();
+        settings.config.credentials = CredentialSource::File {
+            path: PathBuf::from(path.trim()),
+        };
+        self.save_gateway_settings("set_gateway_credential_file_path", settings, cx);
+    }
+
+    pub(super) fn set_gateway_kiro_cli_path(&mut self, path: String, cx: &mut Context<Self>) {
+        let readonly = match &self.gateway_settings.config.credentials {
+            CredentialSource::KiroCli { readonly, .. } => *readonly,
+            _ => false,
+        };
+        let path = path.trim();
+        let mut settings = self.gateway_settings.clone();
+        settings.config.credentials = CredentialSource::KiroCli {
+            path: if path.is_empty() {
+                None
+            } else {
+                Some(PathBuf::from(path))
+            },
+            readonly,
+        };
+        self.save_gateway_settings("set_gateway_kiro_cli_path", settings, cx);
+    }
+
+    pub(super) fn set_gateway_kiro_cli_readonly(&mut self, readonly: bool, cx: &mut Context<Self>) {
+        let path = match self.gateway_settings.config.credentials.clone() {
+            CredentialSource::KiroCli { path, .. } => path,
+            _ => None,
+        };
+        let mut settings = self.gateway_settings.clone();
+        settings.config.credentials = CredentialSource::KiroCli { path, readonly };
+        self.save_gateway_settings("set_gateway_kiro_cli_readonly", settings, cx);
+    }
+
+    pub(super) fn set_gateway_refresh_token(
+        &mut self,
+        refresh_token: String,
+        cx: &mut Context<Self>,
+    ) {
+        let (profile_arn, region) = match self.gateway_settings.config.credentials.clone() {
+            CredentialSource::RefreshToken {
+                profile_arn,
+                region,
+                ..
+            } => (profile_arn, region),
+            _ => (None, None),
+        };
+        let mut settings = self.gateway_settings.clone();
+        settings.config.credentials = CredentialSource::RefreshToken {
+            refresh_token,
+            profile_arn,
+            region,
+        };
+        self.save_gateway_settings("set_gateway_refresh_token", settings, cx);
+    }
+
+    pub(super) fn set_gateway_refresh_profile_arn(
+        &mut self,
+        profile_arn: String,
+        cx: &mut Context<Self>,
+    ) {
+        let (refresh_token, region) = match self.gateway_settings.config.credentials.clone() {
+            CredentialSource::RefreshToken {
+                refresh_token,
+                region,
+                ..
+            } => (refresh_token, region),
+            _ => (String::new(), None),
+        };
+        let profile_arn = profile_arn.trim();
+        let mut settings = self.gateway_settings.clone();
+        settings.config.credentials = CredentialSource::RefreshToken {
+            refresh_token,
+            profile_arn: if profile_arn.is_empty() {
+                None
+            } else {
+                Some(profile_arn.to_string())
+            },
+            region,
+        };
+        self.save_gateway_settings("set_gateway_refresh_profile_arn", settings, cx);
+    }
+
+    pub(super) fn set_gateway_refresh_region(&mut self, region: String, cx: &mut Context<Self>) {
+        let (refresh_token, profile_arn) = match self.gateway_settings.config.credentials.clone() {
+            CredentialSource::RefreshToken {
+                refresh_token,
+                profile_arn,
+                ..
+            } => (refresh_token, profile_arn),
+            _ => (String::new(), None),
+        };
+        let region = region.trim();
+        let mut settings = self.gateway_settings.clone();
+        settings.config.credentials = CredentialSource::RefreshToken {
+            refresh_token,
+            profile_arn,
+            region: if region.is_empty() {
+                None
+            } else {
+                Some(region.to_string())
+            },
+        };
+        self.save_gateway_settings("set_gateway_refresh_region", settings, cx);
     }
 
     pub(super) fn set_theme(&mut self, theme: String, window: &mut Window, cx: &mut Context<Self>) {

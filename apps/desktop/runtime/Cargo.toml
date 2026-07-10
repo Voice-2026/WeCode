@@ -12,7 +12,9 @@ bytes = "1.9"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 codux-ai-history = { path = "../../../crates/codux-ai-history" }
 codux-ai-sessions = { path = "../../../crates/codux-ai-sessions" }
+codux-gateway = { path = "../../../crates/codux-gateway" }
 codux-git = { path = "../../../crates/codux-git" }
+codux-im-bridge = { path = "../../../crates/codux-im-bridge" }
 codux-llm = { path = "../../../crates/codux-llm" }
 codux-memory = { path = "../../../crates/codux-memory" }
 codux-protocol = { path = "../../../crates/codux-protocol" }

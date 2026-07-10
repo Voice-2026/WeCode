@@ -84,6 +84,8 @@ impl CoduxApp {
         let pet_custom_pets = pet_catalog.custom_pets.clone();
         let pet_sprite_paths =
             pet_sprite_path_cache(&runtime.source_root, &state.support_dir, &pet_catalog);
+        let gateway_settings = GatewaySettings::load(state.support_dir.clone());
+        let gateway_service = GatewayService::inactive();
         Self {
             window_mode: AppWindowMode::Settings,
             root_focus_handle: None,
@@ -105,6 +107,8 @@ impl CoduxApp {
             runtime,
             state,
             runtime_service,
+            gateway_settings,
+            gateway_service,
             window_appearance: WindowAppearance::Dark,
             main_window_fullscreen: false,
             main_window_lost_to_external_app: false,
@@ -328,6 +332,7 @@ impl CoduxApp {
             ssh_draft_key_passphrase: String::new(),
             selected_remote_device_id,
             remote_reconnecting: false,
+            wechat_bridge_watching: false,
             remote_pairing_sheet_open: false,
             remote_pairing_creating: false,
             remote_pairing_error: None,

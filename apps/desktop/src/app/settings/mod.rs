@@ -41,6 +41,8 @@ mod ai;
 mod appearance;
 #[path = "panes/developer.rs"]
 mod developer;
+#[path = "panes/gateway.rs"]
+mod gateway;
 #[path = "panes/general.rs"]
 mod general;
 #[path = "panes/git.rs"]
@@ -60,6 +62,7 @@ use self::{
     ai::settings_ai_pane,
     appearance::settings_appearance_pane,
     developer::settings_developer_pane,
+    gateway::settings_gateway_pane,
     general::settings_general_pane,
     git::settings_git_pane,
     memory::settings_memory_pane,
@@ -79,6 +82,7 @@ pub(super) enum SettingsPane {
     Appearance,
     Pet,
     AI,
+    Gateway,
     Git,
     Memory,
     Notifications,
@@ -94,6 +98,7 @@ impl SettingsPane {
             Self::Appearance => "settings.tab.appearance",
             Self::Pet => "settings.tab.pet",
             Self::AI => "settings.tab.ai",
+            Self::Gateway => "settings.tab.gateway",
             Self::Git => "settings.tab.git",
             Self::Memory => "settings.tab.memory",
             Self::Notifications => "settings.tab.notifications",
@@ -106,6 +111,7 @@ impl SettingsPane {
             Self::Appearance => settings_text(language, key, "Appearance"),
             Self::Pet => settings_text(language, key, "Pet"),
             Self::AI => settings_text(language, key, "AI"),
+            Self::Gateway => settings_text(language, key, "Gateway"),
             Self::Git => settings_text(language, key, "Git"),
             Self::Memory => settings_text(language, key, "Memory"),
             Self::Notifications => settings_text(language, key, "Notifications"),
@@ -121,6 +127,7 @@ impl SettingsPane {
             Self::Appearance => HeroIconName::Swatch,
             Self::Pet => HeroIconName::Heart,
             Self::AI => HeroIconName::CpuChip,
+            Self::Gateway => HeroIconName::ServerStack,
             Self::Git => HeroIconName::ArrowPathRoundedSquare,
             Self::Memory => HeroIconName::BookOpen,
             Self::Notifications => HeroIconName::Bell,
@@ -131,11 +138,12 @@ impl SettingsPane {
     }
 }
 
-const SETTINGS_PANES: [SettingsPane; 10] = [
+const SETTINGS_PANES: [SettingsPane; 11] = [
     SettingsPane::General,
     SettingsPane::Appearance,
     SettingsPane::Pet,
     SettingsPane::AI,
+    SettingsPane::Gateway,
     SettingsPane::Git,
     SettingsPane::Memory,
     SettingsPane::Notifications,
@@ -188,6 +196,19 @@ impl CoduxApp {
     ) -> impl IntoElement {
         self.ensure_terminal_font_families_loaded(cx);
         let pane = self.active_settings_pane;
+        if pane == SettingsPane::Remote {
+            let wechat = codux_runtime::wechat_bridge_service::wechat_bridge_snapshot();
+            if matches!(
+                wechat.state,
+                codux_runtime::wechat_bridge_service::WeChatBridgeState::WaitingScan
+                    | codux_runtime::wechat_bridge_service::WeChatBridgeState::Scanned
+                    | codux_runtime::wechat_bridge_service::WeChatBridgeState::Connecting
+                    | codux_runtime::wechat_bridge_service::WeChatBridgeState::Connected
+            ) || wechat.pending_pairing.is_some()
+            {
+                self.wechat_bridge_watch(cx);
+            }
+        }
         let language = self.state.settings.language.as_str();
 
         div()
@@ -387,6 +408,13 @@ fn settings_pane_body(
             app.selected_ai_provider_id.as_deref(),
             app.ai_provider_testing_id.as_deref(),
             app.ai_provider_test_result.as_ref(),
+            window,
+            cx,
+        ),
+        SettingsPane::Gateway => settings_gateway_pane(
+            &app.gateway_settings,
+            &app.gateway_service,
+            app.state.settings.language.as_str(),
             window,
             cx,
         ),

@@ -16,6 +16,13 @@ fn shared_terminal_manager(ai_runtime: Arc<AIRuntimeBridge>) -> Arc<TerminalMana
     )
 }
 
+/// The shared terminal manager, if the runtime has been bootstrapped. Services
+/// that only forward input (e.g. the WeChat bridge) must not force
+/// initialization, so this never constructs one.
+pub fn terminal_manager_if_initialized() -> Option<Arc<TerminalManager>> {
+    TERMINAL_MANAGER.get().cloned()
+}
+
 fn new_remote_host_runtime(
     support_dir: PathBuf,
     ai_history: AIHistoryIndexer,

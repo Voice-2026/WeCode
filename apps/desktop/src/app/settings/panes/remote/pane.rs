@@ -1,5 +1,6 @@
 use super::overlays::remote_add_dropdown;
 use super::relay::settings_remote_relay_custom_fields;
+use super::wechat::settings_remote_wechat_card;
 use super::*;
 
 pub(in crate::app::settings) fn settings_remote_pane(
@@ -320,6 +321,7 @@ pub(in crate::app::settings) fn settings_remote_pane(
             )
             .into_any_element(),
             remote_mobile_download_banner(language, cx),
+            settings_remote_wechat_card(language, cx),
             settings_card_with_actions(
                 Some(settings_text(
                     language,

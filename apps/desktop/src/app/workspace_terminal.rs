@@ -123,6 +123,11 @@ impl CoduxApp {
                             .flex()
                             .items_center()
                             .gap_1()
+                            .child(terminal_pane_agent_button(
+                                SharedString::from(format!("terminal-pane-agent-{index}")),
+                                has_project_context(&self.state),
+                                cx,
+                            ))
                             .child(terminal_pane_control_button(
                                 float_id,
                                 HeroIconName::ArrowTopRightOnSquare,
@@ -157,6 +162,10 @@ impl CoduxApp {
     }
 }
 
+fn has_project_context(state: &RuntimeState) -> bool {
+    state.selected_project.is_some()
+}
+
 /// A centered banner over the terminal area when the remote host link is down
 /// or reconnecting, so a frozen remote shell reads as "offline, recovering"
 /// instead of an unexplained blank pane.
@@ -182,6 +191,165 @@ fn terminal_link_overlay(overlay: (HeroIconName, u32, String)) -> impl IntoEleme
                 .text_color(color(theme::TEXT))
                 .child(message),
         )
+}
+
+fn terminal_pane_agent_button(
+    id: SharedString,
+    enabled: bool,
+    cx: &mut Context<CoduxApp>,
+) -> AnyElement {
+    let app_entity = cx.entity();
+    let gateway_status = GatewayService::global_status();
+    let gateway_ready = gateway_status.addr.is_some() && gateway_status.error.is_none();
+    let gateway_hint = if let Some(error) = gateway_status.error {
+        format!("Gateway failed: {error}")
+    } else if gateway_status.enabled {
+        "Gateway starting".to_string()
+    } else {
+        "Gateway disabled".to_string()
+    };
+    let text_color = if enabled {
+        cx.theme().secondary_foreground
+    } else {
+        color(theme::TEXT_DIM)
+    };
+
+    Button::new(id)
+        .compact()
+        .ghost()
+        .h(px(28.0))
+        .w(px(30.0))
+        .disabled(!enabled)
+        .text_color(text_color)
+        .child(
+            Icon::new(HeroIconName::Sparkles)
+                .size_3p5()
+                .text_color(text_color),
+        )
+        .dropdown_menu(move |menu, _window, _cx| {
+            let mut menu = menu
+                .item(quick_agent_item(
+                    app_entity.clone(),
+                    "Claude Code",
+                    HeroIconName::CommandLine,
+                    "claude",
+                    !enabled,
+                ))
+                .item(quick_agent_item(
+                    app_entity.clone(),
+                    "Codex",
+                    HeroIconName::CommandLine,
+                    "codex",
+                    !enabled,
+                ))
+                .item(quick_agent_item(
+                    app_entity.clone(),
+                    "Kiro",
+                    HeroIconName::Sparkles,
+                    "kiro",
+                    !enabled,
+                ))
+                .separator();
+            if gateway_ready {
+                menu = menu
+                    .item(quick_agent_item(
+                        app_entity.clone(),
+                        "Kiro Gateway · Claude · Opus 4.8",
+                        HeroIconName::ServerStack,
+                        "kiro-gateway-claude",
+                        !enabled,
+                    ))
+                    .separator()
+                    .item(quick_agent_item(
+                        app_entity.clone(),
+                        "Gateway · Haiku 4.5",
+                        HeroIconName::ServerStack,
+                        "kiro-gateway-claude-haiku-4-5",
+                        !enabled,
+                    ))
+                    .item(quick_agent_item(
+                        app_entity.clone(),
+                        "Gateway · Sonnet 4.6",
+                        HeroIconName::ServerStack,
+                        "kiro-gateway-claude-sonnet-4-6",
+                        !enabled,
+                    ))
+                    .item(quick_agent_item(
+                        app_entity.clone(),
+                        "Gateway · Opus 4.6",
+                        HeroIconName::ServerStack,
+                        "kiro-gateway-claude-opus-4-6",
+                        !enabled,
+                    ))
+                    .item(quick_agent_item(
+                        app_entity.clone(),
+                        "Gateway · Opus 4.7",
+                        HeroIconName::ServerStack,
+                        "kiro-gateway-claude-opus-4-7",
+                        !enabled,
+                    ))
+                    .item(quick_agent_item(
+                        app_entity.clone(),
+                        "Gateway · Opus 4.8",
+                        HeroIconName::ServerStack,
+                        "kiro-gateway-claude-opus-4-8",
+                        !enabled,
+                    ))
+                    .item(quick_agent_item(
+                        app_entity.clone(),
+                        "Gateway · DeepSeek 3.2",
+                        HeroIconName::ServerStack,
+                        "kiro-gateway-claude-deepseek-3-2",
+                        !enabled,
+                    ))
+                    .item(quick_agent_item(
+                        app_entity.clone(),
+                        "Gateway · GLM 5",
+                        HeroIconName::ServerStack,
+                        "kiro-gateway-claude-glm-5",
+                        !enabled,
+                    ))
+                    .item(quick_agent_item(
+                        app_entity.clone(),
+                        "Gateway · MiniMax M2.5",
+                        HeroIconName::ServerStack,
+                        "kiro-gateway-claude-minimax-m2-5",
+                        !enabled,
+                    ))
+                    .item(quick_agent_item(
+                        app_entity.clone(),
+                        "Gateway · Qwen3 Coder",
+                        HeroIconName::ServerStack,
+                        "kiro-gateway-claude-qwen3-coder-next",
+                        !enabled,
+                    ));
+            } else {
+                menu = menu.item(
+                    PopupMenuItem::new(gateway_hint.clone())
+                        .icon(HeroIconName::ServerStack)
+                        .disabled(true),
+                );
+            }
+            menu
+        })
+        .into_any_element()
+}
+
+fn quick_agent_item(
+    app_entity: gpui::Entity<CoduxApp>,
+    label: &'static str,
+    icon: HeroIconName,
+    target: &'static str,
+    disabled: bool,
+) -> PopupMenuItem {
+    PopupMenuItem::new(label)
+        .icon(icon)
+        .disabled(disabled)
+        .on_click(move |_, window, cx| {
+            cx.update_entity(&app_entity, |app, cx| {
+                app.launch_quick_agent(target, window, cx);
+            });
+        })
 }
 
 fn terminal_pane_control_button(

@@ -177,6 +177,14 @@ impl TerminalManager {
         self.session(session_id)?.write(data)
     }
 
+    pub fn subscribe_output(
+        &self,
+        session_id: &str,
+        replay_snapshot: bool,
+    ) -> Result<flume::Receiver<Vec<u8>>> {
+        Ok(self.session(session_id)?.subscribe_output(replay_snapshot))
+    }
+
     pub fn resize(&self, session_id: &str, cols: u16, rows: u16) -> Result<()> {
         self.session(session_id)?.resize(cols, rows)
     }
@@ -357,6 +365,19 @@ impl TerminalManager {
 
     pub fn output_snapshot(&self, session_id: &str) -> Result<TerminalOutputSnapshot> {
         Ok(self.session(session_id)?.output_snapshot())
+    }
+
+    pub fn poll_ai_runtime_state(&self) -> Result<()> {
+        let Some(ai_runtime) = &self.ai_runtime else {
+            return Ok(());
+        };
+        ai_runtime.poll_runtime_state().map_err(anyhow::Error::msg)
+    }
+
+    pub fn ai_runtime_state_snapshot(&self) -> Option<AIRuntimeStateSnapshot> {
+        self.ai_runtime
+            .as_ref()
+            .map(|ai_runtime| ai_runtime.runtime_state_snapshot())
     }
 
     pub fn buffer_characters(&self, session_id: &str) -> Result<usize> {
