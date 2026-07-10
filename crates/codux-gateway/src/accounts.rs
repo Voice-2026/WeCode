@@ -156,6 +156,18 @@ impl AccountManager {
         self.slots[idx].auth.profile_arn().await
     }
 
+    /// Authentication manager for native server-tool requests that bypass the
+    /// normal model failover path.
+    pub async fn current_auth(&self) -> Arc<KiroAuth> {
+        let idx = self
+            .state
+            .lock()
+            .await
+            .current_index
+            .min(self.slots.len() - 1);
+        self.slots[idx].auth.clone()
+    }
+
     /// Select the next account index to try, honoring the circuit breaker.
     async fn select(&self, exclude: &HashSet<usize>) -> Option<usize> {
         let st = self.state.lock().await;

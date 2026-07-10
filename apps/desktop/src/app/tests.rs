@@ -718,6 +718,28 @@ mod tests {
     }
 
     #[test]
+    fn gateway_claude_resume_preserves_session_and_maps_model() {
+        use crate::app::terminal_actions::{gateway_claude_command, gateway_resume_claude_model};
+
+        assert_eq!(
+            gateway_resume_claude_model(Some("claude-opus-4-8"), "auto"),
+            "claude-opus-4.8"
+        );
+        assert_eq!(
+            gateway_resume_claude_model(Some("claude-sonnet-4-20250514"), "opus"),
+            "claude-sonnet-4.6"
+        );
+        assert_eq!(
+            gateway_claude_command("claude-opus-4.8", Some("session key")),
+            "claude --permission-mode bypassPermissions --model claude-opus-4-8 --resume 'session key'"
+        );
+        assert_eq!(
+            gateway_claude_command("claude-sonnet-4.6", None),
+            "claude --permission-mode bypassPermissions --model claude-sonnet-4-6"
+        );
+    }
+
+    #[test]
     fn ai_session_fork_command_reads_prompt_file_for_all_targets() {
         let path = "/tmp/codux session handoff.md";
         for target in AI_SESSION_FORK_TARGETS {

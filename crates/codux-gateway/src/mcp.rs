@@ -7,6 +7,7 @@ use rand::Rng;
 use serde_json::{json, Value};
 
 use crate::auth::KiroAuth;
+use crate::error::GatewayError;
 
 fn random_alnum(len: usize) -> String {
     const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -16,8 +17,11 @@ fn random_alnum(len: usize) -> String {
         .collect()
 }
 
-/// Call the Kiro MCP `web_search` tool. Returns (tool_use_id, results_json) or None.
-pub async fn call_web_search(auth: &KiroAuth, query: &str) -> Option<(String, Value)> {
+/// Call the Kiro MCP `web_search` tool.
+pub async fn call_web_search(
+    auth: &KiroAuth,
+    query: &str,
+) -> Result<(String, Value), GatewayError> {
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
@@ -30,50 +34,85 @@ pub async fn call_web_search(auth: &KiroAuth, query: &str) -> Option<(String, Va
     );
     let tool_use_id = format!("srvtoolu_{}", uuid::Uuid::new_v4().simple());
 
+    let profile_arn = auth
+        .profile_arn()
+        .await
+        .ok_or_else(|| GatewayError::Auth("Kiro profile ARN is unavailable".into()))?;
     let mcp_request = json!({
         "id": request_id,
         "jsonrpc": "2.0",
         "method": "tools/call",
+        "profileArn": profile_arn,
         "params": { "name": "web_search", "arguments": { "query": query } }
     });
 
-    let token = auth.get_access_token().await.ok()?;
+    let token = auth.get_access_token().await?;
     let url = format!("{}/mcp", auth.api_host());
 
-    let resp = auth
+    let mut request = auth
         .http()
         .post(&url)
-        .header("Authorization", format!("Bearer {token}"))
-        .header("x-amzn-codewhisperer-optout", "false")
         .header("Content-Type", "application/json")
         .timeout(Duration::from_secs(60))
-        .json(&mcp_request)
-        .send()
-        .await
-        .ok()?;
-
-    if !resp.status().is_success() {
-        tracing::error!("MCP API error: {}", resp.status());
-        return None;
+        .json(&mcp_request);
+    for (name, value) in crate::util::kiro_headers(&token, auth.fingerprint()) {
+        if name.eq_ignore_ascii_case("content-type") || name.eq_ignore_ascii_case("x-amz-target") {
+            continue;
+        }
+        let value = if name.eq_ignore_ascii_case("x-amzn-codewhisperer-optout") {
+            "true".to_string()
+        } else {
+            value
+        };
+        request = request.header(name, value);
     }
-    let mcp_response: Value = resp.json().await.ok()?;
+    let resp = request.send().await.map_err(|e| GatewayError::Upstream {
+        status: 502,
+        body: format!("Kiro MCP request failed: {e}"),
+    })?;
+
+    let status = resp.status();
+    let body = resp.text().await.map_err(|e| GatewayError::Upstream {
+        status: 502,
+        body: format!("failed to read Kiro MCP response: {e}"),
+    })?;
+    if !status.is_success() {
+        return Err(GatewayError::Upstream {
+            status: status.as_u16(),
+            body,
+        });
+    }
+    let mcp_response: Value = serde_json::from_str(&body).map_err(|e| GatewayError::Upstream {
+        status: 502,
+        body: format!("invalid Kiro MCP response: {e}"),
+    })?;
     if mcp_response
         .get("error")
         .map(|e| !e.is_null())
         .unwrap_or(false)
     {
-        tracing::error!("MCP API returned error: {:?}", mcp_response.get("error"));
-        return None;
+        return Err(GatewayError::Upstream {
+            status: 502,
+            body: mcp_response["error"].to_string(),
+        });
     }
     // result.content[0].text is a JSON *string*.
     let text = mcp_response
-        .get("result")?
-        .get("content")?
-        .get(0)?
-        .get("text")?
-        .as_str()?;
-    let results: Value = serde_json::from_str(text).ok()?;
-    Some((tool_use_id, results))
+        .get("result")
+        .and_then(|result| result.get("content"))
+        .and_then(Value::as_array)
+        .and_then(|content| content.first())
+        .and_then(|item| item.get("text"))
+        .and_then(Value::as_str)
+        .ok_or_else(|| GatewayError::Upstream {
+            status: 502,
+            body: "Kiro MCP response is missing result.content[0].text".into(),
+        })?;
+    let results: Value = serde_json::from_str(text).map_err(|e| GatewayError::Upstream {
+        status: 502,
+        body: format!("invalid Kiro MCP search results: {e}"),
+    })?;
+    Ok((tool_use_id, results))
 }
 
 /// Build a human-readable summary of search results, wrapped in <web_search> tags.

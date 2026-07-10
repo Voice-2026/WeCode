@@ -560,6 +560,9 @@ impl CoduxApp {
         };
         prepare_memory_launch_artifacts(&self.runtime_service, &self.state);
         self.state.tool_permissions = self.runtime_service.sync_tool_permissions();
+        if self.restore_ai_session_with_gateway_in_main_split(&session, window, cx) {
+            return;
+        }
         let command = ai_session_restore_command(&session);
         self.restore_ai_session_in_main_split(session.title.clone(), command, window, cx);
     }

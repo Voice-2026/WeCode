@@ -76,6 +76,11 @@ pub trait HostSink: Send + Sync {
     /// output relays lazily after the first real chat interaction.
     fn on_bound_message(&self, _chat_id: &str, _session_id: &str) {}
 
+    /// Called immediately before a bound message is written to the terminal.
+    /// Hosts that mirror terminal output should subscribe here so very fast
+    /// commands cannot finish before the relay is attached.
+    fn on_bound_message_start(&self, _chat_id: &str, _session_id: &str, _text: &str) {}
+
     /// The desktop approved a pairing and bound the peer to a session.
     fn on_pairing_confirmed(&self, _chat_id: &str, _session_id: &str) {}
 }
@@ -357,6 +362,8 @@ impl WeChatBridge {
                     store.binding(&chat_id).map(|b| b.session_id.clone())
                 };
                 if let Some(session_id) = session_id {
+                    self.sink
+                        .on_bound_message_start(&chat_id, &session_id, &text);
                     let ok = self.sink.write_to_session(&session_id, &text);
                     if !ok {
                         // Session gone: drop the stale binding.

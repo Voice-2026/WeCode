@@ -45,7 +45,41 @@ pub fn load(path: &Path, creds: &mut Credentials) -> Result<(), GatewayError> {
     if let Some(v) = data.get("expiresAt").and_then(Value::as_str) {
         creds.expires_at = parse_datetime(v);
     }
+    if creds.profile_arn.is_none() && is_kiro_ide_token_file(&path) {
+        load_kiro_ide_profile(creds);
+    }
     Ok(())
+}
+
+fn is_kiro_ide_token_file(path: &Path) -> bool {
+    path.file_name().and_then(|name| name.to_str()) == Some("kiro-auth-token.json")
+}
+
+/// Kiro IDE stores the token and profile in separate files on macOS.
+fn load_kiro_ide_profile(creds: &mut Credentials) {
+    let Some(home) = home_dir() else { return };
+    let path = home
+        .join("Library")
+        .join("Application Support")
+        .join("Kiro")
+        .join("User")
+        .join("globalStorage")
+        .join("kiro.kiroagent")
+        .join("profile.json");
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        tracing::warn!("Kiro IDE profile not found: {}", path.display());
+        return;
+    };
+    let Ok(data) = serde_json::from_str::<Value>(&text) else {
+        tracing::warn!("failed to parse Kiro IDE profile: {}", path.display());
+        return;
+    };
+    if let Some(arn) = data.get("arn").and_then(Value::as_str) {
+        creds.profile_arn = Some(arn.to_string());
+        // The IDE token's `region` is the authentication region. Runtime and
+        // MCP requests must follow the CodeWhisperer profile ARN region.
+        creds.detected_api_region = arn.split(':').nth(3).map(str::to_string);
+    }
 }
 
 /// Enterprise Kiro IDE: device registration at ~/.aws/sso/cache/{hash}.json.

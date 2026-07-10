@@ -35,9 +35,6 @@ pub async fn chat_completions(
     if state.config.truncation_recovery {
         crate::truncation::inject_notices(&mut request, &state.truncation);
     }
-    if state.config.web_search_enabled {
-        crate::mcp::inject_web_search_tool(&mut request, crate::mcp::web_search_tool_openai());
-    }
     let stream_requested = request
         .get("stream")
         .and_then(Value::as_bool)
@@ -49,7 +46,7 @@ pub async fn chat_completions(
         .to_string();
 
     let conv_id = conversation_id();
-    let (auth, resp) = match state
+    let (_auth, resp) = match state
         .accounts
         .request_with_failover(
             |profile_arn| {
@@ -77,13 +74,10 @@ pub async fn chat_completions(
     };
 
     let recovery = state.config.truncation_recovery;
-    let web_search = state.config.web_search_enabled;
     let store = state.truncation.clone();
 
     if stream_requested {
-        let body = openai_sse_body(
-            resp, model, ft, rt, thinking, store, recovery, auth, web_search,
-        );
+        let body = openai_sse_body(resp, model, ft, rt, thinking, store, recovery);
         Response::builder()
             .header("content-type", "text/event-stream")
             .header("cache-control", "no-cache")
@@ -91,42 +85,14 @@ pub async fn chat_completions(
             .unwrap()
     } else {
         match collect_stream(resp, ft, rt, thinking.clone()).await {
-            Ok(mut result) => {
+            Ok(result) => {
                 if recovery {
                     super::save_truncations(&result, &store);
-                }
-                if web_search {
-                    maybe_run_web_search(&mut result, &auth).await;
                 }
                 Json(build_openai_completion(&model, &result, &thinking)).into_response()
             }
             Err(e) => e.into_response(),
         }
-    }
-}
-
-/// If the collected result contains a web_search tool call, execute it and
-/// replace it with the summary text (non-streaming Path B).
-async fn maybe_run_web_search(
-    result: &mut crate::upstream::StreamResult,
-    auth: &crate::auth::KiroAuth,
-) {
-    let idx = result
-        .tool_calls
-        .iter()
-        .position(|tc| tc.name == "web_search");
-    let Some(idx) = idx else { return };
-    let query = serde_json::from_str::<Value>(&result.tool_calls[idx].arguments)
-        .ok()
-        .and_then(|v| v.get("query").and_then(Value::as_str).map(str::to_string))
-        .unwrap_or_default();
-    if query.is_empty() {
-        return;
-    }
-    if let Some((_, results)) = crate::mcp::call_web_search(auth, &query).await {
-        let summary = crate::mcp::generate_search_summary(&query, &results);
-        result.tool_calls.remove(idx);
-        result.content.push_str(&summary);
     }
 }
 
@@ -193,8 +159,6 @@ fn openai_sse_body(
     thinking: Option<String>,
     store: std::sync::Arc<crate::truncation::TruncationStore>,
     recovery: bool,
-    auth: std::sync::Arc<crate::auth::KiroAuth>,
-    web_search: bool,
 ) -> Body {
     let s = stream! {
         let as_reasoning = thinking.as_deref() == Some("as_reasoning_content");
@@ -244,26 +208,6 @@ fn openai_sse_body(
                     yield Ok::<_, std::convert::Infallible>(chunk(delta, None));
                 }
                 Ok(KiroEvent::ToolUse(tc)) => {
-                    // Path B: intercept web_search and stream the summary as content.
-                    if web_search && tc.name == "web_search" {
-                        let query = serde_json::from_str::<Value>(&tc.arguments)
-                            .ok()
-                            .and_then(|v| v.get("query").and_then(Value::as_str).map(str::to_string))
-                            .unwrap_or_default();
-                        if !query.is_empty() {
-                            if let Some((_, results)) = crate::mcp::call_web_search(&auth, &query).await {
-                                let summary = crate::mcp::generate_search_summary(&query, &results);
-                                full_content.push_str(&summary);
-                                let mut delta = json!({ "content": summary });
-                                if first_chunk {
-                                    delta["role"] = json!("assistant");
-                                    first_chunk = false;
-                                }
-                                yield Ok(chunk(delta, None));
-                                continue;
-                            }
-                        }
-                    }
                     tool_calls.push(tc);
                 }
                 Ok(KiroEvent::ContextUsage(p)) => context_usage = Some(p),

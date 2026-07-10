@@ -933,6 +933,14 @@ impl CoduxApp {
             self.invalidate_terminal_workspace(cx);
             return;
         };
+        prepare_memory_launch_artifacts(&self.runtime_service, &self.state);
+        self.state.tool_permissions = self.runtime_service.sync_tool_permissions();
+        // Gateway credentials belong to the PTY environment, so a Claude
+        // resume must open a prepared split instead of pasting a secret-bearing
+        // inline `env ... claude --resume` command into an existing shell.
+        if self.restore_ai_session_with_gateway_in_main_split(&session, window, cx) {
+            return;
+        }
         let Some(target_terminal_id) = terminal_id
             .map(str::trim)
             .filter(|terminal_id| !terminal_id.is_empty())
@@ -942,8 +950,6 @@ impl CoduxApp {
             self.invalidate_terminal_workspace(cx);
             return;
         };
-        prepare_memory_launch_artifacts(&self.runtime_service, &self.state);
-        self.state.tool_permissions = self.runtime_service.sync_tool_permissions();
         // Paste without enter so the user can review the command before running it.
         let command = ai_session_restore_command(&session);
         let target = self.terminal_pane_registry.get(target_terminal_id);
@@ -999,6 +1005,33 @@ impl CoduxApp {
         cx: &mut Context<Self>,
     ) {
         self.launch_command_in_main_split_internal(title, command, None, window, cx);
+    }
+
+    pub(in crate::app) fn restore_ai_session_with_gateway_in_main_split(
+        &mut self,
+        session: &AISessionSummary,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if !session.source.to_lowercase().contains("claude") || !self.gateway_settings.enabled {
+            return false;
+        }
+        let resume_id = session
+            .external_session_id
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or(&session.session_key);
+        let model = gateway_resume_claude_model(
+            session.last_model.as_deref(),
+            &self.state.tool_permissions.kiro_model,
+        );
+        let Some((title, command, env)) = self.kiro_gateway_claude_launch(&model, Some(resume_id))
+        else {
+            self.invalidate_terminal_workspace(cx);
+            return true;
+        };
+        self.launch_command_in_main_split_internal(title, command, env, Some(window), cx);
+        true
     }
 
     fn launch_command_in_main_split_internal(
@@ -1195,7 +1228,7 @@ impl CoduxApp {
         model_override: Option<&str>,
     ) -> Option<(String, String, Option<HashMap<String, String>>)> {
         let status = GatewayService::global_status();
-        let Some(addr) = status.addr else {
+        let Some(_addr) = status.addr else {
             self.status_message = if let Some(error) = status.error {
                 format!("Kiro Gateway failed: {error}")
             } else if status.enabled {
@@ -1208,27 +1241,8 @@ impl CoduxApp {
         let model = model_override
             .map(str::to_string)
             .unwrap_or_else(|| quick_gateway_model(&self.state.tool_permissions.kiro_model));
-        let api_key = self.gateway_settings.config.api_key.clone();
-        let base_url = format!("http://{addr}");
-        let mut env = HashMap::new();
-        env.insert("CODUX_KIRO_GATEWAY".to_string(), "1".to_string());
-        env.insert("CODUX_KIRO_GATEWAY_MODEL".to_string(), model.clone());
-
         match client {
-            "claude" => {
-                let claude_model = quick_gateway_claude_model(&model);
-                env.insert("ANTHROPIC_API_KEY".to_string(), api_key);
-                env.insert("ANTHROPIC_BASE_URL".to_string(), base_url);
-                env.insert("CLAUDE_CODE_SIMPLE".to_string(), "1".to_string());
-                Some((
-                    format!("Kiro Gateway · Claude · {claude_model}"),
-                    format!(
-                        "claude --bare --permission-mode bypassPermissions --model {}",
-                        shell_quote(&claude_model)
-                    ),
-                    Some(env),
-                ))
-            }
+            "claude" => self.kiro_gateway_claude_launch(&model, None),
             "codex" => {
                 self.status_message =
                     "Kiro Gateway Codex is disabled because Kiro does not provide GPT models."
@@ -1238,6 +1252,73 @@ impl CoduxApp {
             _ => None,
         }
     }
+
+    fn kiro_gateway_claude_launch(
+        &mut self,
+        model: &str,
+        resume_id: Option<&str>,
+    ) -> Option<(String, String, Option<HashMap<String, String>>)> {
+        let status = GatewayService::global_status();
+        let Some(addr) = status.addr else {
+            self.status_message = if let Some(error) = status.error {
+                format!("Kiro Gateway failed: {error}")
+            } else if status.enabled {
+                "Kiro Gateway is enabled but not listening yet.".to_string()
+            } else {
+                "Enable Kiro Gateway in Settings first.".to_string()
+            };
+            return None;
+        };
+        let claude_model = quick_gateway_claude_model(model);
+        let mut env = HashMap::new();
+        env.insert("CODUX_KIRO_GATEWAY".to_string(), "1".to_string());
+        env.insert("CODUX_KIRO_GATEWAY_MODEL".to_string(), claude_model.clone());
+        env.insert(
+            "ANTHROPIC_API_KEY".to_string(),
+            self.gateway_settings.config.api_key.clone(),
+        );
+        env.insert("ANTHROPIC_BASE_URL".to_string(), format!("http://{addr}"));
+        Some((
+            format!("Kiro Gateway · Claude · {claude_model}"),
+            gateway_claude_command(&claude_model, resume_id),
+            Some(env),
+        ))
+    }
+}
+
+pub(in crate::app) fn gateway_claude_command(model: &str, resume_id: Option<&str>) -> String {
+    let cli_model = model.replace('.', "-");
+    let mut command = format!(
+        "claude --permission-mode bypassPermissions --model {}",
+        shell_quote(&cli_model)
+    );
+    if let Some(resume_id) = resume_id.filter(|value| !value.trim().is_empty()) {
+        command.push_str(" --resume ");
+        command.push_str(&shell_quote(resume_id));
+    }
+    command
+}
+
+pub(in crate::app) fn gateway_resume_claude_model(
+    last_model: Option<&str>,
+    configured_model: &str,
+) -> String {
+    let last_model = last_model.unwrap_or_default().to_lowercase();
+    for (needle, model) in [
+        ("haiku", "claude-haiku-4.5"),
+        ("sonnet", "claude-sonnet-4.6"),
+        ("opus-4-6", "claude-opus-4.6"),
+        ("opus-4.6", "claude-opus-4.6"),
+        ("opus-4-7", "claude-opus-4.7"),
+        ("opus-4.7", "claude-opus-4.7"),
+        ("opus-4-8", "claude-opus-4.8"),
+        ("opus-4.8", "claude-opus-4.8"),
+    ] {
+        if last_model.contains(needle) {
+            return model.to_string();
+        }
+    }
+    quick_gateway_claude_model(configured_model)
 }
 
 fn quick_gateway_model(model: &str) -> String {

@@ -36,9 +36,6 @@ pub async fn messages(
     if state.config.truncation_recovery {
         crate::truncation::inject_notices(&mut request, &state.truncation);
     }
-    if state.config.web_search_enabled {
-        crate::mcp::inject_web_search_tool(&mut request, crate::mcp::web_search_tool_anthropic());
-    }
     let stream_requested = request
         .get("stream")
         .and_then(Value::as_bool)
@@ -49,8 +46,24 @@ pub async fn messages(
         .unwrap_or("auto")
         .to_string();
 
+    if let Some(query) = native_web_search_query(&request) {
+        let input_tokens = estimate_input_tokens(&request);
+        let auth = state.accounts.current_auth().await;
+        return match crate::mcp::call_web_search(&auth, &query).await {
+            Ok((tool_use_id, results)) => native_web_search_response(
+                &model,
+                &query,
+                &tool_use_id,
+                &results,
+                input_tokens,
+                stream_requested,
+            ),
+            Err(error) => (error.status_code(), Json(error.to_anthropic_json())).into_response(),
+        };
+    }
+
     let conv_id = conversation_id();
-    let (auth, resp) = match state
+    let (_auth, resp) = match state
         .accounts
         .request_with_failover(
             |profile_arn| {
@@ -77,7 +90,6 @@ pub async fn messages(
     let thinking = thinking_handling(&state.config);
 
     let recovery = state.config.truncation_recovery;
-    let web_search = state.config.web_search_enabled;
     let store = state.truncation.clone();
 
     if stream_requested {
@@ -90,8 +102,6 @@ pub async fn messages(
             thinking,
             store,
             recovery,
-            auth,
-            web_search,
         );
         Response::builder()
             .header("content-type", "text/event-stream")
@@ -100,12 +110,9 @@ pub async fn messages(
             .unwrap()
     } else {
         match collect_stream(resp, ft, rt, thinking.clone()).await {
-            Ok(mut result) => {
+            Ok(result) => {
                 if recovery {
                     super::save_truncations(&result, &store);
-                }
-                if web_search {
-                    run_web_search(&mut result, &auth).await;
                 }
                 let msg = build_anthropic_message(
                     &model,
@@ -121,27 +128,188 @@ pub async fn messages(
     }
 }
 
-/// Non-streaming Path B: run a web_search tool call and fold the summary into content.
-async fn run_web_search(result: &mut crate::upstream::StreamResult, auth: &crate::auth::KiroAuth) {
-    let Some(idx) = result
-        .tool_calls
-        .iter()
-        .position(|tc| tc.name == "web_search")
-    else {
-        return;
-    };
-    let query = serde_json::from_str::<Value>(&result.tool_calls[idx].arguments)
-        .ok()
-        .and_then(|v| v.get("query").and_then(Value::as_str).map(str::to_string))
-        .unwrap_or_default();
-    if query.is_empty() {
-        return;
+fn native_web_search_query(request: &Value) -> Option<String> {
+    let has_native_tool = request
+        .get("tools")
+        .and_then(Value::as_array)
+        .is_some_and(|tools| {
+            tools.iter().any(|tool| {
+                tool.get("type")
+                    .and_then(Value::as_str)
+                    .is_some_and(|kind| kind.starts_with("web_search"))
+            })
+        });
+    if !has_native_tool {
+        return None;
     }
-    if let Some((_, results)) = crate::mcp::call_web_search(auth, &query).await {
-        let summary = crate::mcp::generate_search_summary(&query, &results);
-        result.tool_calls.remove(idx);
-        result.content.push_str(&summary);
+
+    request
+        .get("messages")
+        .and_then(Value::as_array)
+        .and_then(|messages| {
+            messages
+                .iter()
+                .find(|message| message.get("role").and_then(Value::as_str) == Some("user"))
+        })
+        .and_then(|message| message.get("content"))
+        .and_then(message_text)
+        .map(|text| {
+            text.strip_prefix("Perform a web search for the query: ")
+                .unwrap_or(&text)
+                .trim()
+                .to_string()
+        })
+        .filter(|query| !query.is_empty())
+}
+
+fn message_text(content: &Value) -> Option<String> {
+    match content {
+        Value::String(text) => Some(text.clone()),
+        Value::Array(blocks) => {
+            let text = blocks
+                .iter()
+                .filter(|block| block.get("type").and_then(Value::as_str) == Some("text"))
+                .filter_map(|block| block.get("text").and_then(Value::as_str))
+                .collect::<Vec<_>>()
+                .join("");
+            (!text.is_empty()).then_some(text)
+        }
+        _ => None,
     }
+}
+
+fn native_search_content(results: &Value) -> Vec<Value> {
+    results
+        .get("results")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .map(|result| {
+            json!({
+                "type": "web_search_result",
+                "title": result.get("title").and_then(Value::as_str).unwrap_or(""),
+                "url": result.get("url").and_then(Value::as_str).unwrap_or(""),
+                "encrypted_content": result.get("snippet").and_then(Value::as_str).unwrap_or(""),
+                "page_age": null
+            })
+        })
+        .collect()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn native_web_search_response(
+    model: &str,
+    query: &str,
+    tool_use_id: &str,
+    results: &Value,
+    input_tokens: u64,
+    stream_requested: bool,
+) -> Response {
+    let summary = crate::mcp::generate_search_summary(query, results);
+    let search_content = native_search_content(results);
+    let output_tokens = count_text_tokens(&summary, false);
+
+    if !stream_requested {
+        return Json(json!({
+            "id": generate_message_id(),
+            "type": "message",
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "server_tool_use",
+                    "id": tool_use_id,
+                    "name": "web_search",
+                    "input": { "query": query }
+                },
+                {
+                    "type": "web_search_tool_result",
+                    "tool_use_id": tool_use_id,
+                    "content": search_content
+                },
+                { "type": "text", "text": summary }
+            ],
+            "model": model,
+            "stop_reason": "end_turn",
+            "stop_sequence": null,
+            "usage": { "input_tokens": input_tokens, "output_tokens": output_tokens }
+        }))
+        .into_response();
+    }
+
+    let events = [
+        sse_event("message_start", &json!({
+            "type": "message_start",
+            "message": {
+                "id": generate_message_id(),
+                "type": "message",
+                "role": "assistant",
+                "content": [],
+                "model": model,
+                "stop_reason": null,
+                "stop_sequence": null,
+                "usage": { "input_tokens": input_tokens, "output_tokens": 0 }
+            }
+        })),
+        sse_event("content_block_start", &json!({
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {
+                "id": tool_use_id,
+                "type": "server_tool_use",
+                "name": "web_search",
+                "input": {}
+            }
+        })),
+        sse_event("content_block_delta", &json!({
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {
+                "type": "input_json_delta",
+                "partial_json": serde_json::to_string(&json!({ "query": query })).unwrap_or_default()
+            }
+        })),
+        sse_event("content_block_stop", &json!({
+            "type": "content_block_stop", "index": 0
+        })),
+        sse_event("content_block_start", &json!({
+            "type": "content_block_start",
+            "index": 1,
+            "content_block": {
+                "type": "web_search_tool_result",
+                "tool_use_id": tool_use_id,
+                "content": search_content
+            }
+        })),
+        sse_event("content_block_stop", &json!({
+            "type": "content_block_stop", "index": 1
+        })),
+        sse_event("content_block_start", &json!({
+            "type": "content_block_start",
+            "index": 2,
+            "content_block": { "type": "text", "text": "" }
+        })),
+        sse_event("content_block_delta", &json!({
+            "type": "content_block_delta",
+            "index": 2,
+            "delta": { "type": "text_delta", "text": summary }
+        })),
+        sse_event("content_block_stop", &json!({
+            "type": "content_block_stop", "index": 2
+        })),
+        sse_event("message_delta", &json!({
+            "type": "message_delta",
+            "delta": { "stop_reason": "end_turn", "stop_sequence": null },
+            "usage": { "output_tokens": output_tokens }
+        })),
+        sse_event("message_stop", &json!({ "type": "message_stop" })),
+    ]
+    .concat();
+
+    Response::builder()
+        .header("content-type", "text/event-stream")
+        .header("cache-control", "no-cache")
+        .body(Body::from(events))
+        .unwrap()
 }
 
 /// The thinking handling mode, or None when fake reasoning is disabled.
@@ -238,8 +406,6 @@ fn anthropic_sse_body(
     thinking: Option<String>,
     store: std::sync::Arc<crate::truncation::TruncationStore>,
     recovery: bool,
-    auth: std::sync::Arc<crate::auth::KiroAuth>,
-    web_search: bool,
 ) -> Body {
     let s = stream! {
         let as_reasoning = thinking.as_deref() == Some("as_reasoning_content");
@@ -344,34 +510,6 @@ fn anthropic_sse_body(
                         text_started = false;
                         index += 1;
                     }
-                    // Path B: intercept web_search, stream the summary as a text block.
-                    if web_search && tc.name == "web_search" {
-                        let query = serde_json::from_str::<Value>(&tc.arguments)
-                            .ok()
-                            .and_then(|v| v.get("query").and_then(Value::as_str).map(str::to_string))
-                            .unwrap_or_default();
-                        if !query.is_empty() {
-                            if let Some((_, results)) = crate::mcp::call_web_search(&auth, &query).await {
-                                let summary = crate::mcp::generate_search_summary(&query, &results);
-                                full_content.push_str(&summary);
-                                yield Ok(sse_event("content_block_start", &json!({
-                                    "type": "content_block_start",
-                                    "index": index,
-                                    "content_block": { "type": "text", "text": "" }
-                                })));
-                                yield Ok(sse_event("content_block_delta", &json!({
-                                    "type": "content_block_delta",
-                                    "index": index,
-                                    "delta": { "type": "text_delta", "text": summary }
-                                })));
-                                yield Ok(sse_event("content_block_stop", &json!({
-                                    "type": "content_block_stop", "index": index
-                                })));
-                                index += 1;
-                                continue;
-                            }
-                        }
-                    }
                     let tool_id = if tc.id.is_empty() { generate_tool_use_id() } else { tc.id.clone() };
                     if tc.truncation_detected {
                         truncated_tool_ids.push(tool_id.clone());
@@ -459,4 +597,53 @@ pub async fn count_tokens(
         Json(json!({ "input_tokens": input_tokens })),
     )
         .into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detects_native_web_search_and_extracts_query() {
+        let request = json!({
+            "tools": [{ "type": "web_search_20250305", "name": "web_search" }],
+            "messages": [{
+                "role": "user",
+                "content": [{
+                    "type": "text",
+                    "text": "Perform a web search for the query: World Cup latest news"
+                }]
+            }]
+        });
+
+        assert_eq!(
+            native_web_search_query(&request).as_deref(),
+            Some("World Cup latest news")
+        );
+    }
+
+    #[test]
+    fn regular_tool_request_is_not_native_web_search() {
+        let request = json!({
+            "tools": [{ "name": "Bash", "input_schema": { "type": "object" } }],
+            "messages": [{ "role": "user", "content": "pwd" }]
+        });
+
+        assert_eq!(native_web_search_query(&request), None);
+    }
+
+    #[test]
+    fn converts_mcp_results_to_anthropic_search_blocks() {
+        let blocks = native_search_content(&json!({
+            "results": [{
+                "title": "FIFA World Cup",
+                "url": "https://www.fifa.com/",
+                "snippet": "Latest tournament news"
+            }]
+        }));
+
+        assert_eq!(blocks[0]["type"], "web_search_result");
+        assert_eq!(blocks[0]["title"], "FIFA World Cup");
+        assert_eq!(blocks[0]["encrypted_content"], "Latest tournament news");
+    }
 }
