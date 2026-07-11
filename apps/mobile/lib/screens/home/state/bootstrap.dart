@@ -4,7 +4,7 @@ part of '../home_page.dart';
 /// name/save/remember, QR scan handling, pairing handshake and settings save.
 ///
 /// Split into a part + extension to keep the State class navigable; behaviour
-/// is unchanged. Rebuilds route through [_CoduxHomePageState._applyState]
+/// is unchanged. Rebuilds route through [_WeCodeHomePageState._applyState]
 /// (`setState` is `@protected` and cannot be called from an extension).
 extension _HomePageBootstrap on HomeController {
   Future<void> _bootstrap() async {
@@ -35,7 +35,7 @@ extension _HomePageBootstrap on HomeController {
       devices,
       lastDeviceId,
     );
-    CoduxLog.setLevelName(next.logLevel);
+    WeCodeLog.setLevelName(next.logLevel);
     widget.onChangeAccent(AccentChoices.byId(next.accentId));
     widget.onChangeLocale(LocaleChoices.byId(next.localeId));
     widget.onChangeThemeMode(themeModeFromId(next.themeModeId));
@@ -77,11 +77,11 @@ extension _HomePageBootstrap on HomeController {
       _applyState(() {
         _syncRuntimeViewState();
       });
-      CoduxLog.info(
-        '[codux-flutter-projects] cache restored count=${cached.length} host=${device.hostId}',
+      WeCodeLog.info(
+        '[wecode-flutter-projects] cache restored count=${cached.length} host=${device.hostId}',
       );
     } catch (error) {
-      CoduxLog.warn('[codux-flutter-projects] cache restore failed: $error');
+      WeCodeLog.warn('[wecode-flutter-projects] cache restore failed: $error');
     }
   }
 
@@ -134,8 +134,8 @@ extension _HomePageBootstrap on HomeController {
   Future<void> _prepareScannedPayload(String raw) async {
     try {
       final payload = await parsePairingPayload(raw);
-      CoduxLog.debug(
-        '[codux-flutter-pairing] scanned payload server=${payload.server} host=${payload.hostId ?? ''} pair=${payload.pairingId ?? ''} transports=${payload.transports.length}',
+      WeCodeLog.debug(
+        '[wecode-flutter-pairing] scanned payload server=${payload.server} host=${payload.hostId ?? ''} pair=${payload.pairingId ?? ''} transports=${payload.transports.length}',
       );
       if (!mounted || !_showScanner || _pendingPairing != null) return;
       _applyState(() {
@@ -146,7 +146,7 @@ extension _HomePageBootstrap on HomeController {
         _pairingError = null;
       });
     } catch (error) {
-      CoduxLog.warn('[codux-flutter-pairing] scan failed error=$error');
+      WeCodeLog.warn('[wecode-flutter-pairing] scan failed error=$error');
       if (!mounted) return;
       _applyState(() => _showScanner = false);
       _showToast(error.toString().replaceFirst('Exception: ', ''));
@@ -186,8 +186,8 @@ extension _HomePageBootstrap on HomeController {
       _pairingError = null;
       _status = _t('pair.submitting');
     });
-    CoduxLog.debug(
-      '[codux-flutter-pairing] confirm start server=${payload.server} host=${payload.hostId ?? ''} pair=${payload.pairingId ?? ''}',
+    WeCodeLog.debug(
+      '[wecode-flutter-pairing] confirm start server=${payload.server} host=${payload.hostId ?? ''} pair=${payload.pairingId ?? ''}',
     );
     try {
       final confirmed = await _confirmIrohPairing(payload, name);
@@ -266,7 +266,7 @@ extension _HomePageBootstrap on HomeController {
       detectedDeviceName: _detectedDeviceName,
     );
     await _storage.saveSettings(next);
-    CoduxLog.setLevelName(next.logLevel);
+    WeCodeLog.setLevelName(next.logLevel);
     _applyState(() {
       _settings = next;
       _status = _t('settings.saved');

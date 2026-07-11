@@ -9,10 +9,6 @@ use cocoa::{
     base::{NO, YES, id, nil},
     foundation::{NSAutoreleasePool, NSPoint, NSRect, NSString},
 };
-use codux_runtime::desktop_pet::{
-    DesktopPetHitLayout, DesktopPetPhysicalPosition, DesktopPetPhysicalSize, DesktopPetSide,
-    DesktopPetWorkArea, desktop_pet_local_point_is_hotspot, desktop_pet_side_for_position,
-};
 use gpui::Window;
 #[cfg(target_os = "macos")]
 use objc::{
@@ -32,6 +28,10 @@ use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicUsize, Ordering};
 use std::time::Duration;
 #[cfg(target_os = "windows")]
 use std::{collections::HashMap, sync::Mutex};
+use wecode_runtime::desktop_pet::{
+    DesktopPetHitLayout, DesktopPetPhysicalPosition, DesktopPetPhysicalSize, DesktopPetSide,
+    DesktopPetWorkArea, desktop_pet_local_point_is_hotspot, desktop_pet_side_for_position,
+};
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::{
     Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM},
@@ -294,15 +294,15 @@ pub(in crate::app) fn sync_desktop_pet_mouse_passthrough(window: &mut Window) {
 
     let width = (window_rect.right - window_rect.left).max(1) as f64;
     let height = (window_rect.bottom - window_rect.top).max(1) as f64;
-    let scale_x = width / codux_runtime::desktop_pet::DESKTOP_PET_BASE_WIDTH;
-    let scale_y = height / codux_runtime::desktop_pet::DESKTOP_PET_BASE_HEIGHT;
+    let scale_x = width / wecode_runtime::desktop_pet::DESKTOP_PET_BASE_WIDTH;
+    let scale_y = height / wecode_runtime::desktop_pet::DESKTOP_PET_BASE_HEIGHT;
     let local_x = (cursor.x - window_rect.left) as f64 / scale_x;
     let local_y = (cursor.y - window_rect.top) as f64 / scale_y;
     let layout = DesktopPetHitLayout {
         position: DesktopPetPhysicalPosition { x: 0.0, y: 0.0 },
         size: DesktopPetPhysicalSize {
-            width: codux_runtime::desktop_pet::DESKTOP_PET_BASE_WIDTH,
-            height: codux_runtime::desktop_pet::DESKTOP_PET_BASE_HEIGHT,
+            width: wecode_runtime::desktop_pet::DESKTOP_PET_BASE_WIDTH,
+            height: wecode_runtime::desktop_pet::DESKTOP_PET_BASE_HEIGHT,
         },
         scale_factor: 1.0,
         side: desktop_pet_side_for_hwnd(hwnd),
@@ -324,11 +324,11 @@ unsafe fn desktop_pet_side_for_native_window(ns_window: id, frame: NSRect) -> De
             width: frame
                 .size
                 .width
-                .max(codux_runtime::desktop_pet::DESKTOP_PET_BASE_WIDTH),
+                .max(wecode_runtime::desktop_pet::DESKTOP_PET_BASE_WIDTH),
             height: frame
                 .size
                 .height
-                .max(codux_runtime::desktop_pet::DESKTOP_PET_BASE_HEIGHT),
+                .max(wecode_runtime::desktop_pet::DESKTOP_PET_BASE_HEIGHT),
             scale_factor: 1.0,
         }
     } else {
@@ -461,15 +461,15 @@ fn desktop_pet_hit_test(hwnd: HWND, lparam: LPARAM) -> LRESULT {
 
     let width = (rect.right - rect.left).max(1) as f64;
     let height = (rect.bottom - rect.top).max(1) as f64;
-    let scale_x = width / codux_runtime::desktop_pet::DESKTOP_PET_BASE_WIDTH;
-    let scale_y = height / codux_runtime::desktop_pet::DESKTOP_PET_BASE_HEIGHT;
+    let scale_x = width / wecode_runtime::desktop_pet::DESKTOP_PET_BASE_WIDTH;
+    let scale_y = height / wecode_runtime::desktop_pet::DESKTOP_PET_BASE_HEIGHT;
     let x = point.x as f64 / scale_x;
     let y = point.y as f64 / scale_y;
     let layout = DesktopPetHitLayout {
         position: DesktopPetPhysicalPosition { x: 0.0, y: 0.0 },
         size: DesktopPetPhysicalSize {
-            width: codux_runtime::desktop_pet::DESKTOP_PET_BASE_WIDTH,
-            height: codux_runtime::desktop_pet::DESKTOP_PET_BASE_HEIGHT,
+            width: wecode_runtime::desktop_pet::DESKTOP_PET_BASE_WIDTH,
+            height: wecode_runtime::desktop_pet::DESKTOP_PET_BASE_HEIGHT,
         },
         scale_factor: 1.0,
         side: desktop_pet_side_for_hwnd(hwnd),
@@ -579,22 +579,22 @@ pub(in crate::app) fn spawn_native_popup_menu(
     position: gpui::Point<gpui::Pixels>,
     entries: Vec<NativeMenuEntry>,
     on_select: fn(
-        &mut crate::app::CoduxApp,
+        &mut crate::app::WeCodeApp,
         &'static str,
         &mut Window,
-        &mut gpui::Context<crate::app::CoduxApp>,
+        &mut gpui::Context<crate::app::WeCodeApp>,
     ),
-    cx: &mut gpui::Context<crate::app::CoduxApp>,
+    cx: &mut gpui::Context<crate::app::WeCodeApp>,
 ) {
     let Some(ns_view) = appkit_view(window) else {
         return;
     };
-    let Some(window_handle) = Window::window_handle(window).downcast::<crate::app::CoduxApp>()
+    let Some(window_handle) = Window::window_handle(window).downcast::<crate::app::WeCodeApp>()
     else {
         return;
     };
     cx.spawn(
-        async move |_this: gpui::WeakEntity<crate::app::CoduxApp>, cx| {
+        async move |_this: gpui::WeakEntity<crate::app::WeCodeApp>, cx| {
             cx.background_executor()
                 .timer(Duration::from_millis(1))
                 .await;
@@ -616,13 +616,13 @@ pub(in crate::app) fn spawn_desktop_pet_native_menu(
     window: &mut Window,
     position: gpui::Point<gpui::Pixels>,
     entries: Vec<NativeMenuEntry>,
-    cx: &mut gpui::Context<crate::app::CoduxApp>,
+    cx: &mut gpui::Context<crate::app::WeCodeApp>,
 ) {
     spawn_native_popup_menu(
         window,
         position,
         entries,
-        crate::app::CoduxApp::apply_desktop_pet_action,
+        crate::app::WeCodeApp::apply_desktop_pet_action,
         cx,
     );
 }
@@ -685,8 +685,8 @@ fn desktop_pet_menu_target_class() -> &'static Class {
     static CLASS: std::sync::OnceLock<&'static Class> = std::sync::OnceLock::new();
     CLASS.get_or_init(|| unsafe {
         let superclass = class!(NSObject);
-        let mut decl = ClassDecl::new("CoduxDesktopPetMenuTarget", superclass)
-            .expect("CoduxDesktopPetMenuTarget class should register once");
+        let mut decl = ClassDecl::new("WeCodeDesktopPetMenuTarget", superclass)
+            .expect("WeCodeDesktopPetMenuTarget class should register once");
         decl.add_method(
             sel!(desktopPetMenuItemSelected:),
             desktop_pet_menu_item_selected as extern "C" fn(&Object, Sel, id),
@@ -708,13 +708,13 @@ pub(in crate::app) fn spawn_desktop_pet_native_menu(
     window: &mut Window,
     position: gpui::Point<gpui::Pixels>,
     entries: Vec<NativeMenuEntry>,
-    cx: &mut gpui::Context<crate::app::CoduxApp>,
+    cx: &mut gpui::Context<crate::app::WeCodeApp>,
 ) {
     spawn_native_popup_menu(
         window,
         position,
         entries,
-        crate::app::CoduxApp::apply_desktop_pet_action,
+        crate::app::WeCodeApp::apply_desktop_pet_action,
         cx,
     );
 }
@@ -725,22 +725,22 @@ pub(in crate::app) fn spawn_native_popup_menu(
     position: gpui::Point<gpui::Pixels>,
     entries: Vec<NativeMenuEntry>,
     on_select: fn(
-        &mut crate::app::CoduxApp,
+        &mut crate::app::WeCodeApp,
         &'static str,
         &mut Window,
-        &mut gpui::Context<crate::app::CoduxApp>,
+        &mut gpui::Context<crate::app::WeCodeApp>,
     ),
-    cx: &mut gpui::Context<crate::app::CoduxApp>,
+    cx: &mut gpui::Context<crate::app::WeCodeApp>,
 ) {
     let Some(hwnd) = win32_hwnd(window) else {
         return;
     };
-    let Some(window_handle) = Window::window_handle(window).downcast::<crate::app::CoduxApp>()
+    let Some(window_handle) = Window::window_handle(window).downcast::<crate::app::WeCodeApp>()
     else {
         return;
     };
     cx.spawn(
-        async move |_this: gpui::WeakEntity<crate::app::CoduxApp>, cx| {
+        async move |_this: gpui::WeakEntity<crate::app::WeCodeApp>, cx| {
             cx.background_executor()
                 .timer(Duration::from_millis(1))
                 .await;
@@ -823,7 +823,7 @@ pub(in crate::app) fn spawn_desktop_pet_native_menu(
     _window: &mut Window,
     _position: gpui::Point<gpui::Pixels>,
     _entries: Vec<NativeMenuEntry>,
-    _cx: &mut gpui::Context<crate::app::CoduxApp>,
+    _cx: &mut gpui::Context<crate::app::WeCodeApp>,
 ) {
 }
 
@@ -833,12 +833,12 @@ pub(in crate::app) fn spawn_native_popup_menu(
     _position: gpui::Point<gpui::Pixels>,
     _entries: Vec<NativeMenuEntry>,
     _on_select: fn(
-        &mut crate::app::CoduxApp,
+        &mut crate::app::WeCodeApp,
         &'static str,
         &mut Window,
-        &mut gpui::Context<crate::app::CoduxApp>,
+        &mut gpui::Context<crate::app::WeCodeApp>,
     ),
-    _cx: &mut gpui::Context<crate::app::CoduxApp>,
+    _cx: &mut gpui::Context<crate::app::WeCodeApp>,
 ) {
 }
 

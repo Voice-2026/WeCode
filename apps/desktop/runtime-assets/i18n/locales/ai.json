@@ -687,7 +687,7 @@
       "ai.sessions.delete_title": "删除会话",
       "ai.sessions.empty": "暂无会话记录",
       "ai.sessions.empty_project": "当前项目还没有索引到 AI 会话。",
-      "ai.sessions.history": "会话记录",
+      "ai.sessions.history": "会话",
       "ai.sessions.new_session": "新会话",
       "ai.sessions.recent_limit_format": "最近 %d 条",
       "ai.state.switching_current_project": "切换到当前项目",

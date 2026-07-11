@@ -1,21 +1,12 @@
 use super::ui_helpers::{dialog_primary_button, window_close_control};
-use super::{CoduxApp, UiRegion, empty_label};
+use super::{UiRegion, WeCodeApp, empty_label};
 use crate::app::{
     AIProviderTestResult,
-    app_select::{CoduxSelectOption, codux_select},
+    app_select::{WeCodeSelectOption, wecode_select},
     scroll_compat::ScrollableElement,
 };
 use crate::heroicons::HeroIconName;
 use crate::theme::{self, color};
-use codux_runtime::{
-    i18n::translate,
-    memory::MemorySummary,
-    notification::NotificationSummary,
-    remote::{RemotePairingInfo, RemotePendingPairing, RemoteSummary},
-    settings::{SettingsSummary, locale_from_language_setting},
-    tool_permissions::ToolPermissionsSummary,
-    update::UpdateSummary,
-};
 use gpui::{
     AnyElement, AppContext, Context, InteractiveElement, IntoElement, ObjectFit, ParentElement,
     Pixels, Rems, SharedString, StatefulInteractiveElement, Styled, StyledImage, Window,
@@ -31,6 +22,15 @@ use gpui_component::{
     switch::Switch,
 };
 use qrcode::{EcLevel, QrCode, types::Color as QrColor};
+use wecode_runtime::{
+    i18n::translate,
+    memory::MemorySummary,
+    notification::NotificationSummary,
+    remote::{RemotePairingInfo, RemotePendingPairing, RemoteSummary},
+    settings::{SettingsSummary, locale_from_language_setting},
+    tool_permissions::ToolPermissionsSummary,
+    update::UpdateSummary,
+};
 
 mod options;
 mod widgets;
@@ -75,7 +75,7 @@ use self::{
     shortcuts::settings_shortcuts_pane,
 };
 
-const CODUX_MOBILE_DOWNLOAD_URL: &str = "https://codux.dux.cn/features/mobile/";
+const WECODE_MOBILE_DOWNLOAD_URL: &str = "https://wecode.dux.cn/features/mobile/";
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum SettingsPane {
     General,
@@ -157,7 +157,7 @@ pub(super) fn settings_text(language: &str, key: &str, fallback: &str) -> String
     translate(&locale, key, fallback)
 }
 
-impl CoduxApp {
+impl WeCodeApp {
     fn ensure_terminal_font_families_loaded(&mut self, cx: &mut Context<Self>) {
         if self.terminal_font_families_loaded || self.terminal_font_families_loading {
             return;
@@ -166,7 +166,7 @@ impl CoduxApp {
         let service = self.runtime_service.clone();
         self.runtime_trace("settings", "terminal_font_families load queued");
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let families = codux_runtime::async_runtime::run_limited_blocking(move || {
+            let families = wecode_runtime::async_runtime::run_limited_blocking(move || {
                 service.terminal_font_families()
             })
             .await
@@ -197,13 +197,13 @@ impl CoduxApp {
         self.ensure_terminal_font_families_loaded(cx);
         let pane = self.active_settings_pane;
         if pane == SettingsPane::Remote {
-            let wechat = codux_runtime::wechat_bridge_service::wechat_bridge_snapshot();
+            let wechat = wecode_runtime::wechat_bridge_service::wechat_bridge_snapshot();
             if matches!(
                 wechat.state,
-                codux_runtime::wechat_bridge_service::WeChatBridgeState::WaitingScan
-                    | codux_runtime::wechat_bridge_service::WeChatBridgeState::Scanned
-                    | codux_runtime::wechat_bridge_service::WeChatBridgeState::Connecting
-                    | codux_runtime::wechat_bridge_service::WeChatBridgeState::Connected
+                wecode_runtime::wechat_bridge_service::WeChatBridgeState::WaitingScan
+                    | wecode_runtime::wechat_bridge_service::WeChatBridgeState::Scanned
+                    | wecode_runtime::wechat_bridge_service::WeChatBridgeState::Connecting
+                    | wecode_runtime::wechat_bridge_service::WeChatBridgeState::Connected
             ) || wechat.pending_pairing.is_some()
             {
                 self.wechat_bridge_watch(cx);
@@ -346,7 +346,7 @@ fn settings_nav_row(
     pane: SettingsPane,
     active: bool,
     language: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let label = pane.label(language);
     div()
@@ -381,10 +381,10 @@ fn settings_nav_row(
 }
 
 fn settings_pane_body(
-    app: &CoduxApp,
+    app: &WeCodeApp,
     pane: SettingsPane,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     match pane {
         SettingsPane::General => settings_general_pane(

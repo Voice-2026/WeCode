@@ -5,7 +5,7 @@ const TERMINAL_LAYOUT_NAMESPACE: &str = "terminal-layout";
 const DEFAULT_BOTTOM_RATIO: f64 = 0.24;
 
 pub fn terminal_layout_storage_key(project_id: &str, worktree_id: &str) -> String {
-    codux_terminal_core::runtime_scope_key(project_id, Some(worktree_id))
+    wecode_terminal_core::runtime_scope_key(project_id, Some(worktree_id))
 }
 
 /// Max columns a desktop user can stack in the main terminal grid.
@@ -711,7 +711,7 @@ mod tests {
     #[test]
     fn save_from_gpui_rejects_empty_layout_without_overwriting_existing_layout() {
         let support_dir = std::env::temp_dir().join(format!(
-            "codux-terminal-layout-empty-{}",
+            "wecode-terminal-layout-empty-{}",
             uuid::Uuid::new_v4()
         ));
         std::fs::create_dir_all(&support_dir).expect("create support dir");

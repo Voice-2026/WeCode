@@ -1,6 +1,6 @@
 use super::*;
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(super) fn spawn_file_editor_state_load(
         &mut self,
         key: String,
@@ -18,8 +18,8 @@ impl CoduxApp {
         };
         let runtime_service = self.runtime_service.clone();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let result = codux_runtime::async_runtime::run_limited_blocking_with_priority(
-                codux_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND,
+            let result = wecode_runtime::async_runtime::run_limited_blocking_with_priority(
+                wecode_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND,
                 {
                     let worktree_path = worktree_path.clone();
                     let relative_path = relative_path.clone();
@@ -135,8 +135,8 @@ impl CoduxApp {
         );
         let reload_count = reload_paths.len();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let result = codux_runtime::async_runtime::run_limited_blocking_with_priority(
-                codux_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND + generation,
+            let result = wecode_runtime::async_runtime::run_limited_blocking_with_priority(
+                wecode_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND + generation,
                 {
                     let worktree_path = worktree_path.clone();
                     let reload_paths = reload_paths.clone();
@@ -344,8 +344,8 @@ impl CoduxApp {
         let scope_key = super::app_state::current_worktree_scope_key(&self.state);
         let generation = self.project_switch_generation;
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let result = codux_runtime::async_runtime::run_limited_blocking_with_priority(
-                codux_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND + generation,
+            let result = wecode_runtime::async_runtime::run_limited_blocking_with_priority(
+                wecode_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND + generation,
                 move || runtime_service.reload_file_editor_layout(Some(&owner_id)),
             )
             .await
@@ -386,20 +386,20 @@ impl CoduxApp {
         let runtime_service = self.runtime_service.clone();
         cx.spawn(async move |_: gpui::WeakEntity<Self>, _cx| {
             let owner_id_for_log = owner_id.clone();
-            let result = codux_runtime::async_runtime::spawn_blocking(move || {
+            let result = wecode_runtime::async_runtime::spawn_blocking(move || {
                 runtime_service.save_file_editor_layout(&owner_id, tabs, active_path)
             })
             .await;
             match result {
                 Ok(Ok(_)) => {}
-                Ok(Err(error)) => codux_runtime::runtime_trace::runtime_trace(
+                Ok(Err(error)) => wecode_runtime::runtime_trace::runtime_trace(
                     "config",
                     &format!(
                         "failed to persist file editor layout {}: {error}",
                         owner_id_for_log
                     ),
                 ),
-                Err(error) => codux_runtime::runtime_trace::runtime_trace(
+                Err(error) => wecode_runtime::runtime_trace::runtime_trace(
                     "config",
                     &format!(
                         "file editor layout writer failed {}: {error}",
@@ -518,8 +518,8 @@ impl CoduxApp {
                 self.file_preview_window_error = None;
                 let runtime_service = self.runtime_service.clone();
                 cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-                    let result = codux_runtime::async_runtime::run_limited_blocking_with_priority(
-                        codux_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND,
+                    let result = wecode_runtime::async_runtime::run_limited_blocking_with_priority(
+                        wecode_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND,
                         {
                             let worktree_path = worktree_path.clone();
                             let relative_path = relative_path.clone();

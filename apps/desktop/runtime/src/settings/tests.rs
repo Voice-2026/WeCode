@@ -568,7 +568,7 @@ mod tests {
               "update": {
                 "enabled": true,
                 "channel": "stable",
-                "endpoint": "https://github.com/duxweb/codux/releases/latest/download/latest.json"
+                "endpoint": "https://github.com/duxweb/wecode/releases/latest/download/latest.json"
               }
             }
             "#,
@@ -583,7 +583,7 @@ mod tests {
         crate::config::flush_all_config_writes();
         let updated = fs::read_to_string(support_dir.join("settings.json")).expect("updated");
         assert!(updated.contains(
-            "\"endpoint\": \"https://raw.githubusercontent.com/duxweb/codux/main/updates/beta/latest.json\""
+            "\"endpoint\": \"https://raw.githubusercontent.com/duxweb/wecode/main/updates/beta/latest.json\""
         ));
 
         let summary = service
@@ -593,7 +593,7 @@ mod tests {
         crate::config::flush_all_config_writes();
         let updated = fs::read_to_string(support_dir.join("settings.json")).expect("updated");
         assert!(updated.contains(
-            "\"endpoint\": \"https://raw.githubusercontent.com/duxweb/codux/main/updates/stable/latest.json\""
+            "\"endpoint\": \"https://raw.githubusercontent.com/duxweb/wecode/main/updates/stable/latest.json\""
         ));
 
         fs::remove_dir_all(support_dir).ok();
@@ -609,7 +609,7 @@ mod tests {
               "update": {
                 "enabled": true,
                 "channel": "stable",
-                "endpoint": "https://raw.githubusercontent.com/duxweb/codux/main/updates/stable/latest.json"
+                "endpoint": "https://raw.githubusercontent.com/duxweb/wecode/main/updates/stable/latest.json"
               }
             }
             "#,
@@ -624,7 +624,7 @@ mod tests {
         crate::config::flush_all_config_writes();
         let updated = fs::read_to_string(support_dir.join("settings.json")).expect("updated");
         assert!(updated.contains(
-            "\"endpoint\": \"https://raw.githubusercontent.com/duxweb/codux/main/updates/beta/latest.json\""
+            "\"endpoint\": \"https://raw.githubusercontent.com/duxweb/wecode/main/updates/beta/latest.json\""
         ));
 
         fs::remove_dir_all(support_dir).ok();
@@ -853,7 +853,7 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("clock")
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!("codux-gpui-{label}-{nanos}"));
+        let dir = std::env::temp_dir().join(format!("wecode-gpui-{label}-{nanos}"));
         fs::create_dir_all(&dir).expect("temp dir");
         dir
     }

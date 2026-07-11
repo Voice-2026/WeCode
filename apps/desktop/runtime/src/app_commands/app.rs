@@ -109,9 +109,9 @@ mod tests {
         assert_eq!(status.current_version, "1.2.3");
         assert_eq!(status.installation_mode, "disabled");
 
-        let about = app_about_metadata("1.2.3", "com.duxweb.codux.test");
+        let about = app_about_metadata("1.2.3", "com.duxweb.wecode.test");
         assert_eq!(about.version, "1.2.3");
-        assert_eq!(about.identifier, "com.duxweb.codux.test");
+        assert_eq!(about.identifier, "com.duxweb.wecode.test");
 
         let manager = PowerManager::default();
         assert!(!power_set_sleep_prevention(&manager, "off".to_string()).expect("power off"));
@@ -121,7 +121,7 @@ mod tests {
     #[test]
     fn app_lifecycle_commands_delegate_to_runtime_service() {
         let support_dir =
-            std::env::temp_dir().join(format!("codux-app-command-lifecycle-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("wecode-app-command-lifecycle-{}", Uuid::new_v4()));
         let project_dir = support_dir.join("project");
         std::fs::create_dir_all(&project_dir).expect("project dir");
         std::fs::write(
@@ -167,7 +167,7 @@ mod tests {
     #[test]
     fn settings_i18n_and_performance_commands_match_tauri_facade_shape() {
         let support_dir =
-            std::env::temp_dir().join(format!("codux-app-command-settings-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("wecode-app-command-settings-{}", Uuid::new_v4()));
         let store = AppSettingsStore::from_support_dir(support_dir.clone());
         let mut settings = app_settings_get(&store);
         settings.language = "en".to_string();
@@ -192,13 +192,13 @@ mod tests {
     #[test]
     fn diagnostics_export_command_writes_redacted_runtime_report() {
         let destination = std::env::temp_dir().join(format!(
-            "codux-app-command-diagnostics-{}.json",
+            "wecode-app-command-diagnostics-{}.json",
             Uuid::new_v4()
         ));
         let request = DiagnosticsExportRequest {
             destination_path: destination.display().to_string(),
         };
-        let about = app_about_metadata("1.0.0", "com.duxweb.codux.test");
+        let about = app_about_metadata("1.0.0", "com.duxweb.wecode.test");
         let update = UpdateStatus {
             current_version: "1.0.0".to_string(),
             installation_mode: "disabled".to_string(),

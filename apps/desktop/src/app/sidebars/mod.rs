@@ -45,7 +45,7 @@ pub(in crate::app) struct AIStatsSidebarSnapshot {
 }
 
 pub(in crate::app) struct AIStatsSidebarView {
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     snapshot: AIStatsSidebarSnapshot,
 }
 
@@ -74,7 +74,7 @@ impl Render for AIStatsSidebarView {
     }
 }
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn ai_stats_sidebar_view(
         &mut self,
         cx: &mut Context<Self>,
@@ -151,7 +151,7 @@ pub(in crate::app) struct SshSidebarSnapshot {
 }
 
 pub(in crate::app) struct SshSidebarView {
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     snapshot: SshSidebarSnapshot,
 }
 
@@ -182,7 +182,7 @@ impl Render for SshSidebarView {
     }
 }
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn ssh_sidebar_view(
         &mut self,
         cx: &mut Context<Self>,
@@ -219,7 +219,7 @@ pub(in crate::app) struct DbSidebarSnapshot {
 }
 
 pub(in crate::app) struct DbSidebarView {
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     snapshot: DbSidebarSnapshot,
 }
 
@@ -249,7 +249,7 @@ impl Render for DbSidebarView {
     }
 }
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn db_sidebar_view(
         &mut self,
         cx: &mut Context<Self>,
@@ -285,7 +285,7 @@ pub(in crate::app) struct GitSidebarSnapshot {
 }
 
 pub(in crate::app) struct GitSidebarView {
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     snapshot: GitSidebarSnapshot,
 }
 
@@ -327,7 +327,7 @@ impl Render for GitSidebarView {
     }
 }
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn git_sidebar_view(
         &mut self,
         cx: &mut Context<Self>,
@@ -368,7 +368,7 @@ fn f64_bits(value: f64) -> u64 {
     value.to_bits()
 }
 
-fn ai_history_stats_fingerprint(stats: &codux_runtime::ai_history::AIHistoryStatsView) -> u64 {
+fn ai_history_stats_fingerprint(stats: &wecode_runtime::ai_history::AIHistoryStatsView) -> u64 {
     combine_sidebar_hashes(&[
         hash_sidebar_value(&(stats.project_total_tokens, stats.today_total_tokens)),
         hash_sidebar_value(
@@ -421,7 +421,7 @@ fn ai_history_stats_fingerprint(stats: &codux_runtime::ai_history::AIHistoryStat
 }
 
 fn rank_row_fingerprints(
-    items: &[codux_runtime::ai_history::AIHistoryRankRow],
+    items: &[wecode_runtime::ai_history::AIHistoryRankRow],
 ) -> Vec<(String, i64, u32)> {
     items
         .iter()
@@ -536,7 +536,7 @@ fn sorted_strings(values: &HashSet<String>) -> Vec<String> {
     values
 }
 
-fn git_interaction_fingerprint(app: &CoduxApp) -> u64 {
+fn git_interaction_fingerprint(app: &WeCodeApp) -> u64 {
     let mut tree_children = app
         .git_tree_children
         .iter()
@@ -577,7 +577,7 @@ fn git_interaction_fingerprint(app: &CoduxApp) -> u64 {
     ])
 }
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn file_sidebar_view(
         &mut self,
         cx: &mut Context<Self>,
@@ -678,7 +678,7 @@ impl PartialEq for FileSidebarSnapshot {
 }
 
 pub(in crate::app) struct FileSidebarView {
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     focus_handle: FocusHandle,
     snapshot: FileSidebarSnapshot,
     scroll_handle: UniformListScrollHandle,
@@ -701,9 +701,9 @@ impl FileSidebarView {
         &self,
         window: &mut Window,
         cx: &mut Context<Self>,
-        update: impl FnOnce(&mut CoduxApp, &mut Window, &mut Context<CoduxApp>) + 'static,
+        update: impl FnOnce(&mut WeCodeApp, &mut Window, &mut Context<WeCodeApp>) + 'static,
     ) {
-        defer_codux_app_update(self.app_entity.clone(), window, cx, update);
+        defer_wecode_app_update(self.app_entity.clone(), window, cx, update);
     }
 }
 
@@ -804,13 +804,13 @@ fn assistant_panel_header(
         .child(action)
 }
 
-fn ai_stats_surface(cx: &mut Context<CoduxApp>) -> gpui::Hsla {
+fn ai_stats_surface(cx: &mut Context<WeCodeApp>) -> gpui::Hsla {
     // Cards sit a blended step above the panel they live on (the sidebar) — a
     // solid lighter/darker tone with the panel opacity inherited, so they read
     // as raised tiles rather than a darker translucent patch.
     theme::vibrancy_raised(cx.theme().sidebar)
 }
 
-fn ai_stats_track_surface(cx: &mut Context<CoduxApp>) -> gpui::Hsla {
+fn ai_stats_track_surface(cx: &mut Context<WeCodeApp>) -> gpui::Hsla {
     cx.theme().secondary_hover
 }

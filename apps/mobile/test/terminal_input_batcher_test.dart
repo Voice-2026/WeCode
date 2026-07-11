@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:codux_flutter/services/terminal_input_batcher.dart';
+import 'package:wecode_flutter/services/terminal_input_batcher.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

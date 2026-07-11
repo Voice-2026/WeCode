@@ -93,7 +93,7 @@ mod tests {
     #[test]
     fn pet_commands_delegate_to_runtime_pet_store() {
         let support_dir =
-            std::env::temp_dir().join(format!("codux-app-command-pet-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("wecode-app-command-pet-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&support_dir).expect("support dir");
         let service = RuntimeService::new(support_dir.clone());
 

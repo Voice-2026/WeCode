@@ -160,7 +160,7 @@ async fn dispatch_channel(
                 title: &request.title,
                 body: &request.body,
                 group: &request.group,
-                source: "codux",
+                source: "wecode",
             };
             let mut builder = client.post(endpoint).json(&payload);
             if !token.is_empty() {

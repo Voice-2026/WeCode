@@ -10,7 +10,7 @@ enum RemoteRelayChange {
     Authentication(String),
 }
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(super) fn apply_child_window_update_event(
         &mut self,
         event: ChildWindowUpdateEvent,
@@ -149,7 +149,7 @@ impl CoduxApp {
         cx: &mut Context<Self>,
     ) {
         if !self.state.ssh.wrapper_available {
-            self.status_message = "codux-ssh wrapper is not available".to_string();
+            self.status_message = "wecode-ssh wrapper is not available".to_string();
             self.invalidate_remote_panel(cx);
             return;
         }
@@ -413,7 +413,7 @@ impl CoduxApp {
         self.set_ssh_test_result(self.ssh_test_testing_message(), true);
         self.status_message = "SSH test started".to_string();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let result = codux_runtime::async_runtime::spawn_blocking(move || {
+            let result = wecode_runtime::async_runtime::spawn_blocking(move || {
                 service.test_ssh_profile(request, runtime_root)
             })
             .await
@@ -430,7 +430,7 @@ impl CoduxApp {
 
     pub(super) fn apply_ssh_test_result(
         &mut self,
-        result: Result<codux_runtime::ssh::SSHProfileTestResult, String>,
+        result: Result<wecode_runtime::ssh::SSHProfileTestResult, String>,
         cx: &mut Context<Self>,
     ) {
         self.ssh_testing = false;
@@ -607,7 +607,7 @@ impl CoduxApp {
         let cancel_label = self.text("common.cancel", "Cancel");
         self.status_message = "waiting for remote relay change confirmation".to_string();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let result = codux_runtime::async_runtime::spawn_blocking(move || {
+            let result = wecode_runtime::async_runtime::spawn_blocking(move || {
                 service.localized_confirm_dialog(LocalizedConfirmDialogRequest {
                     title,
                     message,
@@ -657,7 +657,7 @@ impl CoduxApp {
         self.runtime_trace("remote", "reconnect start");
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             let result =
-                codux_runtime::async_runtime::spawn_blocking(move || service.reconnect_remote())
+                wecode_runtime::async_runtime::spawn_blocking(move || service.reconnect_remote())
                     .await
                     .map_err(|error| error.to_string())
                     .and_then(|result| result);
@@ -717,7 +717,7 @@ impl CoduxApp {
         self.status_message = "remote pairing request started".to_string();
         self.runtime_trace("remote", "pairing_create start");
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let result = codux_runtime::async_runtime::spawn(async move {
+            let result = wecode_runtime::async_runtime::spawn(async move {
                 service.create_remote_pairing_async().await
             })
             .await
@@ -801,7 +801,7 @@ impl CoduxApp {
 
                 let worker_pairing = pairing.clone();
                 let worker_service = service.clone();
-                let result = codux_runtime::async_runtime::spawn_blocking(move || {
+                let result = wecode_runtime::async_runtime::spawn_blocking(move || {
                     worker_service.poll_remote_pairing_status(&worker_pairing)
                 })
                 .await
@@ -884,7 +884,7 @@ impl CoduxApp {
         let service = self.runtime_service.clone();
         self.runtime_trace("remote", "pairing_cancel start");
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let result = codux_runtime::async_runtime::spawn_blocking(move || {
+            let result = wecode_runtime::async_runtime::spawn_blocking(move || {
                 service.cancel_remote_pairing(&pairing_id)
             })
             .await
@@ -898,7 +898,7 @@ impl CoduxApp {
         self.invalidate_remote_panel(cx);
     }
 
-    /// Copy the `codux://pair` ticket to the clipboard so another desktop
+    /// Copy the `wecode://pair` ticket to the clipboard so another desktop
     /// controller (which can't scan the QR) can paste it to connect to this host.
     pub(super) fn copy_remote_pairing_link(&mut self, payload: String, cx: &mut Context<Self>) {
         cx.write_to_clipboard(gpui::ClipboardItem {
@@ -924,7 +924,7 @@ impl CoduxApp {
     pub(super) fn open_remote_connect(&mut self, cx: &mut Context<Self>) {
         self.remote_connect_open = true;
         self.remote_connect_ticket = String::new();
-        self.remote_connect_name = codux_runtime::remote::remote_host_name();
+        self.remote_connect_name = wecode_runtime::remote::remote_host_name();
         self.remote_connect_error = None;
         self.remote_connect_busy = false;
         self.invalidate_remote_panel(cx);
@@ -955,7 +955,7 @@ impl CoduxApp {
         self.invalidate_remote_panel(cx);
     }
 
-    /// Pair this desktop (as controller) to another host by its `codux://pair`
+    /// Pair this desktop (as controller) to another host by its `wecode://pair`
     /// ticket. The host then appears in the unified device list and is selectable
     /// when adding a project.
     pub(super) fn submit_remote_connect(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -969,7 +969,7 @@ impl CoduxApp {
         let device_name = {
             let name = self.remote_connect_name.trim();
             if name.is_empty() {
-                codux_runtime::remote::remote_host_name()
+                wecode_runtime::remote::remote_host_name()
             } else {
                 name.to_string()
             }
@@ -980,7 +980,7 @@ impl CoduxApp {
         self.invalidate_remote_panel(cx);
 
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let result = codux_runtime::async_runtime::run_limited_blocking(move || {
+            let result = wecode_runtime::async_runtime::run_limited_blocking(move || {
                 runtime_service.pair_remote_host(&ticket, &device_name)
             })
             .await
@@ -1515,12 +1515,12 @@ impl CoduxApp {
 
     pub(super) fn dispatch_ai_completion_notifications(
         &self,
-        events: &[codux_runtime::ai_runtime::AIRuntimeSupervisorEvent],
+        events: &[wecode_runtime::ai_runtime::AIRuntimeSupervisorEvent],
     ) {
         let completions = events
             .iter()
             .filter_map(|event| match event {
-                codux_runtime::ai_runtime::AIRuntimeSupervisorEvent::Completion { completion } => {
+                wecode_runtime::ai_runtime::AIRuntimeSupervisorEvent::Completion { completion } => {
                     Some(completion.clone())
                 }
                 _ => None,
@@ -1548,7 +1548,7 @@ impl CoduxApp {
             let service = self.runtime_service.clone();
             let channels = channels.clone();
             let locale = locale.clone();
-            codux_runtime::async_runtime::spawn_blocking(move || {
+            wecode_runtime::async_runtime::spawn_blocking(move || {
                 let title = if completion.was_interrupted {
                     translate(
                         &locale,
@@ -1560,12 +1560,12 @@ impl CoduxApp {
                 };
                 let project_name = completion.project_name.trim();
                 let native_title = if project_name.is_empty() {
-                    "Codux".to_string()
+                    "WeCode".to_string()
                 } else {
                     project_name.to_string()
                 };
                 let body = completion.project_name.clone();
-                let group = "codux-task";
+                let group = "wecode-task";
                 if let Err(error) = service.show_native_notification(&native_title, &title, group) {
                     service.runtime_trace_frontend(
                         "notification",
@@ -1586,13 +1586,13 @@ impl CoduxApp {
 
     fn refresh_dock_badge_for_ai_runtime_events(
         &mut self,
-        events: &[codux_runtime::ai_runtime::AIRuntimeSupervisorEvent],
+        events: &[wecode_runtime::ai_runtime::AIRuntimeSupervisorEvent],
         cx: &mut Context<Self>,
     ) {
         if !events.iter().any(|event| {
             matches!(
                 event,
-                codux_runtime::ai_runtime::AIRuntimeSupervisorEvent::Completion { .. }
+                wecode_runtime::ai_runtime::AIRuntimeSupervisorEvent::Completion { .. }
             )
         }) {
             return;
@@ -1615,7 +1615,7 @@ impl CoduxApp {
 
     pub(super) fn refresh_today_level_after_day_change(&mut self) -> bool {
         let day_start =
-            codux_runtime::ai_history_normalized::local_day_start_seconds(app_now_seconds());
+            wecode_runtime::ai_history_normalized::local_day_start_seconds(app_now_seconds());
         if (day_start - self.today_level_day_start).abs() < 1.0 {
             return false;
         }
@@ -1626,7 +1626,7 @@ impl CoduxApp {
 
     fn apply_runtime_pet_refresh_result(
         &mut self,
-        result: &codux_runtime::runtime_state::AIHistoryDrainResult,
+        result: &wecode_runtime::runtime_state::AIHistoryDrainResult,
         _cx: &mut Context<Self>,
     ) -> bool {
         if let Some(error) = result.pet_error.as_deref() {

@@ -39,8 +39,8 @@ class TerminalInputReliableSender {
   }) {
     if (sessionId.isEmpty || data.isEmpty) return false;
     final inputId = '${DateTime.now().microsecondsSinceEpoch}-${++_seq}';
-    CoduxLog.info(
-      '[codux-flutter-input] source=$source id=$inputId bytes=${data.codeUnits.length} session=$sessionId',
+    WeCodeLog.info(
+      '[wecode-flutter-input] source=$source id=$inputId bytes=${data.codeUnits.length} session=$sessionId',
     );
     _pending[inputId] = _PendingTerminalInput(
       inputId: inputId,
@@ -60,9 +60,9 @@ class TerminalInputReliableSender {
     if (inputId == null || inputId.isEmpty) return;
     final pending = _pending.remove(inputId);
     pending?.retryTimer?.cancel();
-    if (CoduxLog.isDebugEnabled) {
-      CoduxLog.debug(
-        '[codux-flutter-input] ack id=$inputId ok=${payload['ok'] ?? true}',
+    if (WeCodeLog.isDebugEnabled) {
+      WeCodeLog.debug(
+        '[wecode-flutter-input] ack id=$inputId ok=${payload['ok'] ?? true}',
       );
     }
   }
@@ -100,7 +100,7 @@ class TerminalInputReliableSender {
       ),
     );
     if (!sent) {
-      CoduxLog.warn('[codux-flutter-input] send failed id=$inputId');
+      WeCodeLog.warn('[wecode-flutter-input] send failed id=$inputId');
     }
     if (!pending.retry) {
       _pending.remove(inputId);
@@ -109,7 +109,7 @@ class TerminalInputReliableSender {
     pending.attempt += 1;
     if (pending.attempt >= maxAttempts) {
       _pending.remove(inputId);
-      CoduxLog.warn('[codux-flutter-input] ack exhausted id=$inputId');
+      WeCodeLog.warn('[wecode-flutter-input] ack exhausted id=$inputId');
       return;
     }
     pending.retryTimer = _timerFactory(

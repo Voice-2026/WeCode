@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-pub use codux_protocol::{RemoteEnvelope, RemoteOutgoingEnvelope};
-pub(crate) use codux_protocol::{RemoteTransportCandidate, RemoteTransportPairingRequest};
+pub use wecode_protocol::{RemoteEnvelope, RemoteOutgoingEnvelope};
+pub(crate) use wecode_protocol::{RemoteTransportCandidate, RemoteTransportPairingRequest};
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]

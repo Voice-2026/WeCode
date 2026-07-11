@@ -1,13 +1,13 @@
 use super::*;
 
 pub(in crate::app) struct WorkspaceToolbarView {
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     snapshot: WorkspaceToolbarSnapshot,
 }
 
 impl WorkspaceToolbarView {
     pub(in crate::app) fn new(
-        app_entity: gpui::Entity<CoduxApp>,
+        app_entity: gpui::Entity<WeCodeApp>,
         snapshot: WorkspaceToolbarSnapshot,
     ) -> Self {
         Self {
@@ -42,7 +42,7 @@ impl Render for WorkspaceToolbarView {
 }
 
 pub(in crate::app) struct WorkspaceBodyView {
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     pub(in crate::app) terminal_workspace_view: Option<gpui::Entity<TerminalWorkspaceView>>,
     pub(in crate::app) file_editor_workspace_view:
         Option<gpui::Entity<file_editor::FileEditorWorkspaceView>>,
@@ -51,7 +51,7 @@ pub(in crate::app) struct WorkspaceBodyView {
 }
 
 impl WorkspaceBodyView {
-    pub(in crate::app) fn new(app_entity: gpui::Entity<CoduxApp>) -> Self {
+    pub(in crate::app) fn new(app_entity: gpui::Entity<WeCodeApp>) -> Self {
         Self {
             app_entity,
             terminal_workspace_view: None,
@@ -179,13 +179,13 @@ impl Render for WorkspaceBodyView {
     }
 }
 pub(in crate::app) struct WorkspaceAssistantView {
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     pub(super) snapshot: WorkspaceAssistantSnapshot,
 }
 
 impl WorkspaceAssistantView {
     pub(in crate::app) fn new(
-        app_entity: gpui::Entity<CoduxApp>,
+        app_entity: gpui::Entity<WeCodeApp>,
         snapshot: WorkspaceAssistantSnapshot,
     ) -> Self {
         Self {
@@ -269,7 +269,7 @@ pub(super) fn assistant_panel_available(
     }
 }
 
-pub(super) fn workspace_toolbar_fingerprint(app: &CoduxApp) -> u64 {
+pub(super) fn workspace_toolbar_fingerprint(app: &WeCodeApp) -> u64 {
     workspace_view_hash(&(
         workspace_view_key(app.workspace_view),
         assistant_panel_key(app.assistant_panel),
@@ -331,7 +331,7 @@ fn assistant_panel_key(panel: Option<AssistantPanel>) -> &'static str {
     }
 }
 
-fn workspace_pet_fingerprint(app: &CoduxApp) -> u64 {
+fn workspace_pet_fingerprint(app: &WeCodeApp) -> u64 {
     workspace_view_hash(&[
         workspace_view_hash(&(
             app.state.pet.available,

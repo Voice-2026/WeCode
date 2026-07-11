@@ -1,7 +1,7 @@
 use super::*;
 
 pub(super) fn file_editor_i18n(
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     cx: &mut impl AppContext,
     key: &str,
     fallback: &str,
@@ -146,7 +146,7 @@ mod tests {
         FilePreviewKind, changed_file_event_relative_paths, file_language_for_path,
         file_preview_kind_for_path, relative_file_watch_path,
     };
-    use codux_runtime::files::FileChangeEvent;
+    use wecode_runtime::files::FileChangeEvent;
 
     #[test]
     fn file_preview_kind_detects_images_without_treating_markdown_as_image() {

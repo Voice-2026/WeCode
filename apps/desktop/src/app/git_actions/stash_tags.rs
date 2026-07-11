@@ -1,6 +1,6 @@
 use super::*;
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn fetch_prune_project_git(
         &mut self,
         _window: &mut Window,

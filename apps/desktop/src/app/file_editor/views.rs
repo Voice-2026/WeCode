@@ -60,7 +60,7 @@ impl PartialEq for FileEditorWorkspaceSnapshot {
 }
 
 pub(in crate::app) struct FileEditorWorkspaceView {
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     snapshot: FileEditorWorkspaceSnapshot,
     chrome_view: Option<gpui::Entity<FileEditorChromeView>>,
     tab_bar_view: Option<gpui::Entity<FileEditorTabBarView>>,
@@ -70,7 +70,7 @@ pub(in crate::app) struct FileEditorWorkspaceView {
 
 impl FileEditorWorkspaceView {
     pub(in crate::app) fn new(
-        app_entity: gpui::Entity<CoduxApp>,
+        app_entity: gpui::Entity<WeCodeApp>,
         snapshot: FileEditorWorkspaceSnapshot,
     ) -> Self {
         Self {
@@ -259,13 +259,13 @@ struct FileEditorTabBarSnapshot {
 }
 
 pub(in crate::app) struct FileEditorTabBarView {
-    pub(super) app_entity: gpui::Entity<CoduxApp>,
+    pub(super) app_entity: gpui::Entity<WeCodeApp>,
     snapshot: FileEditorTabBarSnapshot,
     tab_scroll_handle: ScrollHandle,
 }
 
 impl FileEditorTabBarView {
-    fn new(app_entity: gpui::Entity<CoduxApp>, snapshot: FileEditorTabBarSnapshot) -> Self {
+    fn new(app_entity: gpui::Entity<WeCodeApp>, snapshot: FileEditorTabBarSnapshot) -> Self {
         Self {
             app_entity,
             snapshot,
@@ -311,12 +311,12 @@ struct FileEditorToolbarSnapshot {
 }
 
 pub(in crate::app) struct FileEditorToolbarView {
-    pub(super) app_entity: gpui::Entity<CoduxApp>,
+    pub(super) app_entity: gpui::Entity<WeCodeApp>,
     snapshot: FileEditorToolbarSnapshot,
 }
 
 impl FileEditorToolbarView {
-    fn new(app_entity: gpui::Entity<CoduxApp>, snapshot: FileEditorToolbarSnapshot) -> Self {
+    fn new(app_entity: gpui::Entity<WeCodeApp>, snapshot: FileEditorToolbarSnapshot) -> Self {
         Self {
             app_entity,
             snapshot,
@@ -509,7 +509,7 @@ pub(in crate::app) struct FilePreviewWindowSnapshot {
 }
 
 pub(in crate::app) struct FilePreviewWindowView {
-    pub(super) app_entity: gpui::Entity<CoduxApp>,
+    pub(super) app_entity: gpui::Entity<WeCodeApp>,
     snapshot: FilePreviewWindowSnapshot,
     markdown_state: Option<gpui::Entity<TextViewState>>,
     markdown_path: Option<String>,
@@ -519,7 +519,7 @@ pub(in crate::app) struct FilePreviewWindowView {
 
 impl FilePreviewWindowView {
     pub(in crate::app) fn new(
-        app_entity: gpui::Entity<CoduxApp>,
+        app_entity: gpui::Entity<WeCodeApp>,
         snapshot: FilePreviewWindowSnapshot,
     ) -> Self {
         Self {

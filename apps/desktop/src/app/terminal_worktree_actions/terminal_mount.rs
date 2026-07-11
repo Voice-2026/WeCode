@@ -1,7 +1,7 @@
 use super::terminal_layout::normalized_terminal_osc_title;
 use super::*;
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn ensure_active_terminal_mounted(
         &mut self,
         cx: &mut Context<Self>,
@@ -275,7 +275,7 @@ impl CoduxApp {
             terminal.set_search_observer(move |open, cx| {
                 let terminal_id = search_terminal_id.clone();
                 let app = app_for_search.clone();
-                // open_search may run inside a CoduxApp update (cmd-f action
+                // open_search may run inside a WeCodeApp update (cmd-f action
                 // handler) — updating it inline would re-enter; defer instead.
                 cx.defer(move |cx| {
                     let _ = app.update(cx, |app, cx| {

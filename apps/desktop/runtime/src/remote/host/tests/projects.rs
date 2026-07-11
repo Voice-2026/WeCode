@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn remote_project_select_keeps_desktop_selected_project() {
-    let support_dir = temp_support_dir("codux-remote-scope-select");
+    let support_dir = temp_support_dir("wecode-remote-scope-select");
     write_two_project_state(&support_dir);
     let runtime = Arc::new(RemoteHostRuntime::new(support_dir.clone()));
 
@@ -27,7 +27,7 @@ fn remote_project_select_keeps_desktop_selected_project() {
 
 #[test]
 fn secure_project_select_keeps_decrypted_device_id_for_scope_and_replies() {
-    let support_dir = temp_support_dir("codux-remote-secure-scope-select");
+    let support_dir = temp_support_dir("wecode-remote-secure-scope-select");
     write_paired_remote_settings(&support_dir);
     write_two_project_state(&support_dir);
     let runtime = Arc::new(RemoteHostRuntime::new(support_dir.clone()));
@@ -76,7 +76,7 @@ fn secure_project_select_keeps_decrypted_device_id_for_scope_and_replies() {
 
 #[test]
 fn remote_project_list_reports_device_selected_project_scope() {
-    let support_dir = temp_support_dir("codux-remote-project-list-scope");
+    let support_dir = temp_support_dir("wecode-remote-project-list-scope");
     write_two_project_state(&support_dir);
     let runtime = RemoteHostRuntime::new(support_dir.clone());
     runtime.set_remote_project_scope(Some("device-1"), "project-b");
@@ -100,7 +100,7 @@ fn remote_project_list_reports_device_selected_project_scope() {
 
 #[test]
 fn remote_project_select_starts_project_terminal_on_host() {
-    let support_dir = temp_support_dir("codux-remote-project-terminal");
+    let support_dir = temp_support_dir("wecode-remote-project-terminal");
     let (_, project_b) = write_two_project_state(&support_dir);
     let worktree_b_path = support_dir.join("project-b-worktree");
     fs::create_dir_all(&worktree_b_path).expect("create worktree b");
@@ -175,7 +175,7 @@ fn remote_project_select_starts_project_terminal_on_host() {
 
 #[test]
 fn remote_worktree_select_is_device_scoped_and_does_not_mutate_desktop_selection() {
-    let support_dir = temp_support_dir("codux-remote-worktree-device-scope");
+    let support_dir = temp_support_dir("wecode-remote-worktree-device-scope");
     let (_, project_b) = write_two_project_state(&support_dir);
     let mut state: Value = serde_json::from_str(
         &fs::read_to_string(support_dir.join("state.json")).expect("read state"),
@@ -235,7 +235,7 @@ fn remote_worktree_select_is_device_scoped_and_does_not_mutate_desktop_selection
 
 #[test]
 fn remote_worktree_select_replaces_saved_terminal_with_wrong_cwd() {
-    let support_dir = temp_support_dir("codux-remote-worktree-wrong-cwd");
+    let support_dir = temp_support_dir("wecode-remote-worktree-wrong-cwd");
     let (_, project_b) = write_two_project_state(&support_dir);
     let worktree_b_path = support_dir.join("project-b-worktree");
     fs::create_dir_all(&worktree_b_path).expect("create worktree b");
@@ -312,7 +312,7 @@ fn remote_worktree_select_replaces_saved_terminal_with_wrong_cwd() {
 
 #[test]
 fn project_list_broadcast_preserves_per_device_project_scope() {
-    let support_dir = temp_support_dir("codux-remote-project-list-subscriptions");
+    let support_dir = temp_support_dir("wecode-remote-project-list-subscriptions");
     write_two_project_state(&support_dir);
     let runtime = Arc::new(RemoteHostRuntime::new(support_dir.clone()));
 
@@ -353,7 +353,7 @@ fn project_list_broadcast_preserves_per_device_project_scope() {
 
 #[test]
 fn terminal_project_subscribe_with_baseline_sends_buffer_baseline() {
-    let support_dir = temp_support_dir("codux-remote-terminal-subscribe-baseline");
+    let support_dir = temp_support_dir("wecode-remote-terminal-subscribe-baseline");
     let (project_a, _) = write_two_project_state(&support_dir);
     write_paired_remote_settings(&support_dir);
     let terminals = Arc::new(TerminalManager::new());

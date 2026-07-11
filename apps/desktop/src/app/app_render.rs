@@ -1,6 +1,6 @@
 use super::*;
 
-impl Render for CoduxApp {
+impl Render for WeCodeApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.focus_root_if_needed(window, cx);
         self.ensure_appearance_sliders(cx);
@@ -16,7 +16,7 @@ impl Render for CoduxApp {
                 .bg(cx.theme().background)
                 .on_key_down(cx.listener(Self::on_key_down))
                 .child(self.about_workspace(window, cx))
-                .child(self.codux_tooltip_layer(cx));
+                .child(self.wecode_tooltip_layer(cx));
             return self
                 .register_child_window_actions(root, cx)
                 .into_any_element();
@@ -29,7 +29,7 @@ impl Render for CoduxApp {
                 .bg(cx.theme().background)
                 .on_key_down(cx.listener(Self::on_key_down))
                 .child(self.update_dialog_workspace(window, cx))
-                .child(self.codux_tooltip_layer(cx));
+                .child(self.wecode_tooltip_layer(cx));
             return self
                 .register_child_window_actions(root, cx)
                 .into_any_element();
@@ -50,7 +50,7 @@ impl Render for CoduxApp {
                     &self.state.settings.language,
                     cx,
                 ))
-                .child(self.codux_tooltip_layer(cx));
+                .child(self.wecode_tooltip_layer(cx));
             return self
                 .register_child_window_actions(root, cx)
                 .into_any_element();
@@ -65,7 +65,7 @@ impl Render for CoduxApp {
                 .bg(cx.theme().background)
                 .on_key_down(cx.listener(Self::on_key_down))
                 .child(cx.new(|_| file_editor::FileEditorWorkspaceView::new(app_entity, snapshot)))
-                .child(self.codux_tooltip_layer(cx));
+                .child(self.wecode_tooltip_layer(cx));
             return self
                 .register_child_window_actions(root, cx)
                 .into_any_element();
@@ -89,7 +89,7 @@ impl Render for CoduxApp {
                 .bg(cx.theme().background)
                 .on_key_down(cx.listener(Self::on_key_down))
                 .child(preview_view)
-                .child(self.codux_tooltip_layer(cx));
+                .child(self.wecode_tooltip_layer(cx));
             return self
                 .register_child_window_actions(root, cx)
                 .into_any_element();
@@ -108,7 +108,7 @@ impl Render for CoduxApp {
                     window,
                     cx,
                 ))
-                .child(self.codux_tooltip_layer(cx));
+                .child(self.wecode_tooltip_layer(cx));
             return self
                 .register_child_window_actions(root, cx)
                 .into_any_element();
@@ -126,7 +126,7 @@ impl Render for CoduxApp {
                     window,
                     cx,
                 ))
-                .child(self.codux_tooltip_layer(cx));
+                .child(self.wecode_tooltip_layer(cx));
             return self
                 .register_child_window_actions(root, cx)
                 .into_any_element();
@@ -154,7 +154,7 @@ impl Render for CoduxApp {
                     window,
                     cx,
                 ))
-                .child(self.codux_tooltip_layer(cx));
+                .child(self.wecode_tooltip_layer(cx));
             return self
                 .register_child_window_actions(root, cx)
                 .into_any_element();
@@ -167,7 +167,7 @@ impl Render for CoduxApp {
                 .bg(cx.theme().background)
                 .on_key_down(cx.listener(Self::on_key_down))
                 .child(self.pet_claim_workspace(window, cx))
-                .child(self.codux_tooltip_layer(cx));
+                .child(self.wecode_tooltip_layer(cx));
             return self
                 .register_child_window_actions(root, cx)
                 .into_any_element();
@@ -180,7 +180,7 @@ impl Render for CoduxApp {
                 .bg(cx.theme().background)
                 .on_key_down(cx.listener(Self::on_key_down))
                 .child(self.pet_custom_install_workspace(window, cx))
-                .child(self.codux_tooltip_layer(cx));
+                .child(self.wecode_tooltip_layer(cx));
             return self
                 .register_child_window_actions(root, cx)
                 .into_any_element();
@@ -193,7 +193,7 @@ impl Render for CoduxApp {
                 .bg(cx.theme().background)
                 .on_key_down(cx.listener(Self::on_key_down))
                 .child(self.pet_dex_workspace(window, cx))
-                .child(self.codux_tooltip_layer(cx));
+                .child(self.wecode_tooltip_layer(cx));
             return self
                 .register_child_window_actions(root, cx)
                 .into_any_element();
@@ -206,7 +206,7 @@ impl Render for CoduxApp {
                 .bg(cx.theme().background)
                 .on_key_down(cx.listener(Self::on_key_down))
                 .child(self.settings_workspace(window, cx))
-                .child(self.codux_tooltip_layer(cx));
+                .child(self.wecode_tooltip_layer(cx));
             return self
                 .register_child_window_actions(root, cx)
                 .into_any_element();
@@ -219,7 +219,7 @@ impl Render for CoduxApp {
                 .bg(cx.theme().background)
                 .on_key_down(cx.listener(Self::on_key_down))
                 .child(self.project_editor_workspace(window, cx))
-                .child(self.codux_tooltip_layer(cx));
+                .child(self.wecode_tooltip_layer(cx));
             return self
                 .register_child_window_actions(root, cx)
                 .into_any_element();
@@ -232,7 +232,7 @@ impl Render for CoduxApp {
                 .bg(cx.theme().background)
                 .on_key_down(cx.listener(Self::on_key_down))
                 .child(self.file_picker_window(window, cx))
-                .child(self.codux_tooltip_layer(cx));
+                .child(self.wecode_tooltip_layer(cx));
             return self
                 .register_child_window_actions(root, cx)
                 .into_any_element();
@@ -245,7 +245,7 @@ impl Render for CoduxApp {
                 .bg(cx.theme().background)
                 .on_key_down(cx.listener(Self::on_key_down))
                 .child(self.worktree_creator_workspace(window, cx))
-                .child(self.codux_tooltip_layer(cx));
+                .child(self.wecode_tooltip_layer(cx));
             return self
                 .register_child_window_actions(root, cx)
                 .into_any_element();
@@ -263,7 +263,7 @@ impl Render for CoduxApp {
                     window,
                     cx,
                 ))
-                .child(self.codux_tooltip_layer(cx));
+                .child(self.wecode_tooltip_layer(cx));
             return self
                 .register_child_window_actions(root, cx)
                 .into_any_element();
@@ -281,7 +281,7 @@ impl Render for CoduxApp {
                     window,
                     cx,
                 ))
-                .child(self.codux_tooltip_layer(cx));
+                .child(self.wecode_tooltip_layer(cx));
             return self
                 .register_child_window_actions(root, cx)
                 .into_any_element();
@@ -336,7 +336,7 @@ impl Render for CoduxApp {
                 this.bg(cx.theme().background)
             })
             .track_focus(&focus_handle)
-            .key_context("CoduxMainWindow")
+            .key_context("WeCodeMainWindow")
             .on_key_down(cx.listener(Self::on_key_down))
             .child(
                 // Main row: the sidebar spans the full window height; the status
@@ -412,7 +412,7 @@ impl Render for CoduxApp {
                 )
             })
             .children(pet_level_up_overlay)
-            .child(self.codux_tooltip_layer(cx))
+            .child(self.wecode_tooltip_layer(cx))
             // Host gpui-component modal dialogs (e.g. the git Quick Pick) as a
             // centered overlay on top of the main window.
             .children(Root::render_dialog_layer(window, cx));
@@ -426,7 +426,7 @@ fn main_workspace_split(
     task_column_view: Option<gpui::Entity<TaskColumnView>>,
     workspace_column_view: gpui::Entity<WorkspaceColumnView>,
     task_column_width: Pixels,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     if let Some(task_column_view) = task_column_view {
         h_resizable("main-task-workspace-split")
@@ -449,7 +449,7 @@ fn main_workspace_split(
 
 fn task_column_panel(
     task_column_view: gpui::Entity<TaskColumnView>,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> gpui::Div {
     div()
         .size_full()

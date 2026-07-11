@@ -185,7 +185,7 @@ pub(super) fn system_theme_options() -> Vec<(&'static str, &'static str)> {
 
 pub(super) fn dark_theme_options() -> Vec<(&'static str, &'static str)> {
     vec![
-        ("Codux Dark", "Codux Dark"),
+        ("WeCode Dark", "WeCode Dark"),
         ("Deep Ocean", "Deep Ocean"),
         ("Arctic Night", "Arctic Night"),
         ("Forest Night", "Forest Night"),
@@ -198,7 +198,7 @@ pub(super) fn dark_theme_options() -> Vec<(&'static str, &'static str)> {
 
 pub(super) fn light_theme_options() -> Vec<(&'static str, &'static str)> {
     vec![
-        ("Codux Light", "Codux Light"),
+        ("WeCode Light", "WeCode Light"),
         ("Glacier", "Glacier"),
         ("Morning Mist", "Morning Mist"),
         ("Matcha", "Matcha"),
@@ -315,10 +315,10 @@ pub(super) fn icon_style_values() -> Vec<IconStyleValue> {
 
 pub(super) fn app_icon_asset_path(style: &str) -> &'static str {
     match style {
-        "cobalt" => "app-icons/codux-cobalt.svg",
-        "sunset" => "app-icons/codux-sunset.svg",
-        "forest" => "app-icons/codux-forest.svg",
-        _ => "app-icons/codux-default.svg",
+        "cobalt" => "app-icons/wecode-cobalt.svg",
+        "sunset" => "app-icons/wecode-sunset.svg",
+        "forest" => "app-icons/wecode-forest.svg",
+        _ => "app-icons/wecode-default.svg",
     }
 }
 
@@ -605,7 +605,7 @@ pub(super) fn runtime_tool_permission_options(language: &str) -> Vec<(String, Sh
 
 pub(super) fn remote_relay_preset_options(language: &str) -> Vec<(String, SharedString)> {
     let _ = language;
-    codux_runtime::remote::remote_relay_presets()
+    wecode_runtime::remote::remote_relay_presets()
         .iter()
         .map(|preset| (preset.key.clone(), SharedString::from(preset.name.clone())))
         .collect()

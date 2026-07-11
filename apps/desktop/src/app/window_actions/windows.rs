@@ -1,8 +1,8 @@
 use super::*;
 use crate::app::app_events::{current_child_window_update_event, current_memory_update_event};
-use crate::app::app_state::CoduxTooltipState;
+use crate::app::app_state::WeCodeTooltipState;
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn new_settings_window_from_state(
         state: RuntimeState,
         runtime: RuntimeInventory,
@@ -293,7 +293,7 @@ impl CoduxApp {
             memory_project_profile_refreshing: false,
             performance_refresh_in_flight: false,
             pending_performance_refresh: None,
-            today_level_day_start: codux_runtime::ai_history_normalized::local_day_start_seconds(
+            today_level_day_start: wecode_runtime::ai_history_normalized::local_day_start_seconds(
                 app_now_seconds(),
             ),
             active_settings_pane: SettingsPane::General,
@@ -409,7 +409,7 @@ impl CoduxApp {
             update_dialog_progress: None,
             update_dialog_result: None,
             update_dialog_error: None,
-            tooltip_state: CoduxTooltipState::default(),
+            tooltip_state: WeCodeTooltipState::default(),
             ui_performance_counts: HashMap::new(),
             ui_performance_last_report_at: 0.0,
         }
@@ -425,9 +425,9 @@ impl CoduxApp {
             RuntimeService,
             &mut Window,
             &mut App,
-        ) -> CoduxApp
+        ) -> WeCodeApp
         + 'static,
-        after_view: impl FnOnce(gpui::Entity<CoduxApp>, &mut Window, &mut App) + 'static,
+        after_view: impl FnOnce(gpui::Entity<WeCodeApp>, &mut Window, &mut App) + 'static,
     ) -> bool {
         if self.activate_auxiliary_window_slot(spec.slot, cx) {
             self.status_message = spec.already_open_message.to_string();
@@ -442,7 +442,7 @@ impl CoduxApp {
         let bounds = Bounds::centered(None, spec.size, cx);
         let result = cx.open_window(
             WindowOptions {
-                titlebar: Some(theme::codux_child_titlebar(spec.title)),
+                titlebar: Some(theme::wecode_child_titlebar(spec.title)),
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 window_min_size: Some(spec.min_size),
                 is_minimizable: false,
@@ -676,14 +676,14 @@ impl CoduxApp {
         let opened_path = relative_path.clone();
         let result = cx.open_window(
             WindowOptions {
-                titlebar: Some(theme::codux_child_titlebar(SharedString::from(title))),
+                titlebar: Some(theme::wecode_child_titlebar(SharedString::from(title))),
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 window_min_size: Some(size(px(520.0), px(360.0))),
                 ..Default::default()
             },
             move |window, cx| {
                 macos_window::configure_document_child_window_controls(window);
-                let mut app = CoduxApp::new_file_editor_window_from_state(
+                let mut app = WeCodeApp::new_file_editor_window_from_state(
                     relative_path,
                     markdown_preview,
                     state,
@@ -744,14 +744,14 @@ impl CoduxApp {
         let opened_path = relative_path.clone();
         let result = cx.open_window(
             WindowOptions {
-                titlebar: Some(theme::codux_child_titlebar(SharedString::from(title))),
+                titlebar: Some(theme::wecode_child_titlebar(SharedString::from(title))),
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 window_min_size: Some(size(px(520.0), px(360.0))),
                 ..Default::default()
             },
             move |window, cx| {
                 macos_window::configure_document_child_window_controls(window);
-                let mut app = CoduxApp::new_file_preview_window_from_state(
+                let mut app = WeCodeApp::new_file_preview_window_from_state(
                     relative_path,
                     state,
                     runtime,
@@ -812,7 +812,7 @@ impl CoduxApp {
         }
         let service = self.runtime_service.clone();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let result = codux_runtime::async_runtime::run_limited_blocking(move || {
+            let result = wecode_runtime::async_runtime::run_limited_blocking(move || {
                 service.runtime_trace_frontend("window", "auxiliary_project_open_refresh start");
                 let applications = service.project_open_applications();
                 service.runtime_trace_frontend("window", "auxiliary_project_open_refresh ok");

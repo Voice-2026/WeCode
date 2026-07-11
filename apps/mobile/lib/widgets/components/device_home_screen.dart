@@ -74,7 +74,7 @@ class DeviceHomeScreen extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Codux',
+                      'WeCode',
                       style: TextStyle(
                         color: AppColors.textPrimary,
                         fontSize: 22,

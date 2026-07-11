@@ -56,7 +56,7 @@ impl PartialEq for TerminalPaneViewSnapshot {
 }
 
 pub(in crate::app) struct TerminalWorkspaceView {
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     snapshot: TerminalWorkspaceSnapshot,
     // Real size of the terminal workspace, recorded at prepaint. Used to
     // derive panel sizes from the persisted ratios so the first frame
@@ -70,7 +70,7 @@ pub(in crate::app) struct TerminalWorkspaceView {
 
 impl TerminalWorkspaceView {
     pub(super) fn new(
-        app_entity: gpui::Entity<CoduxApp>,
+        app_entity: gpui::Entity<WeCodeApp>,
         snapshot: TerminalWorkspaceSnapshot,
     ) -> Self {
         Self {

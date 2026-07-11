@@ -94,8 +94,8 @@ class RemoteTerminalBindingCoordinator {
 
     final unsubscribe = plan.unsubscribe;
     if (unsubscribe != null) {
-      CoduxLog.debug(
-        '[codux-flutter-terminal] unsubscribe project=${plan.unsubscribeProjectId ?? ''} reason=$reason',
+      WeCodeLog.debug(
+        '[wecode-flutter-terminal] unsubscribe project=${plan.unsubscribeProjectId ?? ''} reason=$reason',
       );
       _send(unsubscribe);
     }
@@ -121,8 +121,8 @@ class RemoteTerminalBindingCoordinator {
         if (!started) return false;
       }
 
-      CoduxLog.debug(
-        '[codux-flutter-terminal] subscribe project=${plan.subscribeProjectId ?? ''} reason=$reason',
+      WeCodeLog.debug(
+        '[wecode-flutter-terminal] subscribe project=${plan.subscribeProjectId ?? ''} reason=$reason',
       );
       final sent = _send(subscribe);
       if (sent) {
@@ -170,8 +170,8 @@ class RemoteTerminalBindingCoordinator {
       );
       if (!started) return false;
     }
-    CoduxLog.info(
-      '[codux-flutter-terminal] subscribe session=$cleanSessionId reason=$reason baseline=$baseline',
+    WeCodeLog.info(
+      '[wecode-flutter-terminal] subscribe session=$cleanSessionId reason=$reason baseline=$baseline',
     );
     final sent = _send(envelope);
     if (!sent && baseline) {
@@ -224,8 +224,8 @@ class RemoteTerminalBindingCoordinator {
     required TerminalBufferCapability capability,
   }) {
     if (baselineRequested || _outputController.hasCachedOutput(sessionId)) {
-      CoduxLog.debug(
-        '[codux-flutter-terminal] baseline satisfied session=$sessionId reason=$reason requested=$baselineRequested',
+      WeCodeLog.debug(
+        '[wecode-flutter-terminal] baseline satisfied session=$sessionId reason=$reason requested=$baselineRequested',
       );
       return;
     }

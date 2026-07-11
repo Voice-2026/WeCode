@@ -1,6 +1,6 @@
 use super::*;
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn on_key_down(
         &mut self,
         event: &KeyDownEvent,

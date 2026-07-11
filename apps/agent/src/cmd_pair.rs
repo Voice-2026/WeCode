@@ -1,4 +1,4 @@
-//! `codux link` and `codux qrcode` — surface the pairing ticket the running host
+//! `wecode link` and `wecode qrcode` — surface the pairing ticket the running host
 //! publishes. If the host isn't up yet, start it in the background first. The
 //! headless host auto-confirms pairing (holding the one-time ticket is the gate),
 //! so no second confirmation is needed.
@@ -7,7 +7,7 @@ use qrcode::QrCode;
 use qrcode::render::unicode;
 use std::time::Duration;
 
-use crate::{cmd_config, cmd_service, cmd_start, config_store::CoduxConfig, runstate};
+use crate::{cmd_config, cmd_service, cmd_start, config_store::WeCodeConfig, runstate};
 
 #[derive(Clone, Debug, Default)]
 pub struct PairArgs {
@@ -44,7 +44,7 @@ pub fn qrcode(args: PairArgs) -> Result<(), String> {
     let code = QrCode::new(ticket.as_bytes()).map_err(|error| error.to_string())?;
     let rendered = code.render::<unicode::Dense1x2>().quiet_zone(true).build();
     println!("{rendered}");
-    println!("Scan with the Codux mobile app, or paste the link below on desktop:");
+    println!("Scan with the WeCode mobile app, or paste the link below on desktop:");
     println!("{ticket}");
     Ok(())
 }
@@ -53,7 +53,7 @@ pub fn qrcode(args: PairArgs) -> Result<(), String> {
 /// it isn't already running.
 fn ensure_ticket(args: PairArgs) -> Result<String, String> {
     if args.has_relay_override() {
-        let mut config = CoduxConfig::load();
+        let mut config = WeCodeConfig::load();
         config.ensure_identity();
         let changed = cmd_config::apply_relay_args(
             &mut config,
@@ -64,13 +64,13 @@ fn ensure_ticket(args: PairArgs) -> Result<String, String> {
         if changed {
             config.save()?;
             if runstate::is_running() {
-                println!("Relay changed — restarting Codux host…");
+                println!("Relay changed — restarting WeCode host…");
                 cmd_service::stop()?;
             }
         }
     }
     if !runstate::is_running() {
-        println!("Codux host is not running — starting it…");
+        println!("WeCode host is not running — starting it…");
         cmd_start::run(true)?;
     }
     for _ in 0..40 {

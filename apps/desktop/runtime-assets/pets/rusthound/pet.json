@@ -1,6 +1,6 @@
 {
   "id": "rusthound-default",
   "displayName": "rusthound",
-  "description": "Codux bundled pet atlas.",
+  "description": "WeCode bundled pet atlas.",
   "spritesheetPath": "spritesheet.png"
 }

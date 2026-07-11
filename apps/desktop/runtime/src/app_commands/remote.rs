@@ -49,7 +49,7 @@ mod tests {
     #[test]
     fn remote_commands_delegate_to_runtime_service_without_network_when_disabled() {
         let support_dir =
-            std::env::temp_dir().join(format!("codux-app-command-remote-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("wecode-app-command-remote-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&support_dir).expect("support dir");
         std::fs::write(
             support_dir.join("settings.json"),

@@ -123,7 +123,7 @@ impl ConfigStore {
         let writer_snapshot = snapshot.clone();
         let writer_path = path.clone();
         thread::Builder::new()
-            .name("codux-state-json-writer".to_string())
+            .name("wecode-state-json-writer".to_string())
             .spawn(move || {
                 while write_rx.recv().is_ok() {
                     while write_rx.recv_timeout(Duration::from_millis(80)).is_ok() {}
@@ -234,7 +234,7 @@ impl ConfigDocumentStore {
         let writer_snapshot = snapshot.clone();
         let writer_path = path.clone();
         thread::Builder::new()
-            .name("codux-config-json-writer".to_string())
+            .name("wecode-config-json-writer".to_string())
             .spawn(move || {
                 while write_rx.recv().is_ok() {
                     while write_rx.recv_timeout(Duration::from_millis(80)).is_ok() {}
@@ -444,6 +444,6 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        std::env::temp_dir().join(format!("codux-{label}-{stamp}.json"))
+        std::env::temp_dir().join(format!("wecode-{label}-{stamp}.json"))
     }
 }

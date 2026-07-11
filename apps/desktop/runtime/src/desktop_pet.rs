@@ -514,6 +514,6 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        std::env::temp_dir().join(format!("codux-{label}-{stamp}"))
+        std::env::temp_dir().join(format!("wecode-{label}-{stamp}"))
     }
 }

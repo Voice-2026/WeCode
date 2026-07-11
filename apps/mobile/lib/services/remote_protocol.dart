@@ -1,137 +1,137 @@
 import '../models/remote_models.dart';
-import 'package:codux_protocol_ffi/codux_protocol_ffi.dart'
-    as codux_protocol_ffi;
+import 'package:wecode_protocol_ffi/wecode_protocol_ffi.dart'
+    as wecode_protocol_ffi;
 
-final String remoteProtocolVersion = codux_protocol_ffi.protocolVersion();
+final String remoteProtocolVersion = wecode_protocol_ffi.protocolVersion();
 
 abstract final class RemoteResourceType {
-  static final projects = codux_protocol_ffi.resourceType('projects');
-  static final terminals = codux_protocol_ffi.resourceType('terminals');
-  static final worktrees = codux_protocol_ffi.resourceType('worktrees');
-  static final gitStatus = codux_protocol_ffi.resourceType('gitStatus');
-  static final aiStats = codux_protocol_ffi.resourceType('aiStats');
-  static final files = codux_protocol_ffi.resourceType('files');
+  static final projects = wecode_protocol_ffi.resourceType('projects');
+  static final terminals = wecode_protocol_ffi.resourceType('terminals');
+  static final worktrees = wecode_protocol_ffi.resourceType('worktrees');
+  static final gitStatus = wecode_protocol_ffi.resourceType('gitStatus');
+  static final aiStats = wecode_protocol_ffi.resourceType('aiStats');
+  static final files = wecode_protocol_ffi.resourceType('files');
 }
 
 abstract final class RemoteMessageType {
-  static final hello = codux_protocol_ffi.messageType('hello');
-  static final error = codux_protocol_ffi.messageType('error');
-  static final hostInfo = codux_protocol_ffi.messageType('hostInfo');
-  static final hostOffline = codux_protocol_ffi.messageType('hostOffline');
-  static final deviceInfo = codux_protocol_ffi.messageType('deviceInfo');
-  static final deviceDisconnected = codux_protocol_ffi.messageType(
+  static final hello = wecode_protocol_ffi.messageType('hello');
+  static final error = wecode_protocol_ffi.messageType('error');
+  static final hostInfo = wecode_protocol_ffi.messageType('hostInfo');
+  static final hostOffline = wecode_protocol_ffi.messageType('hostOffline');
+  static final deviceInfo = wecode_protocol_ffi.messageType('deviceInfo');
+  static final deviceDisconnected = wecode_protocol_ffi.messageType(
     'deviceDisconnected',
   );
-  static final pairingRequest = codux_protocol_ffi.messageType(
+  static final pairingRequest = wecode_protocol_ffi.messageType(
     'pairingRequest',
   );
-  static final pairingConfirmed = codux_protocol_ffi.messageType(
+  static final pairingConfirmed = wecode_protocol_ffi.messageType(
     'pairingConfirmed',
   );
-  static final pairingRejected = codux_protocol_ffi.messageType(
+  static final pairingRejected = wecode_protocol_ffi.messageType(
     'pairingRejected',
   );
-  static final transportPing = codux_protocol_ffi.messageType('transportPing');
-  static final transportPong = codux_protocol_ffi.messageType('transportPong');
-  static final resourceSubscribe = codux_protocol_ffi.messageType(
+  static final transportPing = wecode_protocol_ffi.messageType('transportPing');
+  static final transportPong = wecode_protocol_ffi.messageType('transportPong');
+  static final resourceSubscribe = wecode_protocol_ffi.messageType(
     'resourceSubscribe',
   );
-  static final resourceUnsubscribe = codux_protocol_ffi.messageType(
+  static final resourceUnsubscribe = wecode_protocol_ffi.messageType(
     'resourceUnsubscribe',
   );
-  static final projectList = codux_protocol_ffi.messageType('projectList');
-  static final projectSelect = codux_protocol_ffi.messageType('projectSelect');
-  static final projectSelected = codux_protocol_ffi.messageType(
+  static final projectList = wecode_protocol_ffi.messageType('projectList');
+  static final projectSelect = wecode_protocol_ffi.messageType('projectSelect');
+  static final projectSelected = wecode_protocol_ffi.messageType(
     'projectSelected',
   );
-  static final projectAdd = codux_protocol_ffi.messageType('projectAdd');
-  static final projectEdit = codux_protocol_ffi.messageType('projectEdit');
-  static final projectRemove = codux_protocol_ffi.messageType('projectRemove');
-  static final projectUpdated = codux_protocol_ffi.messageType(
+  static final projectAdd = wecode_protocol_ffi.messageType('projectAdd');
+  static final projectEdit = wecode_protocol_ffi.messageType('projectEdit');
+  static final projectRemove = wecode_protocol_ffi.messageType('projectRemove');
+  static final projectUpdated = wecode_protocol_ffi.messageType(
     'projectUpdated',
   );
-  static final worktreeList = codux_protocol_ffi.messageType('worktreeList');
-  static final worktreeSelect = codux_protocol_ffi.messageType(
+  static final worktreeList = wecode_protocol_ffi.messageType('worktreeList');
+  static final worktreeSelect = wecode_protocol_ffi.messageType(
     'worktreeSelect',
   );
-  static final worktreeCreate = codux_protocol_ffi.messageType(
+  static final worktreeCreate = wecode_protocol_ffi.messageType(
     'worktreeCreate',
   );
-  static final worktreeMerge = codux_protocol_ffi.messageType('worktreeMerge');
-  static final worktreeDelete = codux_protocol_ffi.messageType(
+  static final worktreeMerge = wecode_protocol_ffi.messageType('worktreeMerge');
+  static final worktreeDelete = wecode_protocol_ffi.messageType(
     'worktreeDelete',
   );
-  static final worktreeUpdated = codux_protocol_ffi.messageType(
+  static final worktreeUpdated = wecode_protocol_ffi.messageType(
     'worktreeUpdated',
   );
-  static final terminalList = codux_protocol_ffi.messageType('terminalList');
-  static final terminalSubscribe = codux_protocol_ffi.messageType(
+  static final terminalList = wecode_protocol_ffi.messageType('terminalList');
+  static final terminalSubscribe = wecode_protocol_ffi.messageType(
     'terminalSubscribe',
   );
-  static final terminalUnsubscribe = codux_protocol_ffi.messageType(
+  static final terminalUnsubscribe = wecode_protocol_ffi.messageType(
     'terminalUnsubscribe',
   );
-  static final terminalCreate = codux_protocol_ffi.messageType(
+  static final terminalCreate = wecode_protocol_ffi.messageType(
     'terminalCreate',
   );
-  static final terminalCreated = codux_protocol_ffi.messageType(
+  static final terminalCreated = wecode_protocol_ffi.messageType(
     'terminalCreated',
   );
-  static final terminalClose = codux_protocol_ffi.messageType('terminalClose');
-  static final terminalClosed = codux_protocol_ffi.messageType(
+  static final terminalClose = wecode_protocol_ffi.messageType('terminalClose');
+  static final terminalClosed = wecode_protocol_ffi.messageType(
     'terminalClosed',
   );
-  static final terminalBuffer = codux_protocol_ffi.messageType(
+  static final terminalBuffer = wecode_protocol_ffi.messageType(
     'terminalBuffer',
   );
-  static final terminalOutput = codux_protocol_ffi.messageType(
+  static final terminalOutput = wecode_protocol_ffi.messageType(
     'terminalOutput',
   );
-  static final terminalOutputAck = codux_protocol_ffi.messageType(
+  static final terminalOutputAck = wecode_protocol_ffi.messageType(
     'terminalOutputAck',
   );
-  static final terminalInput = codux_protocol_ffi.messageType('terminalInput');
-  static final terminalInputAck = codux_protocol_ffi.messageType(
+  static final terminalInput = wecode_protocol_ffi.messageType('terminalInput');
+  static final terminalInputAck = wecode_protocol_ffi.messageType(
     'terminalInputAck',
   );
-  static final terminalSignal = codux_protocol_ffi.messageType(
+  static final terminalSignal = wecode_protocol_ffi.messageType(
     'terminalSignal',
   );
-  static final terminalViewportClaim = codux_protocol_ffi.messageType(
+  static final terminalViewportClaim = wecode_protocol_ffi.messageType(
     'terminalViewportClaim',
   );
-  static final terminalViewportResize = codux_protocol_ffi.messageType(
+  static final terminalViewportResize = wecode_protocol_ffi.messageType(
     'terminalViewportResize',
   );
-  static final terminalViewportRelease = codux_protocol_ffi.messageType(
+  static final terminalViewportRelease = wecode_protocol_ffi.messageType(
     'terminalViewportRelease',
   );
-  static final terminalViewportState = codux_protocol_ffi.messageType(
+  static final terminalViewportState = wecode_protocol_ffi.messageType(
     'terminalViewportState',
   );
-  static final terminalUploaded = codux_protocol_ffi.messageType(
+  static final terminalUploaded = wecode_protocol_ffi.messageType(
     'terminalUploaded',
   );
-  static final fileList = codux_protocol_ffi.messageType('fileList');
-  static final fileRead = codux_protocol_ffi.messageType('fileRead');
-  static final fileWrite = codux_protocol_ffi.messageType('fileWrite');
-  static final fileWritten = codux_protocol_ffi.messageType('fileWritten');
-  static final fileRename = codux_protocol_ffi.messageType('fileRename');
-  static final fileRenamed = codux_protocol_ffi.messageType('fileRenamed');
-  static final fileDelete = codux_protocol_ffi.messageType('fileDelete');
-  static final fileDeleted = codux_protocol_ffi.messageType('fileDeleted');
-  static final gitStatus = codux_protocol_ffi.messageType('gitStatus');
-  static final gitInvoke = codux_protocol_ffi.messageType('gitInvoke');
-  static final gitRead = codux_protocol_ffi.messageType('gitRead');
-  static final aiStats = codux_protocol_ffi.messageType('aiStats');
-  static final aiSession = codux_protocol_ffi.messageType('aiSession');
-  static final aiSessionResult = codux_protocol_ffi.messageType(
+  static final fileList = wecode_protocol_ffi.messageType('fileList');
+  static final fileRead = wecode_protocol_ffi.messageType('fileRead');
+  static final fileWrite = wecode_protocol_ffi.messageType('fileWrite');
+  static final fileWritten = wecode_protocol_ffi.messageType('fileWritten');
+  static final fileRename = wecode_protocol_ffi.messageType('fileRename');
+  static final fileRenamed = wecode_protocol_ffi.messageType('fileRenamed');
+  static final fileDelete = wecode_protocol_ffi.messageType('fileDelete');
+  static final fileDeleted = wecode_protocol_ffi.messageType('fileDeleted');
+  static final gitStatus = wecode_protocol_ffi.messageType('gitStatus');
+  static final gitInvoke = wecode_protocol_ffi.messageType('gitInvoke');
+  static final gitRead = wecode_protocol_ffi.messageType('gitRead');
+  static final aiStats = wecode_protocol_ffi.messageType('aiStats');
+  static final aiSession = wecode_protocol_ffi.messageType('aiSession');
+  static final aiSessionResult = wecode_protocol_ffi.messageType(
     'aiSessionResult',
   );
-  static final sshList = codux_protocol_ffi.messageType('sshList');
-  static final sshListResult = codux_protocol_ffi.messageType('sshListResult');
-  static final sshUpsert = codux_protocol_ffi.messageType('sshUpsert');
-  static final sshRemove = codux_protocol_ffi.messageType('sshRemove');
+  static final sshList = wecode_protocol_ffi.messageType('sshList');
+  static final sshListResult = wecode_protocol_ffi.messageType('sshListResult');
+  static final sshUpsert = wecode_protocol_ffi.messageType('sshUpsert');
+  static final sshRemove = wecode_protocol_ffi.messageType('sshRemove');
 }
 
 RelayEnvelope remoteResourceSubscribeEnvelope({
@@ -147,7 +147,7 @@ RelayEnvelope remoteResourceSubscribeEnvelope({
   int? viewportRows,
 }) {
   final envelope = RelayEnvelope.fromJson(
-    codux_protocol_ffi.resourceSubscribeEnvelope(
+    wecode_protocol_ffi.resourceSubscribeEnvelope(
       resource: resource,
       projectId: projectId,
       sessionId: sessionId,
@@ -182,7 +182,7 @@ RelayEnvelope remoteResourceUnsubscribeEnvelope({
   String? sessionId,
 }) {
   return RelayEnvelope.fromJson(
-    codux_protocol_ffi.resourceUnsubscribeEnvelope(
+    wecode_protocol_ffi.resourceUnsubscribeEnvelope(
       resource: resource,
       projectId: projectId,
       sessionId: sessionId,
@@ -191,36 +191,36 @@ RelayEnvelope remoteResourceUnsubscribeEnvelope({
 }
 
 bool remoteRelayBlocksMessage(String kind) {
-  return codux_protocol_ffi.relayBlocksMessage(kind);
+  return wecode_protocol_ffi.relayBlocksMessage(kind);
 }
 
 bool remoteIsTerminalStreamMessage(String kind) {
-  return codux_protocol_ffi.isTerminalStreamMessage(kind);
+  return wecode_protocol_ffi.isTerminalStreamMessage(kind);
 }
 
 String remoteTransportRelayUrl(String base) {
-  return codux_protocol_ffi.transportRelayUrl(base);
+  return wecode_protocol_ffi.transportRelayUrl(base);
 }
 
 String remoteTransportRelayUrlForPreset({
   required String preset,
   String customUrl = '',
 }) {
-  return codux_protocol_ffi.transportRelayUrlForPreset(
+  return wecode_protocol_ffi.transportRelayUrlForPreset(
     preset: preset,
     customUrl: customUrl,
   );
 }
 
 List<Map<String, dynamic>> remoteTransportRelayPresets() {
-  return codux_protocol_ffi.transportRelayPresets();
+  return wecode_protocol_ffi.transportRelayPresets();
 }
 
 String remotePreferredTransportKind(
   List<RemoteTransportCandidate> transports, {
   required bool pairing,
 }) {
-  return codux_protocol_ffi.preferredTransportKind(
+  return wecode_protocol_ffi.preferredTransportKind(
     transports.map((item) => item.toJson()).toList(),
     pairing: pairing,
   );
@@ -229,5 +229,5 @@ String remotePreferredTransportKind(
 /// Validate a decoded pairing-payload object through the SHARED Rust parser, so
 /// the client uses the same format definition as the hosts (no Dart re-impl).
 Map<String, dynamic> remoteParsePairingPayload(Map<String, dynamic> payload) {
-  return codux_protocol_ffi.parsePairingPayload(payload);
+  return wecode_protocol_ffi.parsePairingPayload(payload);
 }

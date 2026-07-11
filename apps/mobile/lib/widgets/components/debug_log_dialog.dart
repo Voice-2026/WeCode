@@ -30,12 +30,12 @@ class DebugLogDialog extends StatefulWidget {
 }
 
 class _DebugLogDialogState extends State<DebugLogDialog> {
-  late List<CoduxLogEntry> _entries;
+  late List<WeCodeLogEntry> _entries;
 
   @override
   void initState() {
     super.initState();
-    _entries = CoduxLog.snapshot();
+    _entries = WeCodeLog.snapshot();
   }
 
   @override
@@ -80,8 +80,8 @@ class _DebugLogDialogState extends State<DebugLogDialog> {
                 onPressed: _entries.isEmpty
                     ? null
                     : () {
-                        CoduxLog.clear();
-                        setState(() => _entries = CoduxLog.snapshot());
+                        WeCodeLog.clear();
+                        setState(() => _entries = WeCodeLog.snapshot());
                       },
                 child: Text(widget.clearLabel),
               ),

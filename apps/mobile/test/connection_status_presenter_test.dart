@@ -1,4 +1,4 @@
-import 'package:codux_flutter/services/connection_status_presenter.dart';
+import 'package:wecode_flutter/services/connection_status_presenter.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

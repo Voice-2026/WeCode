@@ -57,10 +57,10 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.0.0"
-  codux_protocol_ffi:
+  wecode_protocol_ffi:
     dependency: "direct main"
     description:
-      path: "plugin/codux_protocol_ffi"
+      path: "plugin/wecode_protocol_ffi"
       relative: true
     source: path
     version: "1.8.1"

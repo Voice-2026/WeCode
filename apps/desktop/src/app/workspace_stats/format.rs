@@ -47,7 +47,7 @@ pub(super) fn stats_month_axis_label(month: u32, language: &str) -> String {
 }
 
 pub(super) fn stats_heatmap_month_labels(
-    cells: &[codux_runtime::ai_history::AIHistoryHeatmapCellView],
+    cells: &[wecode_runtime::ai_history::AIHistoryHeatmapCellView],
     language: &str,
 ) -> Vec<StatsHeatmapMonthLabel> {
     let mut labels = Vec::<StatsHeatmapMonthLabel>::new();
@@ -229,7 +229,7 @@ pub(super) fn trend_bucket_tooltip(language: &str, bucket: StatsTrendBucket) -> 
 
 pub(super) fn heatmap_cell_tooltip(
     language: &str,
-    cell: &codux_runtime::ai_history::AIHistoryHeatmapCellView,
+    cell: &wecode_runtime::ai_history::AIHistoryHeatmapCellView,
 ) -> String {
     let total = stats_total_tokens(cell.total_tokens, cell.cached_input_tokens);
     format!(

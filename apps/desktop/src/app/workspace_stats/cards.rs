@@ -2,7 +2,7 @@ use super::format::*;
 use super::*;
 
 pub(super) fn stats_control_row(
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     snapshot: &StatsWorkspaceSnapshot,
 ) -> impl IntoElement {
     let selected_cache_index = usize::from(snapshot.include_cached);
@@ -254,7 +254,7 @@ pub(super) fn stats_kpi_card(
 }
 
 pub(super) fn stats_recent_trend_card(
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     snapshot: &StatsWorkspaceSnapshot,
     container_width: Option<Pixels>,
     cx: &mut Context<workspace_views::StatsWorkspaceView>,
@@ -297,7 +297,7 @@ pub(super) fn stats_recent_trend_card(
 }
 
 pub(super) fn stats_trend_bars(
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     buckets: Vec<StatsTrendBucket>,
     max_value: i64,
     language: String,
@@ -321,7 +321,7 @@ pub(super) fn stats_trend_bars(
                     } else {
                         value as f32 / max_value as f32
                     };
-                    codux_tooltip_container(
+                    wecode_tooltip_container(
                         app_entity.clone(),
                         SharedString::from(format!("stats-trend-bucket-{index}")),
                         trend_bucket_tooltip(&language, bucket),
@@ -483,7 +483,7 @@ pub(super) fn stats_rank_row(
 }
 
 pub(super) fn stats_heatmap_card(
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     snapshot: &StatsWorkspaceSnapshot,
     container_width: Option<Pixels>,
     cx: &mut Context<workspace_views::StatsWorkspaceView>,
@@ -529,7 +529,7 @@ pub(super) fn stats_heatmap_card(
                                         move |(row, cell)| {
                                             let tooltip =
                                                 heatmap_cell_tooltip(&snapshot.language, &cell);
-                                            codux_tooltip_container(
+                                            wecode_tooltip_container(
                                                 app_entity.clone(),
                                                 SharedString::from(format!(
                                                     "stats-heatmap-{column}-{row}"

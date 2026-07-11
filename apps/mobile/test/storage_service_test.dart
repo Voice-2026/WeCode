@@ -1,5 +1,5 @@
-import 'package:codux_flutter/models/remote_models.dart';
-import 'package:codux_flutter/services/storage_service.dart';
+import 'package:wecode_flutter/models/remote_models.dart';
+import 'package:wecode_flutter/services/storage_service.dart';
 import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -43,7 +43,7 @@ void main() {
     );
 
     await storage.saveCachedProjects(device, const [
-      ProjectInfo(id: 'project-1', name: 'Codux', path: '/Volumes/Web/codux'),
+      ProjectInfo(id: 'project-1', name: 'WeCode', path: '/Volumes/Web/wecode'),
     ]);
 
     final cached = await storage.loadCachedProjects(
@@ -52,8 +52,8 @@ void main() {
 
     expect(cached, hasLength(1));
     expect(cached.single.id, 'project-1');
-    expect(cached.single.name, 'Codux');
-    expect(cached.single.path, '/Volumes/Web/codux');
+    expect(cached.single.name, 'WeCode');
+    expect(cached.single.path, '/Volumes/Web/wecode');
   });
 
   test('loadDevices keeps iroh transports from cached devices', () async {

@@ -1,4 +1,4 @@
-use codux_runtime::{
+use wecode_runtime::{
     ai_history::{
         AIGlobalHistoryRangeSummary, AIGlobalHistorySummary, AIHistorySummary,
         AIProjectUsageSummary, AISessionForkTarget, AISessionSummary,
@@ -13,7 +13,7 @@ use super::shell_utils::shell_read_file_arg;
 pub(in crate::app) fn ai_session_restore_command(session: &AISessionSummary) -> String {
     // Single source of truth lives in the shared sessions crate so the desktop
     // "open" action and the remote `ai.session` `restore` op never drift.
-    codux_runtime::ai_history::session_restore_command(session)
+    wecode_runtime::ai_history::session_restore_command(session)
 }
 
 pub(in crate::app) const AI_SESSION_FORK_TARGETS: [AISessionForkTarget; 8] = [
@@ -189,7 +189,7 @@ pub(in crate::app) fn ai_history_project_requests(
 }
 
 fn normalized_ai_session_to_summary(
-    session: codux_runtime::ai_history_normalized::AISessionSummary,
+    session: wecode_runtime::ai_history_normalized::AISessionSummary,
 ) -> AISessionSummary {
     let session_id = session.session_id;
     AISessionSummary {
@@ -214,7 +214,7 @@ fn normalized_ai_session_to_summary(
         usage_amounts: session
             .usage_amounts
             .into_iter()
-            .map(|amount| codux_runtime::ai_history::AIUsageAmount {
+            .map(|amount| wecode_runtime::ai_history::AIUsageAmount {
                 unit: amount.unit,
                 value: amount.value,
             })
@@ -223,7 +223,7 @@ fn normalized_ai_session_to_summary(
 }
 
 fn normalized_project_total_to_summary(
-    project: codux_runtime::ai_history_normalized::AIProjectUsageTotal,
+    project: wecode_runtime::ai_history_normalized::AIProjectUsageTotal,
 ) -> AIProjectUsageSummary {
     AIProjectUsageSummary {
         project_id: project.project_id,
@@ -242,7 +242,7 @@ fn normalized_project_total_to_summary(
 }
 
 fn normalized_range_summary_to_summary(
-    summary: codux_runtime::ai_history_normalized::AIGlobalHistoryRangeSummary,
+    summary: wecode_runtime::ai_history_normalized::AIGlobalHistoryRangeSummary,
 ) -> AIGlobalHistoryRangeSummary {
     AIGlobalHistoryRangeSummary {
         key: summary.key,

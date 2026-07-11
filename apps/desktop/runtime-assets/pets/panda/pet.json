@@ -1,6 +1,6 @@
 {
   "id": "panda-default",
   "displayName": "panda",
-  "description": "Codux bundled pet atlas.",
+  "description": "WeCode bundled pet atlas.",
   "spritesheetPath": "spritesheet.png"
 }

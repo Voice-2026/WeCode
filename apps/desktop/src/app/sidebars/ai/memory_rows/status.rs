@@ -1,9 +1,9 @@
 use super::*;
 
 pub(in crate::app::sidebars::ai) fn ai_memory_failed_extraction_row(
-    task: codux_runtime::memory::MemoryExtractionTask,
+    task: wecode_runtime::memory::MemoryExtractionTask,
     language: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let retry_id = task.id.clone();
     let clear_id = task.id.clone();
@@ -104,9 +104,9 @@ pub(in crate::app::sidebars::ai) fn ai_memory_failed_extraction_row(
 }
 
 pub(in crate::app::sidebars::ai) fn ai_memory_decision_row(
-    decision: codux_runtime::memory::MemoryEntryDecisionSummary,
+    decision: wecode_runtime::memory::MemoryEntryDecisionSummary,
     language: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     div()
         .mt(px(8.0))
@@ -137,7 +137,7 @@ pub(in crate::app::sidebars::ai) fn ai_memory_decision_row(
 pub(in crate::app::sidebars::ai) fn ai_memory_status_pill(
     status: &str,
     language: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let status_color = memory_status_color(status);
     div()
@@ -159,7 +159,7 @@ pub(in crate::app::sidebars::ai) fn ai_memory_status_pill(
 pub(in crate::app::sidebars::ai) fn ai_memory_entry_meta(
     entry: &MemoryEntrySummary,
     language: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let mut parts = vec![
         memory_module_title(&memory_module_key(entry), language),
@@ -197,7 +197,7 @@ pub(in crate::app::sidebars::ai) fn ai_memory_badge(
 
 pub(in crate::app::sidebars::ai) fn ai_memory_manager_empty_row(
     message: impl Into<String>,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     centered_empty_state(HeroIconName::Inbox, message, cx)
 }
@@ -206,12 +206,12 @@ pub(in crate::app::sidebars::ai) fn ai_memory_row_icon_button(
     id: impl Into<SharedString>,
     icon: HeroIconName,
     tooltip: impl Into<String>,
-    cx: &mut Context<CoduxApp>,
-    on_click: impl Fn(&mut CoduxApp, &gpui::ClickEvent, &mut Window, &mut Context<CoduxApp>) + 'static,
+    cx: &mut Context<WeCodeApp>,
+    on_click: impl Fn(&mut WeCodeApp, &gpui::ClickEvent, &mut Window, &mut Context<WeCodeApp>) + 'static,
 ) -> impl IntoElement {
     let tooltip = tooltip.into();
     let id = id.into();
-    with_codux_tooltip(
+    with_wecode_tooltip(
         cx.entity(),
         SharedString::from(format!("ai-memory-row-tooltip-{id}")),
         Button::new(id)

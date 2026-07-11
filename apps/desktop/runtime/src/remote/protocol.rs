@@ -1,1 +1,1 @@
-pub use codux_protocol::*;
+pub use wecode_protocol::*;

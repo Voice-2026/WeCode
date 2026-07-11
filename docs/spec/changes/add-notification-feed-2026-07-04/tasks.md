@@ -46,11 +46,11 @@ completed_at:
 ## 5. Toolbar Bell Button
 
 - [ ] 5.1 Define `NotificationBellSnapshot { notification_revision: u64, unread_count: usize }` (Clone + PartialEq) in `workspace_toolbar.rs` (or a new `notifications/view.rs`)
-- [ ] 5.2 Implement `CoduxApp::notification_bell_snapshot(&self) -> NotificationBellSnapshot` (reads `current_notification_feed_update_event().revision` + `feed.unread_actionable_count()`)
+- [ ] 5.2 Implement `WeCodeApp::notification_bell_snapshot(&self) -> NotificationBellSnapshot` (reads `current_notification_feed_update_event().revision` + `feed.unread_actionable_count()`)
 - [ ] 5.3 Add the snapshot to the workspace toolbar view's diff check; call `cx.notify()` on change
 - [ ] 5.4 Implement `workspace_notification_bell_button(...)` returning an element: `Button::new("workspace-notification-bell").ghost()` + `Icon::new(HeroIconName::Bell)` + conditional badge overlay div when `unread_count > 0`
 - [ ] 5.5 Wire the bell into `workspace_toolbar()` right cluster, immediately before the settings access point
-- [ ] 5.6 Add a localized tooltip via `with_codux_tooltip()`
+- [ ] 5.6 Add a localized tooltip via `with_wecode_tooltip()`
 
 ## 6. Popup + Jump
 

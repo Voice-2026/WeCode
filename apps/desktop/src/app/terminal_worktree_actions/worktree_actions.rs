@@ -1,6 +1,6 @@
 use super::*;
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn open_worktree_creator_window(
         &mut self,
         _window: &mut Window,
@@ -33,7 +33,7 @@ impl CoduxApp {
             cx,
             move |state, runtime, runtime_service, _window, _cx| {
                 let mut app =
-                    CoduxApp::new_settings_window_from_state(state, runtime, runtime_service);
+                    WeCodeApp::new_settings_window_from_state(state, runtime, runtime_service);
                 app.window_mode = AppWindowMode::WorktreeCreator;
                 app.status_message = "worktree creator ready".to_string();
                 app.worktree_creator_project_id = Some(project.id.clone());
@@ -116,9 +116,9 @@ impl CoduxApp {
             let worker_branch_name = branch_name.clone();
             let worker_project_id = project_id.clone();
             let worker_project_path = project_path.clone();
-            let result = codux_runtime::async_runtime::spawn_blocking(move || {
+            let result = wecode_runtime::async_runtime::spawn_blocking(move || {
                 service.create_worktree_from_request(
-                    codux_runtime::worktree::WorktreeCreateRequest {
+                    wecode_runtime::worktree::WorktreeCreateRequest {
                         project_id: worker_project_id,
                         project_path: worker_project_path,
                         base_branch: Some(base_branch),
@@ -151,7 +151,7 @@ impl CoduxApp {
                     let alert_service = parent_service.clone();
                     let alert_title = title.clone();
                     let alert_button = button_label.clone();
-                    let _ = codux_runtime::async_runtime::spawn_blocking(move || {
+                    let _ = wecode_runtime::async_runtime::spawn_blocking(move || {
                         alert_service.localized_alert_dialog(LocalizedAlertDialogRequest {
                             title: alert_title,
                             message,
@@ -300,7 +300,7 @@ impl CoduxApp {
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             // Deleting the worktree directory can take a while; keep it off
             // the UI thread (issue #57).
-            let result = codux_runtime::async_runtime::spawn_blocking({
+            let result = wecode_runtime::async_runtime::spawn_blocking({
                 let project_id = project_id.clone();
                 let project_path = project_path.clone();
                 let worktree_id = worktree_id.clone();
@@ -368,7 +368,7 @@ impl CoduxApp {
         let message = self
             .text(
                 "worktree.remove.message_format",
-                "Remove %@ from Codux and the Git worktree list? The branch will not be deleted.",
+                "Remove %@ from WeCode and the Git worktree list? The branch will not be deleted.",
             )
             .replace("%@", &worktree_confirm_display_name(&worktree));
         let confirm_label = if remove_branch {
@@ -386,7 +386,7 @@ impl CoduxApp {
         let timer = cx.background_executor().clone();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             timer.timer(Duration::from_millis(120)).await;
-            let result = codux_runtime::async_runtime::spawn_blocking(move || {
+            let result = wecode_runtime::async_runtime::spawn_blocking(move || {
                 service.localized_confirm_dialog(LocalizedConfirmDialogRequest {
                     title,
                     message,
@@ -489,7 +489,7 @@ impl CoduxApp {
         let timer = cx.background_executor().clone();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             timer.timer(Duration::from_millis(120)).await;
-            let confirmed = codux_runtime::async_runtime::spawn_blocking({
+            let confirmed = wecode_runtime::async_runtime::spawn_blocking({
                 let service = dialog_service.clone();
                 let title = title.clone();
                 let message = message.clone();
@@ -539,7 +539,7 @@ impl CoduxApp {
                 app.invalidate_worktree_context(cx);
             });
 
-            let result = codux_runtime::async_runtime::spawn_blocking({
+            let result = wecode_runtime::async_runtime::spawn_blocking({
                 let service = service.clone();
                 let project_id = project_id.clone();
                 let project_path = project_path.clone();
@@ -569,7 +569,7 @@ impl CoduxApp {
                         app.refresh_git_panel_state_async(cx);
                         app.invalidate_worktree_context(cx);
                     });
-                    let _ = codux_runtime::async_runtime::spawn_blocking({
+                    let _ = wecode_runtime::async_runtime::spawn_blocking({
                         let service = dialog_service.clone();
                         let title = title.clone();
                         let ok_label = ok_label.clone();
@@ -588,7 +588,7 @@ impl CoduxApp {
                 Err(error) => error,
             };
 
-            let _ = codux_runtime::async_runtime::spawn_blocking({
+            let _ = wecode_runtime::async_runtime::spawn_blocking({
                 let service = dialog_service;
                 let title = title.clone();
                 let ok_label = ok_label.clone();
@@ -710,7 +710,7 @@ impl CoduxApp {
         );
         let include_cached = self.state.settings.statistics_mode == "includingCache";
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let load = codux_runtime::async_runtime::spawn_blocking({
+            let load = wecode_runtime::async_runtime::spawn_blocking({
                 let scope_key = scope_key.clone();
                 move || {
                     runtime_service.select_worktree(&project.id, &worktree_id)?;

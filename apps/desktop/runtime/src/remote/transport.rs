@@ -1,1 +1,1 @@
-pub(crate) use codux_remote_transport::RemoteTransport;
+pub(crate) use wecode_remote_transport::RemoteTransport;

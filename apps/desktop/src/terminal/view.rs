@@ -523,7 +523,7 @@ impl TerminalView {
         let input = match self.search_input.clone() {
             Some(input) => input,
             None => {
-                let placeholder = codux_runtime::i18n::translate(
+                let placeholder = wecode_runtime::i18n::translate(
                     &self.config.language,
                     "terminal.search.placeholder",
                     "Search",
@@ -710,7 +710,7 @@ impl TerminalView {
         {
             if let Some(opener) = self.link_opener.clone() {
                 opener(link.url.clone(), window, cx);
-            } else if let Err(error) = codux_runtime::app_commands::app_open_url(link.url.clone()) {
+            } else if let Err(error) = wecode_runtime::app_commands::app_open_url(link.url.clone()) {
                 eprintln!("failed to open terminal link {}: {error}", link.url);
             }
             self.hover_link = Some(link);

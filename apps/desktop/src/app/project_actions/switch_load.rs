@@ -1,6 +1,6 @@
 use super::*;
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn spawn_project_switch_load(
         &mut self,
         project_id: String,
@@ -45,11 +45,11 @@ impl CoduxApp {
 
         let terminal_queued_at = Instant::now();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let terminal = codux_runtime::async_runtime::run_limited_blocking_with_priority(
-                codux_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND + generation,
+            let terminal = wecode_runtime::async_runtime::run_limited_blocking_with_priority(
+                wecode_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND + generation,
                 move || {
                     let worker_started_at = Instant::now();
-                    codux_runtime::runtime_trace::runtime_trace(
+                    wecode_runtime::runtime_trace::runtime_trace(
                         "project-switch",
                         &format!(
                             "terminal_load worker_start project={} generation={} queue_wait_ms={}",
@@ -73,7 +73,7 @@ impl CoduxApp {
                     };
                     let terminal_layout = TerminalLayoutSummary::default();
                     let terminal_runtime = TerminalRuntimeSummary::default();
-                    codux_runtime::runtime_trace::runtime_trace(
+                    wecode_runtime::runtime_trace::runtime_trace(
                         "project-switch",
                         &format!(
                             "terminal_load worker_done project={} generation={} elapsed_ms={}",
@@ -105,11 +105,11 @@ impl CoduxApp {
         let task_project_path = task_project.path.clone();
         let task_queued_at = Instant::now();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let task_load = codux_runtime::async_runtime::run_limited_blocking_with_priority(
-                codux_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND + generation,
+            let task_load = wecode_runtime::async_runtime::run_limited_blocking_with_priority(
+                wecode_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND + generation,
                 move || {
                     let worker_started_at = Instant::now();
-                    codux_runtime::runtime_trace::runtime_trace(
+                    wecode_runtime::runtime_trace::runtime_trace(
                         "project-switch",
                         &format!(
                             "task_load worker_start project={} generation={} queue_wait_ms={}",
@@ -122,7 +122,7 @@ impl CoduxApp {
                         Some(&task_project_id),
                         Some(&task_project_path),
                     );
-                    codux_runtime::runtime_trace::runtime_trace(
+                    wecode_runtime::runtime_trace::runtime_trace(
                         "project-switch",
                         &format!(
                             "task_load worker_done project={} generation={} elapsed_ms={}",
@@ -150,11 +150,11 @@ impl CoduxApp {
 
         let primary_queued_at = Instant::now();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let primary = codux_runtime::async_runtime::run_limited_blocking_with_priority(
-                codux_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND + generation,
+            let primary = wecode_runtime::async_runtime::run_limited_blocking_with_priority(
+                wecode_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND + generation,
                 move || {
                     let worker_started_at = Instant::now();
-                    codux_runtime::runtime_trace::runtime_trace(
+                    wecode_runtime::runtime_trace::runtime_trace(
                         "project-switch",
                         &format!(
                             "primary_load worker_start project={} generation={} queue_wait_ms={}",
@@ -187,7 +187,7 @@ impl CoduxApp {
                         )
                         .and_then(Result::ok)
                         .unwrap_or_default();
-                    codux_runtime::runtime_trace::runtime_trace(
+                    wecode_runtime::runtime_trace::runtime_trace(
                         "project-switch",
                         &format!(
                             "primary_load worker_done project={} generation={} elapsed_ms={}",
@@ -217,11 +217,11 @@ impl CoduxApp {
 
         let stats_queued_at = Instant::now();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let load = codux_runtime::async_runtime::run_limited_blocking_with_priority(
-                codux_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND + generation,
+            let load = wecode_runtime::async_runtime::run_limited_blocking_with_priority(
+                wecode_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND + generation,
                 move || {
                     let worker_started_at = Instant::now();
-                    codux_runtime::runtime_trace::runtime_trace(
+                    wecode_runtime::runtime_trace::runtime_trace(
                         "project-switch",
                         &format!(
                             "full_load worker_start project={} generation={} queue_wait_ms={}",
@@ -238,7 +238,7 @@ impl CoduxApp {
                         Some(&stats_project.id),
                         "active",
                     );
-                    codux_runtime::runtime_trace::runtime_trace(
+                    wecode_runtime::runtime_trace::runtime_trace(
                         "project-switch",
                         &format!(
                             "full_load worker_done project={} generation={} elapsed_ms={}",

@@ -1,0 +1,32 @@
+[package]
+name = "wecode-runtime-live"
+version = "1.8.1"
+edition = "2024"
+
+[features]
+# Exposes `*_for_test` helpers across crate boundaries so dependents (e.g. the
+# desktop runtime) can drive viewport-lease expiry from their own tests.
+test-support = []
+
+[dependencies]
+anyhow = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+wecode-ai-history = { path = "../wecode-ai-history" }
+wecode-protocol = { path = "../wecode-protocol" }
+wecode-terminal-core = { path = "../wecode-terminal-core" }
+wecode-terminal-pty = { path = "../wecode-terminal-pty" }
+dunce = "1"
+flume = "0.12"
+libc = "0.2"
+md-5 = "0.10"
+notify = "8"
+parking_lot = "0.12"
+percent-encoding = "2.3"
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value"] }
+sha2 = "0.10"
+sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio-rustls", "any", "postgres", "mysql", "sqlite", "json"] }
+sysinfo = { version = "0.36.1", default-features = false, features = ["system", "disk", "network"] }
+tokio = { version = "1", features = ["rt", "time"] }
+uuid = { version = "1", features = ["v4", "v5"] }

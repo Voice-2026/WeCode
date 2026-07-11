@@ -17,7 +17,7 @@ pub(in crate::app) enum UiRegion {
     StatusBar,
 }
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn invalidate_ui(
         &mut self,
         cx: &mut Context<Self>,

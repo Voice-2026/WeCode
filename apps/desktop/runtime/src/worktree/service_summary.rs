@@ -162,15 +162,15 @@ fn selected_worktree_id_for_project(
     project_id: &str,
     worktrees: &[WorktreeInfo],
 ) -> Option<String> {
-    codux_runtime_core::worktree::selected_runtime_worktree_id(
+    wecode_runtime_core::worktree::selected_runtime_worktree_id(
         project_id,
         selected_by_project.get(project_id).map(String::as_str),
         worktrees.iter().map(runtime_worktree_item),
     )
 }
 
-fn runtime_worktree_item(worktree: &WorktreeInfo) -> codux_runtime_core::worktree::RuntimeWorktreeItem {
-    codux_runtime_core::worktree::RuntimeWorktreeItem {
+fn runtime_worktree_item(worktree: &WorktreeInfo) -> wecode_runtime_core::worktree::RuntimeWorktreeItem {
+    wecode_runtime_core::worktree::RuntimeWorktreeItem {
         id: worktree.id.clone(),
         project_id: worktree.project_id.clone(),
         path: worktree.path.clone(),

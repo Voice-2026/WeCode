@@ -43,7 +43,7 @@ impl PowerManager {
         let manager = Arc::clone(self);
         manager.set_sleep_prevention(settings.snapshot().sleep_mode)?;
         let _ = thread::Builder::new()
-            .name("codux-power-settings-sync".to_string())
+            .name("wecode-power-settings-sync".to_string())
             .spawn(move || {
                 loop {
                     thread::sleep(Duration::from_secs(60));

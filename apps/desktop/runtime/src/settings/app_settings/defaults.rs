@@ -191,8 +191,8 @@ pub(super) fn release_channel_for_version(version: &str) -> &'static str {
 
 pub(super) fn update_endpoint_for_channel(channel: &str) -> String {
     match channel {
-        "beta" => "https://raw.githubusercontent.com/duxweb/codux/main/updates/beta/latest.json",
-        _ => "https://raw.githubusercontent.com/duxweb/codux/main/updates/stable/latest.json",
+        "beta" => "https://raw.githubusercontent.com/duxweb/wecode/main/updates/beta/latest.json",
+        _ => "https://raw.githubusercontent.com/duxweb/wecode/main/updates/stable/latest.json",
     }
     .to_string()
 }
@@ -200,10 +200,10 @@ pub(super) fn update_endpoint_for_channel(channel: &str) -> String {
 pub(super) fn is_managed_update_endpoint(endpoint: &str) -> bool {
     matches!(
         endpoint,
-        "https://github.com/duxweb/codux/releases/latest/download/latest.json"
-            | "https://github.com/duxweb/codux/releases/download/beta/latest.json"
-            | "https://raw.githubusercontent.com/duxweb/codux/main/updates/stable/latest.json"
-            | "https://raw.githubusercontent.com/duxweb/codux/main/updates/beta/latest.json"
+        "https://github.com/duxweb/wecode/releases/latest/download/latest.json"
+            | "https://github.com/duxweb/wecode/releases/download/beta/latest.json"
+            | "https://raw.githubusercontent.com/duxweb/wecode/main/updates/stable/latest.json"
+            | "https://raw.githubusercontent.com/duxweb/wecode/main/updates/beta/latest.json"
     )
 }
 

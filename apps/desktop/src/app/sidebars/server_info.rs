@@ -1,5 +1,5 @@
 use super::*;
-use codux_runtime::{
+use wecode_runtime::{
     RemoteHostDiskMetrics, RemoteHostMetrics, RemoteHostProcessMetrics, i18n::translate,
     settings::locale_from_language_setting,
 };
@@ -26,7 +26,7 @@ enum ServerInfoCapabilityState {
 }
 
 pub(in crate::app) struct ServerInfoSidebarView {
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     snapshot: ServerInfoSidebarSnapshot,
     metrics: Option<RemoteHostMetrics>,
     loading: bool,
@@ -44,7 +44,7 @@ enum ServerInfoFetchResult {
 
 impl ServerInfoSidebarView {
     pub(in crate::app) fn new(
-        app_entity: gpui::Entity<CoduxApp>,
+        app_entity: gpui::Entity<WeCodeApp>,
         snapshot: ServerInfoSidebarSnapshot,
     ) -> Self {
         Self {
@@ -112,7 +112,7 @@ impl ServerInfoSidebarView {
                     Ok(Some(request)) => request,
                     Ok(None) | Err(_) => break,
                 };
-                let result = codux_runtime::async_runtime::spawn_blocking(move || {
+                let result = wecode_runtime::async_runtime::spawn_blocking(move || {
                     fetch_server_info_metrics(request.service, request.target, request.capability)
                 })
                 .await
@@ -191,13 +191,13 @@ impl ServerInfoSidebarView {
 }
 
 struct ServerInfoPollRequest {
-    service: codux_runtime::runtime_state::RuntimeService,
+    service: wecode_runtime::runtime_state::RuntimeService,
     target: ServerInfoTarget,
     capability: ServerInfoCapabilityState,
 }
 
 fn fetch_server_info_metrics(
-    service: codux_runtime::runtime_state::RuntimeService,
+    service: wecode_runtime::runtime_state::RuntimeService,
     target: ServerInfoTarget,
     capability: ServerInfoCapabilityState,
 ) -> ServerInfoFetchResult {

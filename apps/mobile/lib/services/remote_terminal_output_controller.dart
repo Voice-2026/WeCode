@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:codux_protocol_ffi/codux_protocol_ffi.dart';
+import 'package:wecode_protocol_ffi/wecode_protocol_ffi.dart';
 
 import '../models/remote_models.dart';
 

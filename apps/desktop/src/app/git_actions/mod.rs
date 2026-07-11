@@ -2,7 +2,7 @@ use super::*;
 use crate::app::app_events::{
     ChildWindowUpdateKind, publish_child_window_git_operation, publish_child_window_update,
 };
-use codux_runtime::git::GitReviewFile;
+use wecode_runtime::git::GitReviewFile;
 
 mod branches;
 mod clone;

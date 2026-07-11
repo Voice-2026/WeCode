@@ -3,7 +3,7 @@ import 'dart:collection';
 import 'dart:io';
 import 'dart:ui' as ui;
 
-import 'package:codux_protocol_ffi/codux_protocol_ffi.dart';
+import 'package:wecode_protocol_ffi/wecode_protocol_ffi.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
 import 'package:flutter/services.dart';

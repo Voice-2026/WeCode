@@ -1,8 +1,8 @@
 use super::*;
 use crate::app::app_events::{current_child_window_update_event, current_memory_update_event};
-use crate::app::app_state::CoduxTooltipState;
+use crate::app::app_state::WeCodeTooltipState;
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(super) fn text(&self, key: &str, fallback: &str) -> String {
         let locale = locale_from_language_setting(&self.state.settings.language);
         translate(&locale, key, fallback)
@@ -64,16 +64,18 @@ impl CoduxApp {
             .unwrap_or_default();
         let terminal_config = terminal_config_for_settings(&state.settings, window.appearance());
         let terminal_manager = runtime_service.terminal_manager();
-        codux_runtime::wechat_bridge_service::set_wechat_bridge_terminals(terminal_manager.clone());
-        if codux_runtime::wechat_bridge_service::wechat_bridge_snapshot().has_credentials {
-            codux_runtime::wechat_bridge_service::wechat_bridge_start_saved();
+        wecode_runtime::wechat_bridge_service::set_wechat_bridge_terminals(
+            terminal_manager.clone(),
+        );
+        if wecode_runtime::wechat_bridge_service::wechat_bridge_snapshot().has_credentials {
+            wecode_runtime::wechat_bridge_service::wechat_bridge_start_saved();
         }
         let terminal_pane_registry = HashMap::new();
         // Boot restore runs during App construction, before a `Context<Self>`
         // exists to drive the async attach chokepoint. Local terminals spawn
         // their PTY synchronously here; remote-hosted ones are collected as
         // pending and attached once the entity exists, in
-        // `attach_boot_pending_terminals` (see `CoduxApp::new`'s caller). This is
+        // `attach_boot_pending_terminals` (see `WeCodeApp::new`'s caller). This is
         // empty for the common local-only boot.
         let mut boot_pending_terminals = Vec::new();
         let (terminals, active_terminal_id, next_terminal_index) = spawn_terminal_tabs(
@@ -369,7 +371,7 @@ impl CoduxApp {
             memory_project_profile_refreshing: false,
             performance_refresh_in_flight: false,
             pending_performance_refresh: None,
-            today_level_day_start: codux_runtime::ai_history_normalized::local_day_start_seconds(
+            today_level_day_start: wecode_runtime::ai_history_normalized::local_day_start_seconds(
                 app_now_seconds(),
             ),
             active_settings_pane: SettingsPane::General,
@@ -485,7 +487,7 @@ impl CoduxApp {
             update_dialog_progress: None,
             update_dialog_result: None,
             update_dialog_error: None,
-            tooltip_state: CoduxTooltipState::default(),
+            tooltip_state: WeCodeTooltipState::default(),
             ui_performance_counts: HashMap::new(),
             ui_performance_last_report_at: 0.0,
         };
@@ -506,7 +508,7 @@ impl CoduxApp {
 
     pub(crate) fn observe_main_window_appearance(
         &mut self,
-        app_entity: gpui::Entity<CoduxApp>,
+        app_entity: gpui::Entity<WeCodeApp>,
         window: &mut Window,
     ) {
         self._observe_window_appearance =
@@ -590,7 +592,7 @@ impl CoduxApp {
         let runtime_service = self.runtime_service.clone();
 
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let refresh = codux_runtime::async_runtime::spawn_blocking(move || {
+            let refresh = wecode_runtime::async_runtime::spawn_blocking(move || {
                 let runtime_activity = runtime_service.reload_runtime_activity();
                 let remote = runtime_service.reload_remote();
                 RuntimeScheduledRefresh {
@@ -641,7 +643,7 @@ impl CoduxApp {
 
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             let performance =
-                codux_runtime::async_runtime::spawn_blocking(PerformanceService::summary)
+                wecode_runtime::async_runtime::spawn_blocking(PerformanceService::summary)
                     .await
                     .ok();
 
@@ -695,7 +697,7 @@ impl CoduxApp {
             .is_some_and(|last| now.duration_since(last) <= QUIT_CONFIRM_WINDOW)
         {
             self.is_exiting = true;
-            codux_runtime::config::flush_all_config_writes();
+            wecode_runtime::config::flush_all_config_writes();
             cx.quit();
             return;
         }
@@ -733,12 +735,12 @@ impl CoduxApp {
     }
 
     fn shutdown_runtime_state(&mut self) {
-        codux_runtime::config::flush_all_config_writes();
+        wecode_runtime::config::flush_all_config_writes();
 
         let terminal_manager = self.terminal_manager.clone();
         let runtime_service = self.runtime_service.clone();
         let _ = std::thread::Builder::new()
-            .name("codux-runtime-shutdown".to_string())
+            .name("wecode-runtime-shutdown".to_string())
             .spawn(move || {
                 for terminal in terminal_manager.list() {
                     let _ = terminal_manager.kill(&terminal.id);

@@ -1,6 +1,6 @@
 use super::*;
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn add_file_editor_window_tab(&mut self, relative_path: String) {
         if self.selected_worktree_path().is_none() {
             self.status_message = "no selected project to open file".to_string();

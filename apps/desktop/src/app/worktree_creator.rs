@@ -1,8 +1,8 @@
-use super::app_select::{CoduxSelectOption, codux_select};
+use super::app_select::{WeCodeSelectOption, wecode_select};
 use super::*;
 use gpui_component::input::{Input, InputEvent, InputState};
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn worktree_creator_workspace(
         &self,
         window: &mut Window,
@@ -115,12 +115,12 @@ fn worktree_branch_select(
     value: &str,
     options: Vec<String>,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let select_id = "worktree-branch-select";
     let options = options
         .into_iter()
-        .map(|value| CoduxSelectOption::new(value.clone(), SharedString::from(value)))
+        .map(|value| WeCodeSelectOption::new(value.clone(), SharedString::from(value)))
         .collect::<Vec<_>>();
 
     div()
@@ -128,7 +128,7 @@ fn worktree_branch_select(
         .flex_col()
         .gap(px(6.0))
         .child(worktree_creator_label(label))
-        .child(codux_select(
+        .child(wecode_select(
             select_id,
             value,
             options,
@@ -152,8 +152,8 @@ fn worktree_creator_input(
     value: &str,
     placeholder: String,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
-    action: impl Fn(&mut CoduxApp, String, &mut Window, &mut Context<CoduxApp>) + 'static,
+    cx: &mut Context<WeCodeApp>,
+    action: impl Fn(&mut WeCodeApp, String, &mut Window, &mut Context<WeCodeApp>) + 'static,
 ) -> impl IntoElement {
     let value = value.to_string();
     let state = window.use_keyed_state(SharedString::from(format!("worktree-input-{id}")), cx, {

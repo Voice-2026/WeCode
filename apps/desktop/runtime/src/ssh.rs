@@ -94,7 +94,7 @@ impl SSHStore {
             return Err("SSH connection not found.".to_string());
         }
         let command = ssh_terminal_command(&profile_id);
-        let log_command = format!("codux-ssh {}", shell_quote(&profile_id));
+        let log_command = format!("wecode-ssh {}", shell_quote(&profile_id));
         Ok(SSHLaunchCommand {
             command,
             log_command,
@@ -109,7 +109,7 @@ impl SSHStore {
         let profile = sanitize_request(request)?;
         let wrapper = ssh_wrapper_path(wrapper_bin_dir);
         if !wrapper.exists() {
-            return Err("codux-ssh wrapper is not ready.".to_string());
+            return Err("wecode-ssh wrapper is not ready.".to_string());
         }
         let profiles_file = write_test_profile_file(&profile)?;
         let output = run_ssh_test_command(&wrapper, &profile.id, &profiles_file);

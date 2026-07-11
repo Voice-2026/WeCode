@@ -1,5 +1,7 @@
 use super::*;
-use codux_runtime::ai_runtime_state::{AIRuntimeProjectPhaseSummary, AIRuntimeProjectStateSummary};
+use wecode_runtime::ai_runtime_state::{
+    AIRuntimeProjectPhaseSummary, AIRuntimeProjectStateSummary,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(in crate::app) enum AgentLifecycleState {
@@ -34,7 +36,7 @@ pub(in crate::app) fn terminal_layout_owner_id(state: &RuntimeState) -> Option<S
 }
 
 pub(in crate::app) fn terminal_layout_storage_key(project_id: &str, worktree_id: &str) -> String {
-    codux_runtime::terminal_layout::terminal_layout_storage_key(project_id, worktree_id)
+    wecode_runtime::terminal_layout::terminal_layout_storage_key(project_id, worktree_id)
 }
 
 pub(in crate::app) fn current_terminal_layout_storage_key(state: &RuntimeState) -> Option<String> {
@@ -78,7 +80,7 @@ fn ai_activity_phase_changed(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use codux_runtime::ai_runtime_state::{
+    use wecode_runtime::ai_runtime_state::{
         AIRuntimeProjectPhaseSummary, AIRuntimeProjectTotalsSummary,
     };
 

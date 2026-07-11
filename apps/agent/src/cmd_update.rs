@@ -1,4 +1,4 @@
-//! `codux update` — check GitHub Releases for a newer build, then download,
+//! `wecode update` — check GitHub Releases for a newer build, then download,
 //! verify, atomically replace this binary, and restart the host if it was up.
 
 use dialoguer::Confirm;
@@ -9,14 +9,14 @@ use std::time::Duration;
 
 use crate::{cmd_service, cmd_start, runstate};
 
-const LATEST_RELEASE_API: &str = "https://api.github.com/repos/duxweb/codux/releases/latest";
-const RELEASES_API: &str = "https://api.github.com/repos/duxweb/codux/releases";
+const LATEST_RELEASE_API: &str = "https://api.github.com/repos/duxweb/wecode/releases/latest";
+const RELEASES_API: &str = "https://api.github.com/repos/duxweb/wecode/releases";
 const STABLE_MANIFEST_URL: &str =
-    "https://raw.githubusercontent.com/duxweb/codux/main/updates/stable/latest.json";
+    "https://raw.githubusercontent.com/duxweb/wecode/main/updates/stable/latest.json";
 const BETA_MANIFEST_URL: &str =
-    "https://raw.githubusercontent.com/duxweb/codux/main/updates/beta/latest.json";
-const REPO_DOWNLOAD_BASE: &str = "https://github.com/duxweb/codux/releases/download";
-const USER_AGENT: &str = "codux-agent-updater";
+    "https://raw.githubusercontent.com/duxweb/wecode/main/updates/beta/latest.json";
+const REPO_DOWNLOAD_BASE: &str = "https://github.com/duxweb/wecode/releases/download";
+const USER_AGENT: &str = "wecode-agent-updater";
 
 #[derive(Deserialize)]
 struct Release {
@@ -193,8 +193,8 @@ fn agent_assets_for_version(version: &str, tag_name: &str) -> Vec<Asset> {
 fn agent_asset_names(version: &str, os: &str, arch: &str) -> Vec<String> {
     let extension = if os == "windows" { ".exe" } else { "" };
     vec![
-        format!("codux-agent-{version}-{os}-{arch}{extension}"),
-        format!("codux-{os}-{arch}{extension}"),
+        format!("wecode-agent-{version}-{os}-{arch}{extension}"),
+        format!("wecode-{os}-{arch}{extension}"),
     ]
 }
 
@@ -223,8 +223,8 @@ fn pick_asset<'a>(assets: &'a [Asset], version: &str) -> Result<&'a Asset, Strin
     };
     let arch = std::env::consts::ARCH; // x86_64 / aarch64
     let extension = if os == "windows" { ".exe" } else { "" };
-    let expected = format!("codux-agent-{version}-{os}-{arch}{extension}");
-    let legacy = format!("codux-{os}-{arch}{extension}");
+    let expected = format!("wecode-agent-{version}-{os}-{arch}{extension}");
+    let legacy = format!("wecode-{os}-{arch}{extension}");
     assets
         .iter()
         .find(|asset| asset.name == expected)
@@ -243,7 +243,7 @@ fn pick_asset<'a>(assets: &'a [Asset], version: &str) -> Result<&'a Asset, Strin
 fn replace_self(bytes: &[u8]) -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|error| error.to_string())?;
     let dir = exe.parent().ok_or("cannot resolve binary directory")?;
-    let staged = dir.join(".codux.update.new");
+    let staged = dir.join(".wecode.update.new");
     std::fs::write(&staged, bytes).map_err(|error| format!("failed to write update: {error}"))?;
 
     #[cfg(unix)]
@@ -262,7 +262,7 @@ fn replace_self(bytes: &[u8]) -> Result<(), String> {
     #[cfg(windows)]
     {
         // A running .exe can't be overwritten, but it can be renamed aside.
-        let old = dir.join(".codux.old.exe");
+        let old = dir.join(".wecode.old.exe");
         let _ = std::fs::remove_file(&old);
         std::fs::rename(&exe, &old)
             .map_err(|error| format!("failed to move current binary: {error}"))?;
@@ -300,8 +300,8 @@ mod tests {
     fn pick_asset_ignores_desktop_assets() {
         let expected = current_agent_asset_name("1.9.1");
         let assets = vec![
-            asset("codux-1.9.1-macos-aarch64.dmg"),
-            asset("codux-1.9.1-windows-x86_64-setup.exe"),
+            asset("wecode-1.9.1-macos-aarch64.dmg"),
+            asset("wecode-1.9.1-windows-x86_64-setup.exe"),
             asset(&expected),
         ];
 
@@ -326,7 +326,7 @@ mod tests {
         assert!(release.assets.iter().any(|asset| {
             asset.browser_download_url
                 == format!(
-                    "https://github.com/duxweb/codux/releases/download/v2.0.0-beta.10/{expected}"
+                    "https://github.com/duxweb/wecode/releases/download/v2.0.0-beta.10/{expected}"
                 )
         }));
     }
@@ -396,7 +396,7 @@ mod tests {
         };
         let extension = if os == "windows" { ".exe" } else { "" };
         format!(
-            "codux-agent-{version}-{os}-{}{extension}",
+            "wecode-agent-{version}-{os}-{}{extension}",
             std::env::consts::ARCH
         )
     }
@@ -409,7 +409,7 @@ mod tests {
             other => other,
         };
         let extension = if os == "windows" { ".exe" } else { "" };
-        format!("codux-{os}-{}{extension}", std::env::consts::ARCH)
+        format!("wecode-{os}-{}{extension}", std::env::consts::ARCH)
     }
 
     fn asset(name: &str) -> Asset {

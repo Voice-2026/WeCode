@@ -5,7 +5,7 @@ updated_at: 2026-07-04T00:00:00Z
 
 ## Why
 
-Codux surfaces agent activity only at the per-pane level (the `add-agent-lifecycle-fsm` overlay chip) and in the truncated 10-item `recent_events` inside `RuntimeEventSummary`. There is no collective review surface where a user can see all agent events across every terminal at once and jump directly to the pane that needs attention. The sibling project cmux solves this with its Feed panel; Codux should offer the equivalent, adapted to its GPUI toolbar chrome as a bell-button popup.
+WeCode surfaces agent activity only at the per-pane level (the `add-agent-lifecycle-fsm` overlay chip) and in the truncated 10-item `recent_events` inside `RuntimeEventSummary`. There is no collective review surface where a user can see all agent events across every terminal at once and jump directly to the pane that needs attention. The sibling project cmux solves this with its Feed panel; WeCode should offer the equivalent, adapted to its GPUI toolbar chrome as a bell-button popup.
 
 ## What Changes
 

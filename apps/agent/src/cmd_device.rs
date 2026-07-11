@@ -1,4 +1,4 @@
-//! `codux device` / `device:del` / `device:rename` / `device:clear`.
+//! `wecode device` / `device:del` / `device:rename` / `device:clear`.
 
 use dialoguer::theme::ColorfulTheme;
 use dialoguer::{Confirm, Input};
@@ -8,7 +8,7 @@ use crate::device_store;
 pub fn list() -> Result<(), String> {
     let devices = device_store::list();
     if devices.is_empty() {
-        println!("No paired devices. Run `codux qrcode` to pair one.");
+        println!("No paired devices. Run `wecode qrcode` to pair one.");
         return Ok(());
     }
     let rows: Vec<[String; 4]> = devices

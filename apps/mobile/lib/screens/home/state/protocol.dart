@@ -1,10 +1,10 @@
 part of '../home_page.dart';
 
-/// Inbound remote-protocol handling for [_CoduxHomePageState]: the transport
+/// Inbound remote-protocol handling for [_WeCodeHomePageState]: the transport
 /// envelope dispatch switch and the per-message handlers. Split into a part +
 /// extension to keep the State class navigable; behaviour is unchanged.
 ///
-/// These methods route mutations through [_CoduxHomePageState._applyState]
+/// These methods route mutations through [_WeCodeHomePageState._applyState]
 /// because `setState` is `@protected` and cannot be called from an extension.
 extension _HomePageProtocol on HomeController {
   Future<void> _handleTransportEnvelope(
@@ -21,28 +21,28 @@ extension _HomePageProtocol on HomeController {
         sessionId: message.sessionId,
         seq: seq,
       )) {
-        CoduxLog.debug(
-          '[codux-flutter-remote] drop duplicate seq=$seq type=${message.type} session=${message.sessionId ?? ''}',
+        WeCodeLog.debug(
+          '[wecode-flutter-remote] drop duplicate seq=$seq type=${message.type} session=${message.sessionId ?? ''}',
         );
         return;
       }
       if (generation != _transportGeneration ||
           runtimeEpoch != _remoteRuntimeEpoch ||
           !identical(_activeTransport, transport)) {
-        CoduxLog.debug(
-          '[codux-flutter-remote] drop stale decoded envelope gen=$generation current=$_transportGeneration epoch=$runtimeEpoch currentEpoch=$_remoteRuntimeEpoch type=${message.type} session=${message.sessionId ?? ''}',
+        WeCodeLog.debug(
+          '[wecode-flutter-remote] drop stale decoded envelope gen=$generation current=$_transportGeneration epoch=$runtimeEpoch currentEpoch=$_remoteRuntimeEpoch type=${message.type} session=${message.sessionId ?? ''}',
         );
         return;
       }
       _healthTimer?.cancel();
       _healthTimer = null;
-      CoduxLog.debug(
-        '[codux-flutter-remote] recv type=${message.type} session=${message.sessionId ?? ''}',
+      WeCodeLog.debug(
+        '[wecode-flutter-remote] recv type=${message.type} session=${message.sessionId ?? ''}',
       );
       switch (message.type) {
         case final type when type == RemoteMessageType.hello:
           _reconnectAttempt = 0;
-          CoduxLog.info('[codux-flutter-remote] hello received');
+          WeCodeLog.info('[wecode-flutter-remote] hello received');
           if (!_transportConnected) {
             _applyState(() {
               _transportConnected = true;
@@ -196,7 +196,7 @@ extension _HomePageProtocol on HomeController {
           _terminalInputSender.handleAck(message);
       }
     } catch (error) {
-      CoduxLog.error('[codux-flutter-remote] receive failed: $error');
+      WeCodeLog.error('[wecode-flutter-remote] receive failed: $error');
     }
   }
 
@@ -208,8 +208,8 @@ extension _HomePageProtocol on HomeController {
     final worktreeId = payload is Map
         ? payload['worktreeId']?.toString()
         : null;
-    CoduxLog.info(
-      '[codux-flutter-projects] project.selected project=${projectId ?? ''} worktree=${worktreeId ?? ''} current=${_selectedProjectId ?? ''}',
+    WeCodeLog.info(
+      '[wecode-flutter-projects] project.selected project=${projectId ?? ''} worktree=${worktreeId ?? ''} current=${_selectedProjectId ?? ''}',
     );
     if (projectId != null && projectId.isNotEmpty) {
       _clearProjectSelectAck(projectId);
@@ -225,8 +225,8 @@ extension _HomePageProtocol on HomeController {
         projectId != null &&
         projectId.isNotEmpty &&
         projectId != current) {
-      CoduxLog.info(
-        '[codux-flutter-projects] ignore stale project.selected '
+      WeCodeLog.info(
+        '[wecode-flutter-projects] ignore stale project.selected '
         'project=$projectId current=$current',
       );
       return;
@@ -249,8 +249,8 @@ extension _HomePageProtocol on HomeController {
     final remoteSelectedWorktreeId = remoteSelectedWorktreeIdFromPayload(
       payload,
     );
-    CoduxLog.info(
-      '[codux-flutter-projects] recv project.list count=${next.length} remoteSelected=${remoteSelectedProjectId ?? ''} remoteWorktree=${remoteSelectedWorktreeId ?? ''} current=${_selectedProjectId ?? ''}',
+    WeCodeLog.info(
+      '[wecode-flutter-projects] recv project.list count=${next.length} remoteSelected=${remoteSelectedProjectId ?? ''} remoteWorktree=${remoteSelectedWorktreeId ?? ''} current=${_selectedProjectId ?? ''}',
     );
     final plan = _remoteRuntime.applyProjectList(
       projects: next,
@@ -276,8 +276,8 @@ extension _HomePageProtocol on HomeController {
         _applyRuntimePlan(worktreePlan, reason: 'project-list-worktrees');
       }
     }
-    CoduxLog.debug(
-      '[codux-flutter-projects] project.list count=${next.length} selected=${_selectedProjectId ?? ''}',
+    WeCodeLog.debug(
+      '[wecode-flutter-projects] project.list count=${next.length} selected=${_selectedProjectId ?? ''}',
     );
     // Load AI history for the resolved selection. This is the auto-restore path
     // (background reconnect) where no manual project tap fires; guarded so it
@@ -292,11 +292,11 @@ extension _HomePageProtocol on HomeController {
     _markActiveDeviceResponsive();
     _markTerminalListReceived();
     final next = remoteTerminalsFromPayload(message.payload);
-    CoduxLog.debug(
-      '[codux-flutter-terminal] recv terminal.list count=${next.length} selected=${_selectedProjectId ?? ''} worktree=${_selectedWorktreeId ?? ''} active=${_sessionId ?? ''} projects=${next.map((item) => item.projectId).toSet().join(',')}',
+    WeCodeLog.debug(
+      '[wecode-flutter-terminal] recv terminal.list count=${next.length} selected=${_selectedProjectId ?? ''} worktree=${_selectedWorktreeId ?? ''} active=${_sessionId ?? ''} projects=${next.map((item) => item.projectId).toSet().join(',')}',
     );
-    CoduxLog.debug(
-      '[codux-flutter-terminal] terminal.list items=${next.map((item) => '${item.projectId}/${item.worktreeId ?? '-'}:${item.id}:${item.layoutOrder ?? -1}').join('|')}',
+    WeCodeLog.debug(
+      '[wecode-flutter-terminal] terminal.list items=${next.map((item) => '${item.projectId}/${item.worktreeId ?? '-'}:${item.id}:${item.layoutOrder ?? -1}').join('|')}',
     );
     final plan = _remoteRuntime.applyTerminalList(
       terminals: next,
@@ -312,8 +312,8 @@ extension _HomePageProtocol on HomeController {
   void _handleTerminalCreated(RelayEnvelope message) {
     final terminal = remoteTerminalFromPayload(message.payload);
     if (terminal == null) return;
-    CoduxLog.info(
-      '[codux-flutter-terminal] created session=${terminal.id} project=${terminal.projectId} worktree=${terminal.worktreeId ?? ''} order=${terminal.layoutOrder ?? -1}',
+    WeCodeLog.info(
+      '[wecode-flutter-terminal] created session=${terminal.id} project=${terminal.projectId} worktree=${terminal.worktreeId ?? ''} order=${terminal.layoutOrder ?? -1}',
     );
     final plan = _remoteRuntime.terminalCreated(terminal);
     _applyRuntimePlan(plan, reason: 'terminal-created');
@@ -380,8 +380,8 @@ extension _HomePageProtocol on HomeController {
         (effectiveProjectId == null ||
             effectiveProjectId == pendingSwitch.projectId);
     if (allowRuntimeSelection && pendingWorktreeId != null) {
-      CoduxLog.info(
-        '[codux-flutter-worktree] apply type=${message.type} project=${effectiveProjectId ?? ''} current=${currentProjectId ?? ''} confirmed=${confirmedWorktreeId ?? ''} pendingProject=${pendingSwitch?.projectId ?? ''} pendingWorktree=$pendingWorktreeId currentProject=$pendingCurrentProject worktrees=${scopedWorktrees.map((item) => '${item.projectId}:${item.id}').join('|')}',
+      WeCodeLog.info(
+        '[wecode-flutter-worktree] apply type=${message.type} project=${effectiveProjectId ?? ''} current=${currentProjectId ?? ''} confirmed=${confirmedWorktreeId ?? ''} pendingProject=${pendingSwitch?.projectId ?? ''} pendingWorktree=$pendingWorktreeId currentProject=$pendingCurrentProject worktrees=${scopedWorktrees.map((item) => '${item.projectId}:${item.id}').join('|')}',
       );
     }
     final plan = _remoteRuntime.applyWorktreeState(
@@ -434,8 +434,8 @@ extension _HomePageProtocol on HomeController {
         (payload is Map
             ? '${payload['message'] ?? _t('remote.error')}'
             : _t('remote.error'));
-    CoduxLog.warn(
-      '[codux-flutter-remote] error type=${message.type} session=${message.sessionId ?? ''} message=$errorMessage',
+    WeCodeLog.warn(
+      '[wecode-flutter-remote] error type=${message.type} session=${message.sessionId ?? ''} message=$errorMessage',
     );
     final isActiveTerminalError =
         message.sessionId != null && message.sessionId == _sessionId;

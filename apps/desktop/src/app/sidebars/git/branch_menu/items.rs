@@ -5,7 +5,7 @@ pub(super) fn checkout_to_item(
     labels: Rc<GitBranchMenuLabels>,
     branches: Vec<GitBranchSummary>,
     remote_refs: Vec<String>,
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
 ) -> PopupMenuItem {
     const CREATE_ID: &str = "\u{0}create-branch";
     PopupMenuItem::new(label)
@@ -90,7 +90,7 @@ pub(super) fn branch_pick_item(
     icon: HeroIconName,
     placeholder: String,
     candidates: Vec<GitBranchSummary>,
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     action: BranchPickAction,
 ) -> PopupMenu {
     let enabled = !candidates.is_empty();
@@ -148,7 +148,7 @@ pub(super) fn stash_pick_item(
     icon: HeroIconName,
     placeholder: String,
     stashes: Vec<GitStashSummary>,
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     action: StashPickAction,
 ) -> PopupMenu {
     let enabled = !stashes.is_empty();
@@ -205,7 +205,7 @@ pub(super) fn stash_push_item(
     placeholder: String,
     include_untracked: bool,
     has_changes: bool,
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
 ) -> PopupMenu {
     menu.item(
         PopupMenuItem::new(label)
@@ -243,7 +243,7 @@ pub(super) fn tag_pick_item(
     label: String,
     placeholder: String,
     tags: Vec<String>,
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     action: TagPickAction,
 ) -> PopupMenu {
     let enabled = !tags.is_empty();

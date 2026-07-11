@@ -13,9 +13,9 @@ use std::borrow::Cow;
 #[include = "rank-icons/**/*.svg"]
 struct RuntimeAssets;
 
-pub struct CoduxAssets;
+pub struct WeCodeAssets;
 
-impl AssetSource for CoduxAssets {
+impl AssetSource for WeCodeAssets {
     fn load(&self, path: &str) -> Result<Option<Cow<'static, [u8]>>> {
         if let Some(file) = RuntimeAssets::get(path) {
             return Ok(Some(file.data));

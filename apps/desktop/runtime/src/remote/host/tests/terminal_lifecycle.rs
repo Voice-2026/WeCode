@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn remote_terminal_plan_uses_device_project_scope_without_desktop_ui_selection() {
-    let support_dir = temp_support_dir("codux-remote-scope-terminal");
+    let support_dir = temp_support_dir("wecode-remote-scope-terminal");
     write_two_project_state(&support_dir);
     let runtime = RemoteHostRuntime::new(support_dir.clone());
     runtime.set_remote_project_scope(Some("device-1"), "project-b");
@@ -48,7 +48,7 @@ fn remote_terminal_plan_uses_device_project_scope_without_desktop_ui_selection()
 
 #[test]
 fn remote_terminal_list_indexes_all_project_worktree_layouts() {
-    let support_dir = temp_support_dir("codux-remote-terminal-all-worktrees");
+    let support_dir = temp_support_dir("wecode-remote-terminal-all-worktrees");
     write_two_project_state(&support_dir);
     let terminals = Arc::new(TerminalManager::new());
     let runtime = RemoteHostRuntime::new_with_ai_history_and_terminals(
@@ -130,7 +130,7 @@ fn remote_terminal_list_indexes_all_project_worktree_layouts() {
 
 #[test]
 fn remote_terminal_list_reports_all_worktree_splits_under_root_project() {
-    let support_dir = temp_support_dir("codux-remote-terminal-worktree-splits");
+    let support_dir = temp_support_dir("wecode-remote-terminal-worktree-splits");
     write_two_project_state(&support_dir);
     let terminals = Arc::new(TerminalManager::new());
     let runtime = RemoteHostRuntime::new_with_ai_history_and_terminals(
@@ -216,7 +216,7 @@ fn remote_terminal_list_reports_all_worktree_splits_under_root_project() {
 
 #[test]
 fn remote_terminal_create_plan_does_not_reuse_saved_layout_terminal() {
-    let support_dir = temp_support_dir("codux-remote-create-new-terminal");
+    let support_dir = temp_support_dir("wecode-remote-create-new-terminal");
     write_two_project_state(&support_dir);
     let runtime = RemoteHostRuntime::new(support_dir.clone());
     runtime.set_remote_project_scope(Some("device-1"), "project-b");
@@ -287,7 +287,7 @@ fn remote_terminal_create_plan_does_not_reuse_saved_layout_terminal() {
 
 #[test]
 fn remote_terminal_layout_is_persisted_to_project_worktree_scope() {
-    let support_dir = temp_support_dir("codux-remote-layout-persist");
+    let support_dir = temp_support_dir("wecode-remote-layout-persist");
     write_two_project_state(&support_dir);
     let runtime = RemoteHostRuntime::new(support_dir.clone());
     let layout_key = terminal_layout_storage_key("project-b", "worktree-b");
@@ -304,7 +304,7 @@ fn remote_terminal_layout_is_persisted_to_project_worktree_scope() {
 
 #[test]
 fn remote_terminal_create_emits_layout_changed_event() {
-    let support_dir = temp_support_dir("codux-remote-create-layout-event");
+    let support_dir = temp_support_dir("wecode-remote-create-layout-event");
     write_two_project_state(&support_dir);
     let runtime = Arc::new(RemoteHostRuntime::new(support_dir.clone()));
     runtime.set_remote_project_scope(Some("device-1"), "project-b");
@@ -338,7 +338,7 @@ fn remote_terminal_create_emits_layout_changed_event() {
 
 #[test]
 fn remote_terminal_close_removes_layout_entry_and_kills_last_terminal() {
-    let support_dir = temp_support_dir("codux-remote-close-layout-entry");
+    let support_dir = temp_support_dir("wecode-remote-close-layout-entry");
     write_two_project_state(&support_dir);
     let terminals = Arc::new(TerminalManager::new());
     let runtime = Arc::new(RemoteHostRuntime::new_with_ai_history_and_terminals(
@@ -428,7 +428,7 @@ fn remote_terminal_close_removes_layout_entry_and_kills_last_terminal() {
 
 #[test]
 fn device_disconnect_releases_owned_terminal_viewport() {
-    let support_dir = temp_support_dir("codux-remote-terminal-viewport-disconnect");
+    let support_dir = temp_support_dir("wecode-remote-terminal-viewport-disconnect");
     let terminals = Arc::new(TerminalManager::new());
     let runtime = Arc::new(RemoteHostRuntime::new_with_ai_history_and_terminals(
         support_dir.clone(),
@@ -493,7 +493,7 @@ fn device_disconnect_releases_owned_terminal_viewport() {
 
 #[test]
 fn device_transport_disconnect_keeps_viewport_until_lease_expires() {
-    let support_dir = temp_support_dir("codux-remote-terminal-viewport-transport-disconnect");
+    let support_dir = temp_support_dir("wecode-remote-terminal-viewport-transport-disconnect");
     write_paired_remote_settings(&support_dir);
     let terminals = Arc::new(TerminalManager::new());
     let runtime = Arc::new(RemoteHostRuntime::new_with_ai_history_and_terminals(
@@ -540,7 +540,7 @@ fn device_transport_disconnect_keeps_viewport_until_lease_expires() {
 
 #[test]
 fn host_transport_disconnect_releases_remote_terminal_viewports() {
-    let support_dir = temp_support_dir("codux-remote-terminal-viewport-host-disconnect");
+    let support_dir = temp_support_dir("wecode-remote-terminal-viewport-host-disconnect");
     write_paired_remote_settings(&support_dir);
     let terminals = Arc::new(TerminalManager::new());
     let runtime = Arc::new(RemoteHostRuntime::new_with_ai_history_and_terminals(

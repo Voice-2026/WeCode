@@ -1,8 +1,8 @@
 use super::*;
-use codux_runtime::{i18n::translate, settings::locale_from_language_setting};
 use gpui::{ClickEvent, ClipboardEntry, Focusable, ImageFormat, Point, ScrollWheelEvent};
 use gpui_component::input::{Input, InputEvent, InputState, SelectAll};
 use std::{ops::Neg, path::Path};
+use wecode_runtime::{i18n::translate, settings::locale_from_language_setting};
 
 const FILE_TREE_DRAG_AND_DROP: bool = true;
 
@@ -75,7 +75,7 @@ pub(in crate::app) fn parent_relative_directory(value: &str) -> String {
 }
 
 pub(in crate::app) fn file_section(
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     focus_handle: FocusHandle,
     _project_name: &str,
     files_empty: bool,
@@ -306,7 +306,7 @@ pub(in crate::app) fn file_section(
                                         .min_h_0()
                                         .flex()
                                         .flex_col()
-                                        .child(codux_uniform_list(
+                                        .child(wecode_uniform_list(
                                             "file-tree-list",
                                             rows,
                                             tree_scroll_handle.clone(),
@@ -381,10 +381,10 @@ fn assistant_header_icon_button(
     id: &'static str,
     icon: HeroIconName,
     loading: bool,
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     window: &mut Window,
     cx: &mut Context<FileSidebarView>,
-    on_click: impl Fn(&mut CoduxApp, &gpui::ClickEvent, &mut Window, &mut Context<CoduxApp>) + 'static,
+    on_click: impl Fn(&mut WeCodeApp, &gpui::ClickEvent, &mut Window, &mut Context<WeCodeApp>) + 'static,
 ) -> impl IntoElement {
     Button::new(id)
         .compact()
@@ -400,7 +400,7 @@ fn assistant_header_icon_button(
 }
 
 fn file_name_draft_row(
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     kind: FileNameDraftKind,
     value: &str,
     draft_select_all: bool,
@@ -457,7 +457,7 @@ fn file_name_draft_row(
 }
 
 fn file_name_draft_input_state(
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     kind: FileNameDraftKind,
     value: &str,
     draft_select_all: bool,
@@ -678,7 +678,7 @@ pub(in crate::app) fn file_tree_rows(
 }
 
 fn file_tree_entry_row(
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     row: FileTreeRow,
     index: usize,
     labels: FileSidebarLabels,
@@ -867,7 +867,7 @@ fn file_tree_click_opens_file(is_dir: bool, extend: bool, toggle: bool) -> bool 
 
 fn file_tree_context_menu(
     menu: PopupMenu,
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     entry: FileEntry,
     labels: FileSidebarLabels,
     cx: &mut Context<PopupMenu>,
@@ -1114,9 +1114,9 @@ mod tests {
         file_tree_click_opens_file, file_tree_rows,
     };
     use crate::app::FileNameDraftKind;
-    use codux_runtime::runtime_state::{FileEntry, FileKind};
     use gpui::ImageFormat;
     use std::collections::{HashMap, HashSet};
+    use wecode_runtime::runtime_state::{FileEntry, FileKind};
 
     #[test]
     fn clipboard_text_line_filter_rejects_browser_image_payloads() {

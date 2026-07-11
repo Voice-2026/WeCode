@@ -6,7 +6,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 
 class UpdateCheckService {
   const UpdateCheckService({
-    this.githubRepository = 'duxweb/codux-flutter',
+    this.githubRepository = 'duxweb/wecode-flutter',
     this.requestTimeout = const Duration(seconds: 10),
     http.Client? httpClient,
   }) : _httpClient = httpClient;

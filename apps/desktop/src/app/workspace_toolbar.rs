@@ -1,20 +1,20 @@
 use super::*;
 use crate::app::{
-    ui_helpers::{titlebar_drag_area, with_codux_tooltip},
+    ui_helpers::{titlebar_drag_area, with_wecode_tooltip},
     workspace_daily_level::workspace_level_button,
     workspace_pet_widgets::workspace_pet_button,
     workspace_shared::{
         workspace_header_badge_button_content, workspace_header_button, workspace_i18n,
     },
 };
-use codux_runtime::{i18n::translate, settings::locale_from_language_setting};
 use gpui::Rems;
 use gpui_component::menu::{DropdownMenu, PopupMenuItem};
+use wecode_runtime::{i18n::translate, settings::locale_from_language_setting};
 
 const WORKSPACE_TAB_TEXT_SIZE: Rems = Rems(0.75);
 const WORKSPACE_TAB_LINE_HEIGHT: Rems = Rems(1.0);
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn workspace_toolbar(
         &self,
         window: &mut Window,
@@ -36,7 +36,7 @@ impl CoduxApp {
         let connected_remote_project_device_id =
             remote_project_device_id.as_ref().and_then(|device_id| {
                 (self.remote_link_states.get(device_id)
-                    == Some(&codux_runtime::remote::ControllerLinkState::Connected))
+                    == Some(&wecode_runtime::remote::ControllerLinkState::Connected))
                 .then(|| device_id.clone())
             });
         let show_server_info_button = has_project_context
@@ -181,7 +181,7 @@ impl CoduxApp {
 fn workspace_remote_browser_button(
     device_id: String,
     language: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let app_entity = cx.entity();
     let tooltip_entity = app_entity.clone();
@@ -205,7 +205,7 @@ fn workspace_remote_browser_button(
         })
         .child(Icon::new(HeroIconName::GlobeAlt).size_3p5());
 
-    with_codux_tooltip(
+    with_wecode_tooltip(
         tooltip_entity,
         "workspace-open-remote-browser-tooltip",
         button,
@@ -217,7 +217,7 @@ fn workspace_open_button(
     applications: &[ProjectOpenApplicationSummary],
     has_project: bool,
     language: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let applications = applications
         .iter()
@@ -309,7 +309,7 @@ fn workspace_open_button(
         )
 }
 
-fn workspace_window_controls(cx: &mut Context<CoduxApp>) -> impl IntoElement {
+fn workspace_window_controls(cx: &mut Context<WeCodeApp>) -> impl IntoElement {
     div()
         .ml(px(4.0))
         .flex()
@@ -339,7 +339,7 @@ fn workspace_window_control_button(
     id: &'static str,
     icon: HeroIconName,
     area: WindowControlArea,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     Button::new(id)
         .compact()
@@ -356,7 +356,7 @@ fn workspace_assistant_button(
     panel: AssistantPanel,
     active_panel: Option<AssistantPanel>,
     enabled: bool,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let active = enabled && active_panel == Some(panel);
 
@@ -413,7 +413,7 @@ fn workspace_assistant_button(
                 ),
         );
 
-    with_codux_tooltip(
+    with_wecode_tooltip(
         cx.entity(),
         match panel {
             AssistantPanel::AIStats => "workspace-assistant-ai-tooltip",
@@ -431,7 +431,7 @@ fn workspace_segmented_tabs(
     active_index: usize,
     language: &str,
     enabled: bool,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let app_entity = cx.entity();
     let locale = locale_from_language_setting(language);
@@ -496,7 +496,7 @@ fn workspace_segmented_tabs(
         }))
 }
 
-fn workspace_toolbar_separator(cx: &mut Context<CoduxApp>) -> impl IntoElement {
+fn workspace_toolbar_separator(cx: &mut Context<WeCodeApp>) -> impl IntoElement {
     div()
         .w(px(1.0))
         .h(px(16.0))
@@ -504,7 +504,7 @@ fn workspace_toolbar_separator(cx: &mut Context<CoduxApp>) -> impl IntoElement {
         .bg(theme::divider_for_surface(cx.theme().title_bar))
 }
 
-fn disabled_pet_button(state: &RuntimeState, cx: &mut Context<CoduxApp>) -> impl IntoElement {
+fn disabled_pet_button(state: &RuntimeState, cx: &mut Context<WeCodeApp>) -> impl IntoElement {
     let label = if state.pet.claimed {
         format!("Lv.{}", state.pet.level.max(1))
     } else {
@@ -524,7 +524,7 @@ fn disabled_pet_button(state: &RuntimeState, cx: &mut Context<CoduxApp>) -> impl
         ))
 }
 
-fn disabled_level_button(language: &str, cx: &mut Context<CoduxApp>) -> impl IntoElement {
+fn disabled_level_button(language: &str, cx: &mut Context<WeCodeApp>) -> impl IntoElement {
     let label = workspace_i18n(language, "rank.iron", "Iron");
 
     workspace_header_button("workspace-level-disabled", cx)

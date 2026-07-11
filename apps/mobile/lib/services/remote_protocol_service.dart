@@ -9,7 +9,7 @@ import 'remote_transport.dart';
 export 'remote_protocol.dart';
 
 Future<PairingPayload> parsePairingPayload(String input) async {
-  // Decode the codux://pair URL / base64url token to its JSON object (stable
+  // Decode the wecode://pair URL / base64url token to its JSON object (stable
   // transport encoding), then VALIDATE + normalize through the shared Rust
   // parser via FFI — the same format the desktop and agent hosts emit, so the
   // client no longer re-implements the pairing format in Dart.
@@ -27,8 +27,8 @@ Future<PairingPayload> parsePairingPayload(String input) async {
   }
   final parsed = Map<String, dynamic>.from(ok);
   final transports = remoteTransportCandidatesFromJson(parsed['transports']);
-  CoduxLog.info(
-    '[codux-flutter-pairing] payload ready server=${parsed['server'] ?? ''} host=${parsed['hostId'] ?? ''} pair=${parsed['pairingId'] ?? ''} transports=${_transportLogSummary(transports)}',
+  WeCodeLog.info(
+    '[wecode-flutter-pairing] payload ready server=${parsed['server'] ?? ''} host=${parsed['hostId'] ?? ''} pair=${parsed['pairingId'] ?? ''} transports=${_transportLogSummary(transports)}',
   );
   return PairingPayload(
     server: parsed['server']?.toString() ?? '',
@@ -42,7 +42,7 @@ Future<PairingPayload> parsePairingPayload(String input) async {
   );
 }
 
-/// Decode the pairing input — a `codux://pair?payload=<base64url>` URL or a bare
+/// Decode the pairing input — a `wecode://pair?payload=<base64url>` URL or a bare
 /// base64url token — to its JSON object. Stable transport encoding only; the
 /// format validation lives in the shared Rust parser (via FFI).
 Map<String, dynamic> _decodePairingPayloadJson(String input) {
@@ -52,7 +52,7 @@ Map<String, dynamic> _decodePairingPayloadJson(String input) {
   }
   var encoded = value;
   final uri = Uri.tryParse(value);
-  if (uri != null && uri.scheme == 'codux' && uri.host == 'pair') {
+  if (uri != null && uri.scheme == 'wecode' && uri.host == 'pair') {
     final embedded = uri.queryParameters['payload']?.trim() ?? '';
     if (embedded.isNotEmpty) encoded = embedded;
   }
@@ -126,8 +126,8 @@ Future<StoredDevice> confirmPairingOverIroh({
   if (transport == null) {
     throw Exception(tr('remote.qrMissingFields', LocaleChoices.system.id));
   }
-  CoduxLog.info(
-    '[codux-flutter-pairing] iroh confirm start relay=${payload.server} transport=${transport.kind} url=${transport.url} host=${payload.hostId ?? ''} pair=${payload.pairingId ?? ''}',
+  WeCodeLog.info(
+    '[wecode-flutter-pairing] iroh confirm start relay=${payload.server} transport=${transport.kind} url=${transport.url} host=${payload.hostId ?? ''} pair=${payload.pairingId ?? ''}',
   );
   final pendingDevice = pendingPairingDevice(payload: payload, name: name);
 
@@ -181,8 +181,8 @@ Future<StoredDevice> confirmPairingOverIroh({
         name: name,
         confirmed: message,
       );
-      CoduxLog.info(
-        '[codux-flutter-pairing] iroh confirm accepted relay=${device.server} host=${device.hostId} device=${device.deviceId} transports=${_transportLogSummary(device.transports)}',
+      WeCodeLog.info(
+        '[wecode-flutter-pairing] iroh confirm accepted relay=${device.server} host=${device.hostId} device=${device.deviceId} transports=${_transportLogSummary(device.transports)}',
       );
       return device;
     } on PairingRejectedException {
@@ -197,8 +197,8 @@ Future<StoredDevice> confirmPairingOverIroh({
       if (connected || attempt >= maxConnectAttempts) {
         break;
       }
-      CoduxLog.info(
-        '[codux-flutter-pairing] iroh connect attempt $attempt failed, retrying: $error',
+      WeCodeLog.info(
+        '[wecode-flutter-pairing] iroh connect attempt $attempt failed, retrying: $error',
       );
       await Future<void>.delayed(Duration(milliseconds: 600 * attempt));
     }

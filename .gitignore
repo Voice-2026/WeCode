@@ -15,7 +15,7 @@
 /apps/mobile/android/.gradle/
 /apps/mobile/ios/Pods/
 /apps/mobile/macos/Pods/
-/apps/mobile/plugin/codux_native_terminal/ios/codux_native_terminal/.build/
+/apps/mobile/plugin/wecode_native_terminal/ios/wecode_native_terminal/.build/
 /apps/mobile/dist/
 /apps/mobile/flutter_*.log
 /apps/mobile/.idea/

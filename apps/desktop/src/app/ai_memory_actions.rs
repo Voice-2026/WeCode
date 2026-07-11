@@ -6,7 +6,7 @@ use crate::app::quick_input::show_quick_input;
 
 const MAX_AUTOMATIC_MEMORY_PROCESS_TASKS: usize = 10;
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(super) fn schedule_ai_index_progress_expiry(
         &self,
         generation: u64,
@@ -54,7 +54,7 @@ impl CoduxApp {
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             loop {
                 timer.timer(Duration::from_millis(300)).await;
-                let result = codux_runtime::async_runtime::spawn_blocking({
+                let result = wecode_runtime::async_runtime::spawn_blocking({
                     let service = service.clone();
                     move || service.memory_extraction_status()
                 })
@@ -129,7 +129,7 @@ impl CoduxApp {
 
         let service = self.runtime_service.clone();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let process_result = codux_runtime::async_runtime::spawn(async move {
+            let process_result = wecode_runtime::async_runtime::spawn(async move {
                 service
                     .process_memory_extraction_queue_limited(MAX_AUTOMATIC_MEMORY_PROCESS_TASKS)
                     .await
@@ -168,7 +168,7 @@ impl CoduxApp {
 
         let service = self.runtime_service.clone();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let result = codux_runtime::async_runtime::spawn_blocking(move || {
+            let result = wecode_runtime::async_runtime::spawn_blocking(move || {
                 service.enqueue_automatic_memory_extraction_candidates()
             })
             .await
@@ -367,7 +367,7 @@ impl CoduxApp {
         let service = self.runtime_service.clone();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             let remove_session_id = session_id.clone();
-            let result = codux_runtime::async_runtime::spawn_blocking(move || {
+            let result = wecode_runtime::async_runtime::spawn_blocking(move || {
                 service.localized_confirm_dialog(LocalizedConfirmDialogRequest {
                     title,
                     message,
@@ -511,7 +511,7 @@ impl CoduxApp {
         let projects = ai_history_project_requests(&self.state.projects);
         let service = self.runtime_service.clone();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let result = codux_runtime::async_runtime::run_limited_blocking(move || {
+            let result = wecode_runtime::async_runtime::run_limited_blocking(move || {
                 service
                     .indexed_global_ai_history_summary(projects)
                     .map(normalized_global_ai_history_snapshot_to_summary)
@@ -598,7 +598,7 @@ impl CoduxApp {
         let service = self.runtime_service.clone();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             let target = target_tool;
-            let result = codux_runtime::async_runtime::spawn_blocking(move || {
+            let result = wecode_runtime::async_runtime::spawn_blocking(move || {
                 service.fork_ai_session(AISessionForkRequest {
                     project_id: project.id,
                     project_name: project.name,
@@ -654,7 +654,7 @@ impl CoduxApp {
         self.invalidate_status_bar(cx);
         let service = self.runtime_service.clone();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let process_result = codux_runtime::async_runtime::spawn(async move {
+            let process_result = wecode_runtime::async_runtime::spawn(async move {
                 service.process_memory_sessions_now().await
             })
             .await
@@ -1105,7 +1105,7 @@ impl CoduxApp {
             &format!("project_profile_refresh start project={project_id}"),
         );
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let result = codux_runtime::async_runtime::spawn(async move {
+            let result = wecode_runtime::async_runtime::spawn(async move {
                 service
                     .force_refresh_memory_project_profile_with_llm(&project_id)
                     .await
@@ -1260,7 +1260,7 @@ impl CoduxApp {
         let timer = cx.background_executor().clone();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             timer.timer(Duration::from_millis(120)).await;
-            let dialog_error = codux_runtime::async_runtime::spawn_blocking(move || {
+            let dialog_error = wecode_runtime::async_runtime::spawn_blocking(move || {
                 service.localized_alert_dialog(LocalizedAlertDialogRequest {
                     title,
                     message,
@@ -1380,7 +1380,7 @@ impl CoduxApp {
         let project_id = self.memory_manager_project_id.clone();
         let tab = self.memory_manager_tab.as_str().to_string();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let snapshot = codux_runtime::async_runtime::spawn_blocking(move || {
+            let snapshot = wecode_runtime::async_runtime::spawn_blocking(move || {
                 service.reload_memory_manager(&projects, &scope, project_id.as_deref(), &tab)
             })
             .await
@@ -1440,7 +1440,7 @@ impl CoduxApp {
             .or_else(|| selected_project.as_ref().map(|project| project.id.clone()));
         let include_cached = self.state.settings.statistics_mode == "includingCache";
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let loaded = codux_runtime::async_runtime::spawn_blocking(move || {
+            let loaded = wecode_runtime::async_runtime::spawn_blocking(move || {
                 let summary = service.reload_memory(summary_project_id.as_deref());
                 let snapshot = service.reload_memory_manager(
                     &projects,

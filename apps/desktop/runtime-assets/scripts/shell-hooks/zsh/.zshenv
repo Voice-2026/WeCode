@@ -10,11 +10,11 @@ _dmux_source_user_startup_file() {
   local restore_q_term=0
 
   if [[ -z "${PROCESS_LAUNCHED_BY_Q+x}" ]]; then
-    export PROCESS_LAUNCHED_BY_Q=codux
+    export PROCESS_LAUNCHED_BY_Q=wecode
     restore_process_launched_by_q=1
   fi
   if [[ -z "${Q_TERM+x}" ]]; then
-    export Q_TERM=codux
+    export Q_TERM=wecode
     restore_q_term=1
   fi
 
@@ -22,10 +22,10 @@ _dmux_source_user_startup_file() {
   source "${startup_file}"
   export ZDOTDIR="${runtime_zdotdir}"
 
-  if (( restore_process_launched_by_q )) && [[ "${PROCESS_LAUNCHED_BY_Q:-}" == codux ]]; then
+  if (( restore_process_launched_by_q )) && [[ "${PROCESS_LAUNCHED_BY_Q:-}" == wecode ]]; then
     unset PROCESS_LAUNCHED_BY_Q
   fi
-  if (( restore_q_term )) && [[ "${Q_TERM:-}" == codux ]]; then
+  if (( restore_q_term )) && [[ "${Q_TERM:-}" == wecode ]]; then
     unset Q_TERM
   fi
 }

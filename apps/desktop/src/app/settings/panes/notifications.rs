@@ -8,7 +8,7 @@ pub(super) fn settings_notifications_pane(
     testing_channel_id: Option<&str>,
     language: &str,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     settings_form(
         notifications
@@ -24,11 +24,11 @@ pub(super) fn settings_notifications_pane(
     .into_any_element()
 }
 pub(super) fn settings_notification_card(
-    channel: codux_runtime::notification::NotificationChannelSummary,
+    channel: wecode_runtime::notification::NotificationChannelSummary,
     testing_channel_id: Option<&str>,
     language: &str,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     let enabled_id = channel.id.clone();
     let endpoint_id = channel.id.clone();

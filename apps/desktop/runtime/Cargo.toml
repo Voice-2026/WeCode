@@ -1,5 +1,5 @@
 [package]
-name = "codux-runtime"
+name = "wecode-runtime"
 version = "2.0.0-beta.6"
 edition = "2024"
 
@@ -10,19 +10,19 @@ async-trait = "0.1"
 base64 = "0.22"
 bytes = "1.9"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
-codux-ai-history = { path = "../../../crates/codux-ai-history" }
-codux-ai-sessions = { path = "../../../crates/codux-ai-sessions" }
-codux-gateway = { path = "../../../crates/codux-gateway" }
-codux-git = { path = "../../../crates/codux-git" }
-codux-im-bridge = { path = "../../../crates/codux-im-bridge" }
-codux-llm = { path = "../../../crates/codux-llm" }
-codux-memory = { path = "../../../crates/codux-memory" }
-codux-protocol = { path = "../../../crates/codux-protocol" }
-codux-remote-transport = { path = "../../../crates/codux-remote-transport" }
-codux-runtime-core = { path = "../../../crates/codux-runtime-core" }
-codux-runtime-live = { path = "../../../crates/codux-runtime-live" }
-codux-terminal-core = { path = "../../../crates/codux-terminal-core" }
-codux-terminal-pty = { path = "../../../crates/codux-terminal-pty" }
+wecode-ai-history = { path = "../../../crates/wecode-ai-history" }
+wecode-ai-sessions = { path = "../../../crates/wecode-ai-sessions" }
+wecode-gateway = { path = "../../../crates/wecode-gateway" }
+wecode-git = { path = "../../../crates/wecode-git" }
+wecode-im-bridge = { path = "../../../crates/wecode-im-bridge" }
+wecode-llm = { path = "../../../crates/wecode-llm" }
+wecode-memory = { path = "../../../crates/wecode-memory" }
+wecode-protocol = { path = "../../../crates/wecode-protocol" }
+wecode-remote-transport = { path = "../../../crates/wecode-remote-transport" }
+wecode-runtime-core = { path = "../../../crates/wecode-runtime-core" }
+wecode-runtime-live = { path = "../../../crates/wecode-runtime-live" }
+wecode-terminal-core = { path = "../../../crates/wecode-terminal-core" }
+wecode-terminal-pty = { path = "../../../crates/wecode-terminal-pty" }
 dunce = "1"
 flume = "0.12"
 parking_lot = "0.12"
@@ -67,4 +67,4 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_
 [dev-dependencies]
 # Enable the live crate's cross-crate test helpers (e.g. viewport-lease expiry)
 # for this crate's own tests, without leaking them into release builds.
-codux-runtime-live = { path = "../../../crates/codux-runtime-live", features = ["test-support"] }
+wecode-runtime-live = { path = "../../../crates/wecode-runtime-live", features = ["test-support"] }

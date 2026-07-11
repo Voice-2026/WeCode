@@ -1,6 +1,6 @@
 use super::*;
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn pet_dex_workspace(
         &mut self,
         _window: &mut Window,

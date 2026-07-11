@@ -1,7 +1,7 @@
 use super::*;
-use crate::app::ui_helpers::codux_tooltip_container;
+use crate::app::ui_helpers::wecode_tooltip_container;
 
-impl CoduxApp {
+impl WeCodeApp {
     /// Overlay descriptor for the terminal when the selected project's remote
     /// host link is not usable: `(icon, tint, message)`. `None` for a local
     /// project or a healthy connected link.
@@ -12,12 +12,12 @@ impl CoduxApp {
             .as_ref()
             .and_then(|project| project.host_device_id.as_deref())?;
         match self.remote_link_states.get(host).copied() {
-            Some(codux_runtime::remote::ControllerLinkState::Disconnected) => Some((
+            Some(wecode_runtime::remote::ControllerLinkState::Disconnected) => Some((
                 HeroIconName::LinkSlash,
                 theme::RED,
                 "远程主机已离线 · 正在自动重连…".to_string(),
             )),
-            Some(codux_runtime::remote::ControllerLinkState::Connecting) => Some((
+            Some(wecode_runtime::remote::ControllerLinkState::Connecting) => Some((
                 HeroIconName::Link,
                 theme::ORANGE,
                 "正在连接远程主机…".to_string(),
@@ -132,7 +132,7 @@ impl CoduxApp {
                                 float_id,
                                 HeroIconName::ArrowTopRightOnSquare,
                                 "浮窗",
-                                pane_count > 1,
+                                true,
                                 cx,
                                 move |app, _event, window, cx| {
                                     app.float_terminal_pane(index, window, cx)
@@ -196,7 +196,7 @@ fn terminal_link_overlay(overlay: (HeroIconName, u32, String)) -> impl IntoEleme
 fn terminal_pane_agent_button(
     id: SharedString,
     enabled: bool,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     let app_entity = cx.entity();
     let gateway_status = GatewayService::global_status();
@@ -220,6 +220,7 @@ fn terminal_pane_agent_button(
         .h(px(28.0))
         .w(px(30.0))
         .disabled(!enabled)
+        .tooltip("切换当前终端的 AI 工具")
         .text_color(text_color)
         .child(
             Icon::new(HeroIconName::Sparkles)
@@ -336,7 +337,7 @@ fn terminal_pane_agent_button(
 }
 
 fn quick_agent_item(
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     label: &'static str,
     icon: HeroIconName,
     target: &'static str,
@@ -357,15 +358,15 @@ fn terminal_pane_control_button(
     icon: HeroIconName,
     tooltip: &'static str,
     enabled: bool,
-    cx: &mut Context<CoduxApp>,
-    on_click: impl Fn(&mut CoduxApp, &gpui::ClickEvent, &mut Window, &mut Context<CoduxApp>) + 'static,
+    cx: &mut Context<WeCodeApp>,
+    on_click: impl Fn(&mut WeCodeApp, &gpui::ClickEvent, &mut Window, &mut Context<WeCodeApp>) + 'static,
 ) -> AnyElement {
     let text_color = if enabled {
         cx.theme().secondary_foreground
     } else {
         color(theme::TEXT_DIM)
     };
-    let button = codux_tooltip_container(cx.entity(), id, tooltip)
+    let button = wecode_tooltip_container(cx.entity(), id, tooltip)
         .size(px(28.0))
         .flex()
         .flex_none()

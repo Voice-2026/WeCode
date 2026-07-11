@@ -73,7 +73,7 @@ pub(in crate::app) fn settings_with_active_restart_locked_values(
     next
 }
 
-pub struct CoduxApp {
+pub struct WeCodeApp {
     pub(in crate::app) window_mode: AppWindowMode,
     pub(in crate::app) root_focus_handle: Option<FocusHandle>,
     pub(in crate::app) terminals: Vec<TerminalTab>,
@@ -100,7 +100,7 @@ pub struct CoduxApp {
     /// they are collected here and attached once via `attach_boot_pending_terminals`
     /// right after the entity is created. Empty for the common local-only boot.
     pub(in crate::app) boot_pending_terminals: Vec<(
-        codux_runtime::terminal_pty::TerminalPtyConfig,
+        wecode_runtime::terminal_pty::TerminalPtyConfig,
         crate::terminal::PendingTerminalAttach,
     )>,
     pub(in crate::app) terminal_layout_loading: bool,
@@ -148,7 +148,7 @@ pub struct CoduxApp {
     pub(in crate::app) project_editor_window: Option<AnyWindowHandle>,
     pub(in crate::app) worktree_creator_window: Option<AnyWindowHandle>,
     pub(in crate::app) child_windows: Vec<AnyWindowHandle>,
-    pub(in crate::app) parent_main_window: Option<gpui::WeakEntity<CoduxApp>>,
+    pub(in crate::app) parent_main_window: Option<gpui::WeakEntity<WeCodeApp>>,
     pub(in crate::app) desktop_pet_line: String,
     pub(in crate::app) desktop_pet_tone: DesktopPetActivityTone,
     pub(in crate::app) desktop_pet_plan_items: Vec<DesktopPetPlanItem>,
@@ -356,7 +356,7 @@ pub struct CoduxApp {
     pub(in crate::app) remote_pairing_error: Option<String>,
     pub(in crate::app) remote_pairing_poll_generation: u64,
     /// "Connect to a device" (controller direction): paste another host's
-    /// `codux://pair` ticket to pair to it. Mirrors the project-editor flow but
+    /// `wecode://pair` ticket to pair to it. Mirrors the project-editor flow but
     /// lives in Settings → Remote so device management is unified.
     pub(in crate::app) remote_connect_open: bool,
     pub(in crate::app) remote_connect_ticket: String,
@@ -381,7 +381,7 @@ pub struct CoduxApp {
     /// Last polled client→host link state per host device id. Drives the project
     /// connection badge and triggers terminal re-attach when a host reconnects.
     pub(in crate::app) remote_link_states:
-        std::collections::HashMap<String, codux_runtime::remote::ControllerLinkState>,
+        std::collections::HashMap<String, wecode_runtime::remote::ControllerLinkState>,
     /// Device ids of the OUTBOUND saved hosts — the persistent registry shown in
     /// the device list. Cached for the status-bar count because
     /// `saved_remote_hosts()` is a disk read and must not run per render; a link
@@ -446,12 +446,12 @@ pub struct CoduxApp {
     pub(in crate::app) worktree_creator_error: Option<String>,
     pub(in crate::app) worktree_creator_submitting: bool,
     pub(in crate::app) update_dialog_phase: UpdateDialogPhase,
-    pub(in crate::app) update_dialog_status: Option<codux_runtime::update::UpdateStatus>,
+    pub(in crate::app) update_dialog_status: Option<wecode_runtime::update::UpdateStatus>,
     pub(in crate::app) update_dialog_progress:
-        Option<codux_runtime::app_info::UpdateInstallProgressEvent>,
-    pub(in crate::app) update_dialog_result: Option<codux_runtime::app_info::UpdateInstallResult>,
+        Option<wecode_runtime::app_info::UpdateInstallProgressEvent>,
+    pub(in crate::app) update_dialog_result: Option<wecode_runtime::app_info::UpdateInstallResult>,
     pub(in crate::app) update_dialog_error: Option<String>,
-    pub(in crate::app) tooltip_state: CoduxTooltipState,
+    pub(in crate::app) tooltip_state: WeCodeTooltipState,
     pub(in crate::app) ui_performance_counts: HashMap<String, u64>,
     pub(in crate::app) ui_performance_last_report_at: f64,
 }
@@ -463,15 +463,15 @@ pub(in crate::app) struct TerminalLayoutCacheEntry {
 }
 
 #[derive(Clone, Debug, Default)]
-pub(in crate::app) struct CoduxTooltipState {
+pub(in crate::app) struct WeCodeTooltipState {
     pub(in crate::app) id: Option<ElementId>,
     pub(in crate::app) text: SharedString,
     pub(in crate::app) bounds: Bounds<Pixels>,
-    pub(in crate::app) placement: CoduxTooltipPlacement,
+    pub(in crate::app) placement: WeCodeTooltipPlacement,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(in crate::app) enum CoduxTooltipPlacement {
+pub(in crate::app) enum WeCodeTooltipPlacement {
     #[default]
     Auto,
     Right,
@@ -592,7 +592,7 @@ pub(in crate::app) struct ProjectSwitchPrimaryLoad {
     pub(in crate::app) scope_key: WorktreeScopeKey,
     pub(in crate::app) ai_history: AIHistorySummary,
     pub(in crate::app) remote_ai_current_sessions:
-        Vec<codux_runtime::ai_history::AIHistoryCurrentSessionView>,
+        Vec<wecode_runtime::ai_history::AIHistoryCurrentSessionView>,
 }
 
 pub(in crate::app) struct WorktreeSwitchLoad {
@@ -601,7 +601,7 @@ pub(in crate::app) struct WorktreeSwitchLoad {
     pub(in crate::app) scope_key: WorktreeScopeKey,
     pub(in crate::app) ai_history: AIHistorySummary,
     pub(in crate::app) remote_ai_current_sessions:
-        Vec<codux_runtime::ai_history::AIHistoryCurrentSessionView>,
+        Vec<wecode_runtime::ai_history::AIHistoryCurrentSessionView>,
     pub(in crate::app) terminal_layout: TerminalLayoutSummary,
     pub(in crate::app) terminal_runtime: TerminalRuntimeSummary,
 }
@@ -765,7 +765,7 @@ pub(in crate::app) fn resize_pet_custom_install_window(window: &mut Window, heig
 pub(in crate::app) fn resize_pet_custom_install_window_handle(
     handle: AnyWindowHandle,
     height: f32,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) {
     let _ = handle.update(cx, |_view, window, _cx| {
         resize_pet_custom_install_window(window, height);
@@ -787,7 +787,7 @@ pub(in crate::app) fn resize_git_credentials_window(window: &mut Window, expande
     ));
 }
 
-impl Drop for CoduxApp {
+impl Drop for WeCodeApp {
     fn drop(&mut self) {
         if self.window_mode == AppWindowMode::Main {
             self.shutdown_runtime_state_from_drop();

@@ -1,7 +1,7 @@
 use super::*;
 
 pub(super) fn global_fingerprint(
-    global: &codux_runtime::ai_history::AIGlobalHistorySummary,
+    global: &wecode_runtime::ai_history::AIGlobalHistorySummary,
 ) -> u64 {
     let projects = super::workspace_views::workspace_view_hash(
         &global
@@ -131,7 +131,7 @@ pub(super) fn trend_buckets_fingerprint(rows: &[StatsTrendBucket]) -> u64 {
 }
 
 pub(super) fn heatmap_fingerprint(
-    rows: &[codux_runtime::ai_history::AIHistoryHeatmapCellView],
+    rows: &[wecode_runtime::ai_history::AIHistoryHeatmapCellView],
 ) -> u64 {
     super::workspace_views::workspace_view_hash(
         &rows

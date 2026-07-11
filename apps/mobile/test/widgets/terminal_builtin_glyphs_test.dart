@@ -1,6 +1,6 @@
 import 'dart:ui' as ui;
 
-import 'package:codux_flutter/widgets/components/terminal_builtin_glyphs.dart';
+import 'package:wecode_flutter/widgets/components/terminal_builtin_glyphs.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 

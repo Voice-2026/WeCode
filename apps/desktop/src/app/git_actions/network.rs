@@ -1,6 +1,6 @@
 use super::*;
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn fetch_project_git(
         &mut self,
         _window: &mut Window,
@@ -62,7 +62,7 @@ impl CoduxApp {
         let timer = cx.background_executor().clone();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             timer.timer(Duration::from_millis(120)).await;
-            let result = codux_runtime::async_runtime::spawn_blocking(move || {
+            let result = wecode_runtime::async_runtime::spawn_blocking(move || {
                 service.localized_confirm_dialog(LocalizedConfirmDialogRequest {
                     title,
                     message,
@@ -121,7 +121,7 @@ impl CoduxApp {
         );
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             let worker_project_path = project_path.clone();
-            let result = codux_runtime::async_runtime::spawn_blocking(move || match worker_action
+            let result = wecode_runtime::async_runtime::spawn_blocking(move || match worker_action
                 .as_str()
             {
                 "fetch" => service.fetch_project_git(&worker_project_path),
@@ -187,7 +187,7 @@ impl CoduxApp {
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             let worker_project_path = project_path.clone();
             let worker_remote_name = remote_name.clone();
-            let result = codux_runtime::async_runtime::spawn_blocking(move || {
+            let result = wecode_runtime::async_runtime::spawn_blocking(move || {
                 service.push_project_git_remote(&worker_project_path, &worker_remote_name)
             })
             .await
@@ -363,7 +363,7 @@ impl CoduxApp {
         let timer = cx.background_executor().clone();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             timer.timer(Duration::from_millis(120)).await;
-            let result = codux_runtime::async_runtime::spawn_blocking(move || {
+            let result = wecode_runtime::async_runtime::spawn_blocking(move || {
                 service.localized_confirm_dialog(LocalizedConfirmDialogRequest {
                     title,
                     message,

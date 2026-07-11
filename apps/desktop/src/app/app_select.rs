@@ -6,16 +6,16 @@ use gpui_component::{
     menu::{DropdownMenu, PopupMenuItem},
 };
 
-const CODUX_SELECT_TEXT_SIZE: Rems = Rems(0.875);
-const CODUX_SELECT_LINE_HEIGHT: Rems = Rems(1.125);
+const WECODE_SELECT_TEXT_SIZE: Rems = Rems(0.875);
+const WECODE_SELECT_LINE_HEIGHT: Rems = Rems(1.125);
 
 #[derive(Clone)]
-pub(in crate::app) struct CoduxSelectOption {
+pub(in crate::app) struct WeCodeSelectOption {
     pub(in crate::app) value: String,
     pub(in crate::app) label: SharedString,
 }
 
-impl CoduxSelectOption {
+impl WeCodeSelectOption {
     pub(in crate::app) fn new(value: impl Into<String>, label: impl Into<SharedString>) -> Self {
         Self {
             value: value.into(),
@@ -24,17 +24,17 @@ impl CoduxSelectOption {
     }
 }
 
-pub(in crate::app) fn codux_select(
+pub(in crate::app) fn wecode_select(
     id: impl Into<String>,
     value: &str,
-    options: Vec<CoduxSelectOption>,
+    options: Vec<WeCodeSelectOption>,
     placeholder: impl Into<SharedString>,
     width: impl Into<Length> + Clone,
     menu_width: Pixels,
     disabled: bool,
     _window: &mut Window,
-    cx: &mut Context<CoduxApp>,
-    action: impl Fn(&mut CoduxApp, String, &mut Window, &mut Context<CoduxApp>) + 'static,
+    cx: &mut Context<WeCodeApp>,
+    action: impl Fn(&mut WeCodeApp, String, &mut Window, &mut Context<WeCodeApp>) + 'static,
 ) -> AnyElement {
     let id = id.into();
     let selected_index = options.iter().position(|item| item.value == value);
@@ -42,12 +42,12 @@ pub(in crate::app) fn codux_select(
         .and_then(|index| options.get(index))
         .map(|item| item.label.clone())
         .unwrap_or_else(|| placeholder.into());
-    let action: Rc<dyn Fn(&mut CoduxApp, String, &mut Window, &mut Context<CoduxApp>)> =
+    let action: Rc<dyn Fn(&mut WeCodeApp, String, &mut Window, &mut Context<WeCodeApp>)> =
         Rc::new(action);
     let selected_value = value.to_string();
     let app_entity = cx.entity();
 
-    Button::new(SharedString::from(format!("codux-select-trigger-{id}")))
+    Button::new(SharedString::from(format!("wecode-select-trigger-{id}")))
         .outline()
         .with_size(gpui_component::Size::Medium)
         .disabled(disabled)
@@ -66,8 +66,8 @@ pub(in crate::app) fn codux_select(
                         .min_w_0()
                         .flex_1()
                         .truncate()
-                        .text_size(CODUX_SELECT_TEXT_SIZE)
-                        .line_height(CODUX_SELECT_LINE_HEIGHT)
+                        .text_size(WECODE_SELECT_TEXT_SIZE)
+                        .line_height(WECODE_SELECT_LINE_HEIGHT)
                         .text_color(if selected_index.is_some() {
                             color(theme::TEXT)
                         } else {

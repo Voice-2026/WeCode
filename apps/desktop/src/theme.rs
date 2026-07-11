@@ -242,47 +242,47 @@ pub fn terminal_fill(base: Hsla) -> Hsla {
     }
 }
 
-pub fn codux_main_titlebar(title: impl Into<SharedString>) -> TitlebarOptions {
-    codux_titlebar(title, CoduxTitlebarKind::Main)
+pub fn wecode_main_titlebar(title: impl Into<SharedString>) -> TitlebarOptions {
+    wecode_titlebar(title, WeCodeTitlebarKind::Main)
 }
 
-pub fn codux_child_titlebar(title: impl Into<SharedString>) -> TitlebarOptions {
-    codux_titlebar(title, CoduxTitlebarKind::Child)
+pub fn wecode_child_titlebar(title: impl Into<SharedString>) -> TitlebarOptions {
+    wecode_titlebar(title, WeCodeTitlebarKind::Child)
 }
 
-fn codux_titlebar(title: impl Into<SharedString>, kind: CoduxTitlebarKind) -> TitlebarOptions {
+fn wecode_titlebar(title: impl Into<SharedString>, kind: WeCodeTitlebarKind) -> TitlebarOptions {
     TitlebarOptions {
         title: Some(title.into()),
         appears_transparent: true,
-        traffic_light_position: codux_traffic_light_position(kind),
+        traffic_light_position: wecode_traffic_light_position(kind),
     }
 }
 
 #[cfg(target_os = "macos")]
 #[derive(Clone, Copy)]
-enum CoduxTitlebarKind {
+enum WeCodeTitlebarKind {
     Main,
     Child,
 }
 
 #[cfg(not(target_os = "macos"))]
 #[derive(Clone, Copy)]
-enum CoduxTitlebarKind {
+enum WeCodeTitlebarKind {
     Main,
     Child,
 }
 
 #[cfg(target_os = "macos")]
-fn codux_traffic_light_position(kind: CoduxTitlebarKind) -> Option<gpui::Point<gpui::Pixels>> {
+fn wecode_traffic_light_position(kind: WeCodeTitlebarKind) -> Option<gpui::Point<gpui::Pixels>> {
     match kind {
         // Vertically center the lights in the 52px main header.
-        CoduxTitlebarKind::Main => Some(point(px(12.0), px(20.0))),
-        CoduxTitlebarKind::Child => Some(point(px(12.0), px(17.0))),
+        WeCodeTitlebarKind::Main => Some(point(px(12.0), px(20.0))),
+        WeCodeTitlebarKind::Child => Some(point(px(12.0), px(17.0))),
     }
 }
 
 #[cfg(not(target_os = "macos"))]
-fn codux_traffic_light_position(_kind: CoduxTitlebarKind) -> Option<gpui::Point<gpui::Pixels>> {
+fn wecode_traffic_light_position(_kind: WeCodeTitlebarKind) -> Option<gpui::Point<gpui::Pixels>> {
     None
 }
 
@@ -348,7 +348,7 @@ pub struct TerminalThemePalette {
     pub is_light: bool,
 }
 
-/// Designed app-chrome tokens for a Codux collection theme. Every surface,
+/// Designed app-chrome tokens for a WeCode collection theme. Every surface,
 /// line and text tone is hand-picked instead of derived from the terminal
 /// palette, so panels/borders/hierarchy read as intentional design.
 #[derive(Clone, Copy, Debug)]
@@ -372,9 +372,9 @@ pub struct AppThemePalette {
 impl TerminalThemePalette {
     fn auto(is_light: bool) -> Self {
         if is_light {
-            return terminal_theme_palette("Codux Light");
+            return terminal_theme_palette("WeCode Light");
         }
-        terminal_theme_palette("Codux Dark")
+        terminal_theme_palette("WeCode Dark")
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -444,7 +444,7 @@ pub fn terminal_theme_palette_for_appearance(
 pub fn terminal_theme_palette(theme_name: &str) -> TerminalThemePalette {
     match normalize_theme_name(theme_name).as_str() {
         "auto" => TerminalThemePalette::auto(false),
-        "codux dark" => TerminalThemePalette::from_colors(
+        "wecode dark" => TerminalThemePalette::from_colors(
             false, 0x141821, 0xD8DCE6, 0x7AB8FF, 0x2C4A75, 0x1E232E, 0xF27878, 0x82D896, 0xE8C66A,
             0x74AEF6, 0xC793E8, 0x6CD3E0, 0xD8DCE6, 0x59647A, 0xFF9E9E, 0xA9EDB8, 0xF4D98C,
             0x9FC9FF, 0xDDB3F5, 0x9EEAF2, 0xF5F7FA,
@@ -484,7 +484,7 @@ pub fn terminal_theme_palette(theme_name: &str) -> TerminalThemePalette {
             0x6EB2F0, 0xC490E4, 0x66D4DE, 0xE6E6E6, 0x666666, 0xFF9B9B, 0xA6EDB4, 0xF4DA90,
             0x9CCCFF, 0xDCB4F5, 0x96EAF0, 0xFFFFFF,
         ),
-        "codux light" => TerminalThemePalette::from_colors(
+        "wecode light" => TerminalThemePalette::from_colors(
             true, 0xFAFBFC, 0x2A3140, 0x2F6FE4, 0xCCE0FA, 0x323A48, 0xC93A46, 0x1E9E50, 0xB07D10,
             0x2264D0, 0x9440C4, 0x0E8CA6, 0x99A2B2, 0x5C6678, 0xE45560, 0x2CBA66, 0xCC9718,
             0x3E82EA, 0xAC62DA, 0x1AA8C4, 0xB8C0CC,
@@ -539,9 +539,9 @@ pub fn app_theme_palette_for_appearance(
             WindowAppearance::Light | WindowAppearance::VibrantLight
         );
         if is_light {
-            "codux light"
+            "wecode light"
         } else {
-            "codux dark"
+            "wecode dark"
         }
         .to_string()
     } else {
@@ -549,14 +549,14 @@ pub fn app_theme_palette_for_appearance(
     };
     // Unknown / legacy persisted names fall back with the terminal palette.
     app_theme_palette(&name)
-        .or_else(|| app_theme_palette("codux dark"))
+        .or_else(|| app_theme_palette("wecode dark"))
         .expect("flagship app palette")
 }
 
-/// Designed chrome palettes for the Codux theme collection.
+/// Designed chrome palettes for the WeCode theme collection.
 pub fn app_theme_palette(normalized_name: &str) -> Option<AppThemePalette> {
     let palette = match normalized_name {
-        "codux dark" => AppThemePalette {
+        "wecode dark" => AppThemePalette {
             ground: 0x12151C,
             column: 0x151922,
             panel: 0x191E28,
@@ -684,7 +684,7 @@ pub fn app_theme_palette(normalized_name: &str) -> Option<AppThemePalette> {
             status_bar: 0x151515,
             row_hover: 0x252525,
         },
-        "codux light" => AppThemePalette {
+        "wecode light" => AppThemePalette {
             ground: 0xEEF0F4,
             column: 0xF2F4F7,
             panel: 0xF8F9FB,
@@ -1083,8 +1083,8 @@ fn configure_component_theme(
 mod tests {
     use super::*;
 
-    const CODUX_DARK_THEMES: [&str; 8] = [
-        "Codux Dark",
+    const WECODE_DARK_THEMES: [&str; 8] = [
+        "WeCode Dark",
         "Deep Ocean",
         "Arctic Night",
         "Forest Night",
@@ -1093,8 +1093,8 @@ mod tests {
         "Rose Noir",
         "Carbon",
     ];
-    const CODUX_LIGHT_THEMES: [&str; 8] = [
-        "Codux Light",
+    const WECODE_LIGHT_THEMES: [&str; 8] = [
+        "WeCode Light",
         "Glacier",
         "Morning Mist",
         "Matcha",
@@ -1105,8 +1105,8 @@ mod tests {
     ];
 
     #[test]
-    fn codux_collection_has_app_and_terminal_palettes() {
-        for (names, expect_light) in [(CODUX_DARK_THEMES, false), (CODUX_LIGHT_THEMES, true)] {
+    fn wecode_collection_has_app_and_terminal_palettes() {
+        for (names, expect_light) in [(WECODE_DARK_THEMES, false), (WECODE_LIGHT_THEMES, true)] {
             for name in names {
                 let terminal = terminal_theme_palette(name);
                 assert_eq!(terminal.is_light, expect_light, "{name}");
@@ -1127,11 +1127,11 @@ mod tests {
     }
 
     #[test]
-    fn auto_theme_resolves_codux_flagships() {
+    fn auto_theme_resolves_wecode_flagships() {
         let dark = terminal_theme_palette_for_appearance("Auto", WindowAppearance::Dark);
         assert_eq!(
             dark.background,
-            terminal_theme_palette("Codux Dark").background
+            terminal_theme_palette("WeCode Dark").background
         );
         let light = terminal_theme_palette_for_appearance("Auto", WindowAppearance::Light);
         assert!(light.is_light);
@@ -1139,7 +1139,7 @@ mod tests {
         let fallback = app_theme_palette_for_appearance("Dracula", WindowAppearance::Dark);
         assert_eq!(
             fallback.ground,
-            app_theme_palette("codux dark").expect("flagship").ground
+            app_theme_palette("wecode dark").expect("flagship").ground
         );
     }
 }

@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:codux_protocol_ffi/codux_protocol_ffi.dart';
+import 'package:wecode_protocol_ffi/wecode_protocol_ffi.dart';
 
 import '../../i18n.dart';
 import '../../theme/app_theme.dart';

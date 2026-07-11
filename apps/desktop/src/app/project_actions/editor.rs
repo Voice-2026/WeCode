@@ -1,6 +1,6 @@
 use super::*;
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn reorder_projects_by_ids(
         &mut self,
         project_ids: Vec<String>,
@@ -25,7 +25,7 @@ impl CoduxApp {
         self.invalidate_project_management(cx);
 
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let result = codux_runtime::async_runtime::run_limited_blocking(move || {
+            let result = wecode_runtime::async_runtime::run_limited_blocking(move || {
                 runtime_service.runtime_trace_frontend(
                     "project",
                     &format!("reorder_projects start count={}", project_ids.len()),
@@ -109,7 +109,7 @@ impl CoduxApp {
             },
             cx,
             |state, runtime, runtime_service, _window, _cx| {
-                CoduxApp::new_project_creator_window_from_state(state, runtime, runtime_service)
+                WeCodeApp::new_project_creator_window_from_state(state, runtime, runtime_service)
             },
             |_view, _window, _cx| {},
         );
@@ -146,7 +146,7 @@ impl CoduxApp {
             },
             cx,
             move |state, runtime, runtime_service, _window, _cx| {
-                CoduxApp::new_project_editor_window_from_state(
+                WeCodeApp::new_project_editor_window_from_state(
                     project,
                     state,
                     runtime,

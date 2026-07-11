@@ -63,7 +63,7 @@ impl PetDexVirtualRow {
         &self,
         rows: &Rc<Vec<PetDexVirtualRow>>,
         index: usize,
-        cx: &mut Context<CoduxApp>,
+        cx: &mut Context<WeCodeApp>,
     ) -> gpui::Div {
         match self {
             PetDexVirtualRow::Spacer { .. } => div().w_full(),

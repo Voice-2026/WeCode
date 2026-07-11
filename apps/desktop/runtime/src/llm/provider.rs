@@ -42,7 +42,7 @@ fn select_provider<'a>(
 }
 
 fn supports_completion(kind: &str) -> bool {
-    codux_llm::supports_completion(kind)
+    wecode_llm::supports_completion(kind)
 }
 
 fn sanitize_test_provider(mut provider: AIProviderSettings) -> Result<AIProviderSettings, String> {

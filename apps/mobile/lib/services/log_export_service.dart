@@ -12,7 +12,7 @@ class LogExportService {
       RegExp(r'[:.]'),
       '-',
     );
-    final file = File('${dir.path}/codux-mobile-$stamp.log');
+    final file = File('${dir.path}/wecode-mobile-$stamp.log');
     await file.writeAsString(text, flush: true);
     await SharePlus.instance.share(
       ShareParams(

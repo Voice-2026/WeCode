@@ -1,6 +1,6 @@
-//! `codux install` / `uninstall` / `stop` / `status`.
+//! `wecode install` / `uninstall` / `stop` / `status`.
 //!
-//! Install registers `codux start` with the platform service manager (launchd on
+//! Install registers `wecode start` with the platform service manager (launchd on
 //! macOS, systemd --user on Linux, Task Scheduler on Windows) so the host comes
 //! up at login/boot and is restarted if it exits.
 
@@ -8,13 +8,13 @@ use std::process::Command;
 
 use crate::{device_store, paths, runstate};
 
-const SERVICE_LABEL: &str = "com.codux.host";
+const SERVICE_LABEL: &str = "com.wecode.host";
 
 pub fn status() -> Result<(), String> {
     let running = runstate::is_running();
     let devices = device_store::list().len();
     println!(
-        "Codux host: {}",
+        "WeCode host: {}",
         if running { "running" } else { "stopped" }
     );
     if running {
@@ -42,13 +42,13 @@ pub fn stop() -> Result<(), String> {
         if runstate::is_running() {
             return Err("host is running but its status file is missing".to_string());
         }
-        println!("Codux host is not running.");
+        println!("WeCode host is not running.");
         return Ok(());
     };
     kill_pid(status.pid)?;
     runstate::clear_status();
     runstate::clear_ticket();
-    println!("Stopped Codux host (pid {}).", status.pid);
+    println!("Stopped WeCode host (pid {}).", status.pid);
     Ok(())
 }
 
@@ -158,7 +158,7 @@ fn unit_path() -> std::path::PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
     std::path::PathBuf::from(home)
         .join(".config/systemd/user")
-        .join("codux.service")
+        .join("wecode.service")
 }
 
 #[cfg(target_os = "linux")]
@@ -169,7 +169,7 @@ pub fn install() -> Result<(), String> {
         std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
     let unit = format!(
-        "[Unit]\nDescription=Codux headless host\nAfter=network-online.target\n\n\
+        "[Unit]\nDescription=WeCode headless host\nAfter=network-online.target\n\n\
          [Service]\nExecStart={exe} start\nRestart=on-failure\nRestartSec=3\n\n\
          [Install]\nWantedBy=default.target\n"
     );
@@ -178,7 +178,7 @@ pub fn install() -> Result<(), String> {
         .args(["--user", "daemon-reload"])
         .status();
     let ok = Command::new("systemctl")
-        .args(["--user", "enable", "--now", "codux.service"])
+        .args(["--user", "enable", "--now", "wecode.service"])
         .status()
         .map(|status| status.success())
         .unwrap_or(false);
@@ -195,7 +195,7 @@ pub fn install() -> Result<(), String> {
 #[cfg(target_os = "linux")]
 pub fn uninstall() -> Result<(), String> {
     let _ = Command::new("systemctl")
-        .args(["--user", "disable", "--now", "codux.service"])
+        .args(["--user", "disable", "--now", "wecode.service"])
         .status();
     let _ = std::fs::remove_file(unit_path());
     let _ = Command::new("systemctl")
@@ -211,7 +211,7 @@ pub fn uninstall() -> Result<(), String> {
 pub fn install() -> Result<(), String> {
     let exe = exe_path()?;
     let ok = Command::new("schtasks")
-        .args(["/Create", "/F", "/TN", "Codux", "/SC", "ONLOGON", "/TR"])
+        .args(["/Create", "/F", "/TN", "WeCode", "/SC", "ONLOGON", "/TR"])
         .arg(format!("\"{exe}\" start"))
         .status()
         .map(|status| status.success())
@@ -219,17 +219,17 @@ pub fn install() -> Result<(), String> {
     if !ok {
         return Err("failed to register the scheduled task".to_string());
     }
-    println!("Installed Codux as a logon task (Task Scheduler: Codux).");
+    println!("Installed WeCode as a logon task (Task Scheduler: WeCode).");
     Ok(())
 }
 
 #[cfg(target_os = "windows")]
 pub fn uninstall() -> Result<(), String> {
     let _ = Command::new("schtasks")
-        .args(["/Delete", "/F", "/TN", "Codux"])
+        .args(["/Delete", "/F", "/TN", "WeCode"])
         .status();
     let _ = stop();
-    println!("Removed Codux scheduled task.");
+    println!("Removed WeCode scheduled task.");
     Ok(())
 }
 
@@ -237,7 +237,10 @@ pub fn uninstall() -> Result<(), String> {
 
 #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
 pub fn install() -> Result<(), String> {
-    Err("service install is not supported on this platform; run `codux start` manually".to_string())
+    Err(
+        "service install is not supported on this platform; run `wecode start` manually"
+            .to_string(),
+    )
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]

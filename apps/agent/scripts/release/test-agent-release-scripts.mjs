@@ -8,12 +8,12 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 
 const repoRoot = process.cwd();
-const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "codux-agent-release-test-"));
+const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "wecode-agent-release-test-"));
 const target = "aarch64-apple-darwin";
 const version = "1.9.1";
 
 try {
-  const binaryPath = path.join(tempDir, "target", target, "release", "codux-agent");
+  const binaryPath = path.join(tempDir, "target", target, "release", "wecode-agent");
   fs.mkdirSync(path.dirname(binaryPath), { recursive: true });
   fs.writeFileSync(binaryPath, "#!/bin/sh\n", "utf8");
   fs.chmodSync(binaryPath, 0o755);
@@ -28,11 +28,11 @@ try {
     },
   });
 
-  const expected = path.join(tempDir, "release-artifacts", "macos-aarch64", `codux-agent-${version}-macos-aarch64`);
-  const legacy = path.join(tempDir, "release-artifacts", "macos-aarch64", "codux-macos-aarch64");
+  const expected = path.join(tempDir, "release-artifacts", "macos-aarch64", `wecode-agent-${version}-macos-aarch64`);
+  const legacy = path.join(tempDir, "release-artifacts", "macos-aarch64", "wecode-macos-aarch64");
   assert.ok(fs.existsSync(expected), "versioned agent asset should exist");
   assert.ok(fs.existsSync(legacy), "legacy update alias should exist");
-  fs.writeFileSync(path.join(tempDir, "release-artifacts", "codux-1.9.1-macos-aarch64.dmg"), "");
+  fs.writeFileSync(path.join(tempDir, "release-artifacts", "wecode-1.9.1-macos-aarch64.dmg"), "");
   fs.writeFileSync(path.join(tempDir, "release-artifacts", "latest.json"), "{}\n");
 
   const dryRun = run(

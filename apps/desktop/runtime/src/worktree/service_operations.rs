@@ -3,11 +3,11 @@ impl WorktreeService {
         &self,
         request: WorktreeCreateRequest,
     ) -> Result<WorktreeSnapshot, String> {
-        // The git work (managed `.codux/worktrees/<slug>` path + git2 branch
-        // setup) lives in the shared `codux_git::worktree` engine so the desktop
+        // The git work (managed `.wecode/worktrees/<slug>` path + git2 branch
+        // setup) lives in the shared `wecode_git::worktree` engine so the desktop
         // and the headless agent create worktrees identically. Only the
         // task/selection bookkeeping below is desktop-specific.
-        let created = codux_git::worktree::create_worktree(
+        let created = wecode_git::worktree::create_worktree(
             &request.project_path,
             &request.branch_name,
             request.base_branch.as_deref(),
@@ -26,7 +26,7 @@ impl WorktreeService {
         &self,
         request: WorktreeRemoveRequest,
     ) -> Result<WorktreeSnapshot, String> {
-        codux_git::worktree::remove_worktree(
+        wecode_git::worktree::remove_worktree(
             &request.project_path,
             &request.worktree_path,
             request.remove_branch,
@@ -39,7 +39,7 @@ impl WorktreeService {
         &self,
         request: WorktreeMergeRequest,
     ) -> Result<WorktreeSnapshot, String> {
-        codux_git::worktree::merge_worktree(
+        wecode_git::worktree::merge_worktree(
             &request.project_path,
             &request.worktree_path,
             request.base_branch.as_deref(),
@@ -54,8 +54,8 @@ impl WorktreeService {
         project_id: &str,
         project_path: &str,
     ) -> Result<WorktreeSummary, String> {
-        let branch = format!("codux-gpui-{}", now_seconds());
-        let created = codux_git::worktree::create_worktree(project_path, &branch, None)?;
+        let branch = format!("wecode-gpui-{}", now_seconds());
+        let created = wecode_git::worktree::create_worktree(project_path, &branch, None)?;
         let created_path = normalize_path(&created.display().to_string());
         let created_id = worktree_uuid(project_id, &created_path);
         self.sync_from_git(project_id, project_path)?;
@@ -79,7 +79,7 @@ impl WorktreeService {
         if worktree.is_default || worktree.id == project_id {
             return Err("Default worktree cannot be removed.".to_string());
         }
-        codux_git::worktree::remove_worktree(project_path, &worktree.path, remove_branch)?;
+        wecode_git::worktree::remove_worktree(project_path, &worktree.path, remove_branch)?;
         self.sync_from_git(project_id, project_path)
     }
 
@@ -106,7 +106,7 @@ impl WorktreeService {
             .find(|task| task.worktree_id == worktree_id)
             .map(|task| task.base_branch.trim().to_string())
             .filter(|branch| !branch.is_empty());
-        codux_git::worktree::merge_worktree(project_path, &worktree.path, base_branch.as_deref(), false)?;
+        wecode_git::worktree::merge_worktree(project_path, &worktree.path, base_branch.as_deref(), false)?;
         self.sync_from_git(project_id, project_path)
     }
 }

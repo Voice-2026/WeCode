@@ -1,8 +1,8 @@
 use super::ai_runtime_status::AgentLifecycleState;
 use super::*;
-use codux_runtime::remote::ControllerLinkState;
+use wecode_runtime::remote::ControllerLinkState;
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(super) fn selected_project_id(&self) -> Option<String> {
         self.state
             .selected_project

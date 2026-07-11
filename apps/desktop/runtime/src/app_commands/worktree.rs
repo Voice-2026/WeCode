@@ -27,7 +27,7 @@ mod tests {
     #[test]
     fn worktree_commands_delegate_to_runtime_validation() {
         let support_dir =
-            std::env::temp_dir().join(format!("codux-app-command-worktree-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("wecode-app-command-worktree-{}", Uuid::new_v4()));
         let project_dir = support_dir.join("project");
         std::fs::create_dir_all(&project_dir).expect("project dir");
         let service = RuntimeService::new(support_dir.clone());

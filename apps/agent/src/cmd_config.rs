@@ -1,11 +1,11 @@
-//! `codux config` — interactive setup wizard. Reuses the existing config as the
+//! `wecode config` — interactive setup wizard. Reuses the existing config as the
 //! defaults (so unchanged answers keep their current values) and never rotates
 //! the host identity (host_id/token), which would invalidate paired desktops.
 
 use dialoguer::theme::ColorfulTheme;
 use dialoguer::{Input, Select};
 
-use crate::config_store::{CoduxConfig, RELAY_PRESET_CUSTOM};
+use crate::config_store::{RELAY_PRESET_CUSTOM, WeCodeConfig};
 
 #[derive(Clone, Debug, Default)]
 pub struct ConfigArgs {
@@ -29,12 +29,12 @@ pub fn run(args: ConfigArgs) -> Result<(), String> {
         return run_non_interactive(args);
     }
 
-    let mut config = CoduxConfig::load();
-    let existed = CoduxConfig::exists();
+    let mut config = WeCodeConfig::load();
+    let existed = WeCodeConfig::exists();
     config.ensure_identity();
     let theme = ColorfulTheme::default();
 
-    println!("Codux host setup\n");
+    println!("WeCode host setup\n");
 
     // 1. Device name (shown on paired desktops).
     let device_name: String = Input::with_theme(&theme)
@@ -45,7 +45,7 @@ pub fn run(args: ConfigArgs) -> Result<(), String> {
     config.device_name = device_name.trim().to_string();
 
     // 2. Relay node — pick a preset or custom.
-    let presets = codux_remote_transport::remote_relay_presets();
+    let presets = wecode_remote_transport::remote_relay_presets();
     let mut labels: Vec<String> = presets
         .iter()
         .map(|preset| format!("{} ({})", preset.name, preset.url))
@@ -81,7 +81,7 @@ pub fn run(args: ConfigArgs) -> Result<(), String> {
             Err(error) => {
                 println!("unreachable ({error})");
                 return Err(
-                    "the custom relay is not reachable; fix the URL and re-run `codux config`"
+                    "the custom relay is not reachable; fix the URL and re-run `wecode config`"
                         .to_string(),
                 );
             }
@@ -111,13 +111,13 @@ pub fn run(args: ConfigArgs) -> Result<(), String> {
         if existed { "Updated" } else { "Created" },
         crate::paths::config_path().display()
     );
-    println!("Run `codux start` to launch the host, then `codux qrcode` to pair.");
+    println!("Run `wecode start` to launch the host, then `wecode qrcode` to pair.");
     Ok(())
 }
 
 fn run_non_interactive(args: ConfigArgs) -> Result<(), String> {
-    let mut config = CoduxConfig::load();
-    let existed = CoduxConfig::exists();
+    let mut config = WeCodeConfig::load();
+    let existed = WeCodeConfig::exists();
     config.ensure_identity();
 
     if let Some(device_name) = args.device_name {
@@ -147,7 +147,7 @@ fn run_non_interactive(args: ConfigArgs) -> Result<(), String> {
 }
 
 pub fn apply_relay_args(
-    config: &mut CoduxConfig,
+    config: &mut WeCodeConfig,
     relay_preset: Option<&str>,
     relay_url: Option<&str>,
     relay_authentication: Option<&str>,
@@ -173,7 +173,7 @@ pub fn apply_relay_args(
         .filter(|preset| !preset.is_empty())
     {
         let normalized =
-            codux_remote_transport::normalize_remote_relay_preset(preset, &config.relay_url);
+            wecode_remote_transport::normalize_remote_relay_preset(preset, &config.relay_url);
         if normalized == RELAY_PRESET_CUSTOM && config.relay_url.trim().is_empty() {
             return Err("custom relay requires --relay-url".to_string());
         }

@@ -1,6 +1,6 @@
 use super::*;
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn current_terminal_launch_context(&self) -> Option<TerminalLaunchContext> {
         terminal_launch_context(&self.state, &self.runtime, &self.state.tool_permissions)
     }

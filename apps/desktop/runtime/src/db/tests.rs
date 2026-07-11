@@ -34,9 +34,9 @@ fn launch_context_lists_project_profiles_without_secrets() {
     let context =
         render_db_launch_context_for_profiles(&mut profiles, Some("project-a"), None).unwrap();
 
-    assert!(context.contains("codux-db list"));
-    assert!(context.contains("codux-db <profile-id> -- '<statement>'"));
-    assert!(context.contains("Always run `codux-db list` at the time of use"));
+    assert!(context.contains("wecode-db list"));
+    assert!(context.contains("wecode-db <profile-id> -- '<statement>'"));
+    assert!(context.contains("Always run `wecode-db list` at the time of use"));
     assert!(context.contains("Do not grep the repository"));
     assert!(context.contains("cast them to text"));
     assert!(context.contains("column::text"));
@@ -62,7 +62,7 @@ fn db_test_profile_file_is_owner_only() {
 
 #[test]
 fn db_store_filters_profiles_by_root_project() {
-    let support_dir = std::env::temp_dir().join(format!("codux-db-store-{}", Uuid::new_v4()));
+    let support_dir = std::env::temp_dir().join(format!("wecode-db-store-{}", Uuid::new_v4()));
     fs::create_dir_all(&support_dir).unwrap();
     let store = DBStore::from_support_dir(support_dir.clone());
 
@@ -137,30 +137,30 @@ fn sqlite_profiles_do_not_require_username_or_host() {
 
 #[cfg(not(windows))]
 #[test]
-fn codux_db_wrapper_lists_project_profiles_without_secrets() {
+fn wecode_db_wrapper_lists_project_profiles_without_secrets() {
     use std::os::unix::fs::PermissionsExt;
     use std::process::Command;
 
-    let dir = std::env::temp_dir().join(format!("codux-db-wrapper-list-{}", Uuid::new_v4()));
+    let dir = std::env::temp_dir().join(format!("wecode-db-wrapper-list-{}", Uuid::new_v4()));
     let wrappers = dir.join("runtime-assets/scripts/wrappers");
     let bin = wrappers.join("bin");
     fs::create_dir_all(&bin).unwrap();
-    let wrapper = bin.join("codux-db");
-    let helper = wrappers.join("codux-wrapper-helper");
+    let wrapper = bin.join("wecode-db");
+    let helper = wrappers.join("wecode-wrapper-helper");
     let profiles = dir.join("db_profiles.json");
 
     fs::copy(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .unwrap()
-            .join("runtime-assets/scripts/wrappers/bin/codux-db"),
+            .join("runtime-assets/scripts/wrappers/bin/wecode-db"),
         &wrapper,
     )
     .unwrap();
     fs::write(
         &helper,
         "#!/bin/sh\n\
-         if [ \"$1\" != \"--codux-wrapper-helper\" ]; then exit 64; fi\n\
+         if [ \"$1\" != \"--wecode-wrapper-helper\" ]; then exit 64; fi\n\
          if [ \"$2\" != \"db-list-profiles\" ]; then exit 64; fi\n\
          printf '%s\\n' '{\"profiles\":[{\"id\":\"db-1\",\"name\":\"Production\",\"engine\":\"postgres\",\"database\":\"app\",\"endpoint\":\"db.example.com:5432/app\",\"readOnly\":true}]}'\n",
     )
@@ -192,14 +192,14 @@ fn codux_db_wrapper_lists_project_profiles_without_secrets() {
     let output = Command::new("zsh")
         .arg(&wrapper)
         .arg("list")
-        .env("CODUX_DB_PROFILES_FILE", &profiles)
-        .env("CODUX_DB_PROJECT_ID", "project-a")
+        .env("WECODE_DB_PROFILES_FILE", &profiles)
+        .env("WECODE_DB_PROJECT_ID", "project-a")
         .output()
         .unwrap();
 
     assert!(
         output.status.success(),
-        "codux-db list failed: {}",
+        "wecode-db list failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
     let stdout = String::from_utf8_lossy(&output.stdout);

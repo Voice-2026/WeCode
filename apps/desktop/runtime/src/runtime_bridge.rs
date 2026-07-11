@@ -143,7 +143,7 @@ fn stage_wrapper_helper(staged_root: &Path) -> Result<(), String> {
         .join(wrapper_helper_file_name());
     // Old versions staged the GUI desktop exe under the extensionless name.
     #[cfg(windows)]
-    let _ = fs::remove_file(staged_root.join("scripts/wrappers/codux-wrapper-helper"));
+    let _ = fs::remove_file(staged_root.join("scripts/wrappers/wecode-wrapper-helper"));
     #[cfg(all(windows, test))]
     {
         if let Some(parent) = helper_path.parent() {
@@ -170,7 +170,7 @@ fn stage_wrapper_helper(staged_root: &Path) -> Result<(), String> {
 
 #[cfg(windows)]
 fn wrapper_helper_file_name() -> &'static str {
-    "codux-wrapper-helper.exe"
+    "wecode-wrapper-helper.exe"
 }
 
 #[cfg(all(windows, not(test)))]
@@ -181,7 +181,7 @@ fn packaged_wrapper_helper_path() -> Option<PathBuf> {
         .join("runtime-root")
         .join("scripts")
         .join("wrappers")
-        .join("codux-wrapper-helper.exe");
+        .join("wecode-wrapper-helper.exe");
     helper_path.is_file().then_some(helper_path)
 }
 
@@ -190,13 +190,13 @@ fn sibling_wrapper_helper_path() -> Option<PathBuf> {
     let helper_path = std::env::current_exe()
         .ok()?
         .parent()?
-        .join("codux-wrapper-helper.exe");
+        .join("wecode-wrapper-helper.exe");
     helper_path.is_file().then_some(helper_path)
 }
 
 #[cfg(not(windows))]
 fn wrapper_helper_file_name() -> &'static str {
-    "codux-wrapper-helper"
+    "wecode-wrapper-helper"
 }
 
 fn copy_dir_recursive(source: &Path, destination: &Path) -> Result<(), String> {
@@ -316,7 +316,7 @@ mod tests {
     #[test]
     fn stage_runtime_assets_copies_nested_files() {
         let temp =
-            std::env::temp_dir().join(format!("codux-gpui-runtime-stage-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("wecode-gpui-runtime-stage-{}", Uuid::new_v4()));
         let source = temp.join("source");
         let target = temp.join("target");
         fs::create_dir_all(source.join("scripts/wrappers/bin")).unwrap();
@@ -352,7 +352,7 @@ mod tests {
     #[test]
     fn stage_runtime_assets_repairs_embedded_shell_hooks_when_source_omits_dotfiles() {
         let temp = std::env::temp_dir().join(format!(
-            "codux-gpui-runtime-stage-bootstrap-{}",
+            "wecode-gpui-runtime-stage-bootstrap-{}",
             Uuid::new_v4()
         ));
         let source = temp.join("source");

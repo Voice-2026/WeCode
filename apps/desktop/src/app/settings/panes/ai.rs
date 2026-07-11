@@ -10,7 +10,7 @@ pub(super) fn settings_ai_pane(
     testing_provider_id: Option<&str>,
     test_result: Option<&AIProviderTestResult>,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     let language = settings.language.as_str();
     let provider_rows = if settings.ai_providers.is_empty() {
@@ -274,13 +274,13 @@ pub(super) fn settings_ai_pane(
     .into_any_element()
 }
 pub(super) fn settings_ai_provider_card(
-    provider: codux_runtime::settings::AIProviderSummary,
+    provider: wecode_runtime::settings::AIProviderSummary,
     selected_provider_id: Option<&str>,
     testing_provider_id: Option<&str>,
     test_result: Option<&AIProviderTestResult>,
     language: &str,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     let _active = selected_provider_id
         .map(|id| id == provider.id)

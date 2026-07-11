@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:codux_flutter/services/terminal_buffer_retry.dart';
+import 'package:wecode_flutter/services/terminal_buffer_retry.dart';
 
 void main() {
   test('terminal buffer request retries until buffer is acknowledged', () {

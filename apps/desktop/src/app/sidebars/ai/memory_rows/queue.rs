@@ -4,7 +4,7 @@ pub(in crate::app::sidebars::ai) fn ai_memory_manager_queue_content(
     manager: &MemoryManagerSnapshot,
     language: &str,
     _window: &mut Window,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let queued = manager.extraction.queued.max(0);
     let running = manager.extraction.running.max(0);
@@ -80,7 +80,7 @@ pub(in crate::app::sidebars::ai) fn ai_memory_manager_queue_content(
 pub(in crate::app::sidebars::ai) fn ai_memory_queue_count_badge(
     label: String,
     count: i64,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     div()
         .rounded_full()
@@ -94,9 +94,9 @@ pub(in crate::app::sidebars::ai) fn ai_memory_queue_count_badge(
 }
 
 pub(in crate::app::sidebars::ai) fn ai_memory_queued_extraction_row(
-    task: codux_runtime::memory::MemoryExtractionTask,
+    task: wecode_runtime::memory::MemoryExtractionTask,
     language: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let clear_id = task.id.clone();
     let title = if task.session_id.trim().is_empty() {
@@ -180,11 +180,11 @@ pub(in crate::app::sidebars::ai) fn ai_memory_queued_extraction_row(
 }
 
 pub(in crate::app::sidebars::ai) fn ai_memory_manager_target_row(
-    target: codux_runtime::memory::MemoryManagerTargetRow,
+    target: wecode_runtime::memory::MemoryManagerTargetRow,
     selected_scope: &str,
     selected_project_id: Option<&str>,
     language: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let scope = target.scope.clone();
     let project_id = target.project_id.clone();
@@ -286,7 +286,7 @@ pub(in crate::app::sidebars::ai) fn ai_memory_manager_tab_button(
     label: impl Into<String>,
     tab: MemoryManagerTab,
     active_tab: MemoryManagerTab,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let label = label.into();
     let active = tab == active_tab;
@@ -330,10 +330,10 @@ pub(in crate::app::sidebars::ai) fn ai_memory_header_icon_button(
     icon: HeroIconName,
     tooltip: impl Into<String>,
     loading: bool,
-    cx: &mut Context<CoduxApp>,
-    on_click: impl Fn(&mut CoduxApp, &gpui::ClickEvent, &mut Window, &mut Context<CoduxApp>) + 'static,
+    cx: &mut Context<WeCodeApp>,
+    on_click: impl Fn(&mut WeCodeApp, &gpui::ClickEvent, &mut Window, &mut Context<WeCodeApp>) + 'static,
 ) -> impl IntoElement {
-    with_codux_tooltip(
+    with_wecode_tooltip(
         cx.entity(),
         format!("ai-memory-header-tooltip-{id}"),
         Button::new(id)
@@ -353,7 +353,7 @@ pub(in crate::app::sidebars::ai) fn ai_memory_header_icon_button(
 
 pub(in crate::app::sidebars::ai) fn ai_memory_section_label(
     label: String,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     div()
         .mt(px(12.0))
@@ -368,7 +368,7 @@ pub(in crate::app::sidebars::ai) fn ai_memory_migrate_project_button(
     manager: &MemoryManagerSnapshot,
     selected_project_id: Option<&str>,
     language: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let tooltip = ai_sidebar_text(
         language,
@@ -393,7 +393,7 @@ pub(in crate::app::sidebars::ai) fn ai_memory_migrate_project_button(
         .collect::<Vec<_>>();
     let app_entity = cx.entity();
 
-    with_codux_tooltip(
+    with_wecode_tooltip(
         cx.entity(),
         "ai-memory-migrate-project-memory-tooltip",
         Button::new("ai-memory-migrate-project-memory")
@@ -440,10 +440,10 @@ pub(in crate::app::sidebars::ai) fn ai_memory_migrate_project_button(
 }
 
 pub(in crate::app::sidebars::ai) fn ai_memory_project_profile_row(
-    profile: codux_runtime::memory::MemoryProjectProfileSummary,
+    profile: wecode_runtime::memory::MemoryProjectProfileSummary,
     refreshing: bool,
     language: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let label = ai_sidebar_text(
         language,
@@ -529,7 +529,7 @@ pub(in crate::app::sidebars::ai) fn ai_memory_project_profile_row(
 pub(in crate::app::sidebars::ai) fn ai_memory_project_profile_empty_row(
     refreshing: bool,
     language: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let label = ai_sidebar_text(
         language,
@@ -605,7 +605,7 @@ pub(in crate::app::sidebars::ai) fn ai_memory_project_profile_empty_row(
 
 pub(in crate::app::sidebars::ai) fn ai_memory_refreshing_label(
     language: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     div()
         .px(px(7.0))

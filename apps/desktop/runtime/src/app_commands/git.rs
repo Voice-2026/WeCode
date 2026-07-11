@@ -150,7 +150,7 @@ mod tests {
     #[test]
     fn git_remote_commands_delegate_to_runtime_git2_layer() {
         let support_dir =
-            std::env::temp_dir().join(format!("codux-app-command-git-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("wecode-app-command-git-{}", Uuid::new_v4()));
         let project_dir = support_dir.join("project");
         std::fs::create_dir_all(&project_dir).expect("project dir");
         let service = RuntimeService::new(support_dir.clone());

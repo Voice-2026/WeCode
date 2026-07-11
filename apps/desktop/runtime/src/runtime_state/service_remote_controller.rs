@@ -12,8 +12,8 @@
 const REMOTE_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(12);
 
 impl RuntimeService {
-    pub fn local_host_metrics(&self) -> codux_protocol::RemoteHostMetrics {
-        codux_runtime_live::host_metrics::sample_host_metrics()
+    pub fn local_host_metrics(&self) -> wecode_protocol::RemoteHostMetrics {
+        wecode_runtime_live::host_metrics::sample_host_metrics()
     }
 
     pub fn open_host_browser_url(
@@ -54,7 +54,7 @@ impl RuntimeService {
         )
     }
 
-    /// Pair with a remote host from a pasted `codux://pair` ticket, persist it,
+    /// Pair with a remote host from a pasted `wecode://pair` ticket, persist it,
     /// and cache the live connection.
     pub fn pair_remote_host(
         &self,
@@ -157,12 +157,12 @@ impl RuntimeService {
         path: Option<&str>,
         purpose: Option<&str>,
     ) -> Result<crate::remote::RemoteDirectoryListing, String> {
-        use codux_runtime_core::path::{FILE_LIST_DRIVES_SENTINEL, display_path};
+        use wecode_runtime_core::path::{FILE_LIST_DRIVES_SENTINEL, display_path};
         let show_hidden = purpose == Some("sshKey");
         // Volume list (the Windows "all drives" root): reuse the shared core
         // listing so local and remote browsing expose drives identically.
         if path.map(str::trim) == Some(FILE_LIST_DRIVES_SENTINEL) {
-            let value = codux_runtime_core::file::file_list_payload(path, purpose);
+            let value = wecode_runtime_core::file::file_list_payload(path, purpose);
             return Ok(local_directory_listing_from_payload(&value));
         }
         let dir = match path {
@@ -237,7 +237,7 @@ impl RuntimeService {
     pub fn remote_host_metrics(
         &self,
         device_id: &str,
-    ) -> Result<codux_protocol::RemoteHostMetrics, String> {
+    ) -> Result<wecode_protocol::RemoteHostMetrics, String> {
         self.remote_controllers
             .controller_for_blocking(device_id, REMOTE_CONNECT_TIMEOUT)?
             .host_metrics()
@@ -462,7 +462,7 @@ impl RuntimeService {
         };
         Some(controller.ai_stats(scope_id).map(|payload| {
             crate::ai_history::ai_current_session_views(
-                codux_runtime_core::ai_stats::current_sessions_from_payload(&payload),
+                wecode_runtime_core::ai_stats::current_sessions_from_payload(&payload),
                 include_cached,
             )
         }))
@@ -480,7 +480,7 @@ impl RuntimeService {
         let controller = self.remote_controllers.controller_for(&device_id).ok()?;
         let payload = controller.drain_pushed_ai_stats().pop()?;
         Some(crate::ai_history::ai_current_session_views(
-            codux_runtime_core::ai_stats::current_sessions_from_payload(&payload),
+            wecode_runtime_core::ai_stats::current_sessions_from_payload(&payload),
             include_cached,
         ))
     }
@@ -711,7 +711,7 @@ fn remote_file_entry(project_path: &str, entry: &serde_json::Value) -> FileEntry
 /// Step-up target for a local volume root as an `Option` for the picker listing:
 /// `Some(drive list)` on Windows, `None` on POSIX where `/` is the top.
 fn drive_root_parent() -> Option<String> {
-    let parent = codux_runtime_core::path::drive_root_parent();
+    let parent = wecode_runtime_core::path::drive_root_parent();
     (!parent.is_empty()).then_some(parent)
 }
 

@@ -60,7 +60,7 @@ mod tests {
     #[test]
     fn ssh_profile_commands_upsert_delete_and_test_without_real_connection() {
         let support_dir =
-            std::env::temp_dir().join(format!("codux-app-command-ssh-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("wecode-app-command-ssh-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&support_dir).expect("support dir");
         let service = RuntimeService::new(support_dir.clone());
         let request = SSHProfileUpsertRequest {
@@ -85,14 +85,14 @@ mod tests {
         assert_eq!(profiles.profiles[0].id, "profile-1");
 
         let launch = ssh_launch_command(&service, "profile-1".to_string()).expect("launch command");
-        assert!(launch.command.contains("codux-ssh"));
+        assert!(launch.command.contains("wecode-ssh"));
         assert!(launch.command.contains("profile-1"));
-        assert!(launch.log_command.contains("codux-ssh"));
+        assert!(launch.log_command.contains("wecode-ssh"));
         assert!(launch.log_command.contains("profile-1"));
 
         let test_error = ssh_profile_test(&service, request, support_dir.join("missing-bin"))
             .expect_err("missing wrapper should fail before connecting");
-        assert!(test_error.contains("codux-ssh wrapper is not ready"));
+        assert!(test_error.contains("wecode-ssh wrapper is not ready"));
 
         let snapshot =
             ssh_profile_delete(&service, "profile-1".to_string()).expect("delete profile");

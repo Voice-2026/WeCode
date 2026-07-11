@@ -1,4 +1,4 @@
-# Codux Remote Protocol v3.2
+# WeCode Remote Protocol v3.2
 
 This document records the wire semantics implemented by the desktop host,
 headless agent host, and mobile/desktop controllers. It is the compatibility

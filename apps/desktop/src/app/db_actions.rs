@@ -1,7 +1,7 @@
 use super::*;
 use crate::app::app_events::{ChildWindowUpdateKind, publish_child_window_update};
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn db_text(&self, key: &str, fallback: &str) -> String {
         let locale = locale_from_language_setting(&self.state.settings.language);
         translate(&locale, key, fallback)
@@ -259,7 +259,7 @@ impl CoduxApp {
             ok: true,
         });
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let result = codux_runtime::async_runtime::spawn_blocking(move || {
+            let result = wecode_runtime::async_runtime::spawn_blocking(move || {
                 service.test_db_profile(request, runtime_root)
             })
             .await
@@ -293,7 +293,7 @@ impl CoduxApp {
 
     pub(super) fn copy_db_command(&mut self, profile_id: String, cx: &mut Context<Self>) {
         let command = format!(
-            "codux-db '{}' -- 'SELECT 1;'",
+            "wecode-db '{}' -- 'SELECT 1;'",
             profile_id.replace('\'', "'\\''")
         );
         cx.write_to_clipboard(ClipboardItem::new_string(command));

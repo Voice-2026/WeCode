@@ -280,9 +280,9 @@ function Codex-Profile-Name([string]$Seed) {
     $bytes = [Text.Encoding]::UTF8.GetBytes($Seed)
     $hash = [Security.Cryptography.SHA256]::Create().ComputeHash($bytes)
     $hex = -join ($hash | ForEach-Object { $_.ToString("x2") })
-    return "codux-runtime-$($hex.Substring(0, 16))"
+    return "wecode-runtime-$($hex.Substring(0, 16))"
   } catch {
-    return "codux-runtime-$([Guid]::NewGuid().ToString("N").Substring(0, 16))"
+    return "wecode-runtime-$([Guid]::NewGuid().ToString("N").Substring(0, 16))"
   }
 }
 
@@ -489,7 +489,7 @@ function Seed-Console-Color-Table([uint32]$Foreground, [uint32]$Background) {
   # reads conhost's legacy 16-color table: rewrite the two entries behind the
   # default attributes so that fallback also reports the app theme colors.
   try {
-    Add-Type -Namespace CoduxWrapper -Name ConsoleColorSeed -ErrorAction Stop -MemberDefinition @'
+    Add-Type -Namespace WeCodeWrapper -Name ConsoleColorSeed -ErrorAction Stop -MemberDefinition @'
 [StructLayout(LayoutKind.Sequential)]
 public struct Coord { public short X; public short Y; }
 [StructLayout(LayoutKind.Sequential)]
@@ -526,7 +526,7 @@ public static bool Seed(uint foreground, uint background) {
   return SetConsoleScreenBufferInfoEx(handle, ref info);
 }
 '@
-    if (-not [CoduxWrapper.ConsoleColorSeed]::Seed($Foreground, $Background)) {
+    if (-not [WeCodeWrapper.ConsoleColorSeed]::Seed($Foreground, $Background)) {
       Write-Live-Log "console color table seed failed"
     }
   } catch {

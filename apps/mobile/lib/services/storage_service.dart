@@ -3,11 +3,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/remote_models.dart';
 
 class StorageService {
-  static const devicesKey = 'codux.mobile.devices';
-  static const singleDeviceKey = 'codux.mobile.device';
-  static const lastDeviceIdKey = 'codux.mobile.last_device_id';
-  static const settingsKey = 'codux.mobile.settings';
-  static const projectCachePrefix = 'codux.mobile.projects';
+  static const devicesKey = 'wecode.mobile.devices';
+  static const singleDeviceKey = 'wecode.mobile.device';
+  static const lastDeviceIdKey = 'wecode.mobile.last_device_id';
+  static const settingsKey = 'wecode.mobile.settings';
+  static const projectCachePrefix = 'wecode.mobile.projects';
 
   Future<List<StoredDevice>> loadDevices() async {
     final prefs = await SharedPreferences.getInstance();

@@ -1,5 +1,5 @@
-import 'package:codux_flutter/models/remote_models.dart';
-import 'package:codux_flutter/services/mobile_settings_controller.dart';
+import 'package:wecode_flutter/models/remote_models.dart';
+import 'package:wecode_flutter/services/mobile_settings_controller.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -14,7 +14,7 @@ void main() {
       }),
       'Pixel',
     );
-    expect(controller.detectedNameFromDeviceInfo({}), 'Codux Mobile');
+    expect(controller.detectedNameFromDeviceInfo({}), 'WeCode Mobile');
   });
 
   test('uses stored settings when available', () {

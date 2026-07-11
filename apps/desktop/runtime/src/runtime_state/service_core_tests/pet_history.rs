@@ -32,7 +32,7 @@ fn indexed_pet_totals_are_filtered_to_active_project_workspaces() {
 #[test]
 fn pet_refresh_uses_runtime_support_dir_history_store() {
     let support_dir = std::env::temp_dir().join(format!(
-        "codux-pet-runtime-history-store-{}",
+        "wecode-pet-runtime-history-store-{}",
         uuid::Uuid::new_v4()
     ));
     let _ = fs::remove_dir_all(&support_dir);
@@ -56,7 +56,7 @@ fn pet_refresh_uses_runtime_support_dir_history_store() {
 
     let mut pet_snapshot = crate::pet::PetSnapshot {
         claimed_at: Some(1),
-        species: "codux".to_string(),
+        species: "wecode".to_string(),
         global_normalized_total_watermark: Some(100),
         total_normalized_tokens: 100,
         ..crate::pet::PetSnapshot::default()

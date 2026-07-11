@@ -14,22 +14,22 @@ if (!version || !armSha256 || !intelSha256 || !outputPath) {
 fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 fs.writeFileSync(
   outputPath,
-  `cask "codux" do
+  `cask "wecode" do
   version "${version}"
 
   on_arm do
     sha256 "${armSha256}"
-    url "https://github.com/duxweb/codux/releases/download/v#{version}/codux-#{version}-macos-aarch64.dmg"
+    url "https://github.com/duxweb/wecode/releases/download/v#{version}/wecode-#{version}-macos-aarch64.dmg"
   end
 
   on_intel do
     sha256 "${intelSha256}"
-    url "https://github.com/duxweb/codux/releases/download/v#{version}/codux-#{version}-macos-x86_64.dmg"
+    url "https://github.com/duxweb/wecode/releases/download/v#{version}/wecode-#{version}-macos-x86_64.dmg"
   end
 
-  name "Codux"
+  name "WeCode"
   desc "Native terminal workspace for AI coding tools"
-  homepage "https://github.com/duxweb/codux"
+  homepage "https://github.com/duxweb/wecode"
 
   livecheck do
     url :url
@@ -38,14 +38,14 @@ fs.writeFileSync(
 
   depends_on macos: ">= :sonoma"
 
-  app "Codux.app"
+  app "WeCode.app"
 
   zap trash: [
-    "~/Library/Application Support/Codux",
-    "~/Library/Caches/com.duxweb.codux",
-    "~/Library/HTTPStorages/com.duxweb.codux",
-    "~/Library/Preferences/com.duxweb.codux.plist",
-    "~/Library/Saved Application State/com.duxweb.codux.savedState",
+    "~/Library/Application Support/WeCode",
+    "~/Library/Caches/com.duxweb.wecode",
+    "~/Library/HTTPStorages/com.duxweb.wecode",
+    "~/Library/Preferences/com.duxweb.wecode.plist",
+    "~/Library/Saved Application State/com.duxweb.wecode.savedState",
   ]
 end
 `,

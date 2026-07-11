@@ -733,11 +733,11 @@ mod git_cancel_tests {
     #[test]
     fn project_git_cancel_marks_active_token() {
         let support_dir = std::env::temp_dir().join(format!(
-            "codux-runtime-service-git-cancel-{}",
+            "wecode-runtime-service-git-cancel-{}",
             uuid::Uuid::new_v4()
         ));
         let service = RuntimeService::new(support_dir);
-        let project_path = "/tmp/codux-runtime-service-git-cancel-project/";
+        let project_path = "/tmp/wecode-runtime-service-git-cancel-project/";
         let token = service.create_git_cancel_token(project_path);
 
         service.cancel_project_git(project_path).unwrap();
@@ -750,8 +750,8 @@ mod git_cancel_tests {
     #[test]
     fn git_cancel_key_matches_tauri_normalization() {
         assert_eq!(
-            git_cancel_key("/tmp/codux-project///"),
-            "/tmp/codux-project"
+            git_cancel_key("/tmp/wecode-project///"),
+            "/tmp/wecode-project"
         );
     }
 }

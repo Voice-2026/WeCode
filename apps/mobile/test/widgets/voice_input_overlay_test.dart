@@ -1,9 +1,9 @@
 import 'dart:async';
 
-import 'package:codux_flutter/i18n.dart';
-import 'package:codux_flutter/services/local_voice_recognition_service.dart';
-import 'package:codux_flutter/theme/app_theme.dart';
-import 'package:codux_flutter/widgets/components/voice_input_overlay.dart';
+import 'package:wecode_flutter/i18n.dart';
+import 'package:wecode_flutter/services/local_voice_recognition_service.dart';
+import 'package:wecode_flutter/theme/app_theme.dart';
+import 'package:wecode_flutter/widgets/components/voice_input_overlay.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 

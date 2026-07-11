@@ -31,7 +31,7 @@ impl RemoteHostRuntime {
             return false;
         };
         let bytes = data.into_bytes();
-        let ok = if codux_protocol::is_terminal_stream_message(kind) {
+        let ok = if wecode_protocol::is_terminal_stream_message(kind) {
             transport.send_terminal(bytes, device_id)
         } else {
             transport.send(bytes, device_id)
@@ -235,7 +235,7 @@ impl RemoteHostRuntime {
             })
             .map(|(node_id, relay_url, ticket)| {
                 vec![
-                    codux_protocol::iroh_transport_candidate_with_ticket_and_authentication(
+                    wecode_protocol::iroh_transport_candidate_with_ticket_and_authentication(
                         relay,
                         node_id,
                         relay_url,

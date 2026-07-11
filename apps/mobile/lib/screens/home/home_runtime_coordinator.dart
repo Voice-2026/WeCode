@@ -81,8 +81,8 @@ class HomeRuntimeCoordinator {
         plan.requestProjectSelectId != null ||
         plan.bindSessionId != null ||
         plan.removedSessionId != null) {
-      CoduxLog.info(
-        '[codux-flutter-runtime] plan reason=$reason state=${plan.stateChanged} clear=${plan.clearTerminal} resetBuffer=${plan.resetTerminalBuffer} requestTerminalList=${plan.requestTerminalList} requestProjectSelect=${plan.requestProjectSelectId ?? ''} bind=${plan.bindSessionId ?? ''} beforeProject=${previous.selectedProjectId ?? ''} beforeWorktree=${previous.selectedWorktreeId ?? ''} beforeSession=${previous.sessionId ?? ''}',
+      WeCodeLog.info(
+        '[wecode-flutter-runtime] plan reason=$reason state=${plan.stateChanged} clear=${plan.clearTerminal} resetBuffer=${plan.resetTerminalBuffer} requestTerminalList=${plan.requestTerminalList} requestProjectSelect=${plan.requestProjectSelectId ?? ''} bind=${plan.bindSessionId ?? ''} beforeProject=${previous.selectedProjectId ?? ''} beforeWorktree=${previous.selectedWorktreeId ?? ''} beforeSession=${previous.sessionId ?? ''}',
       );
     }
     if (plan.removedSessionId != null) {
@@ -106,8 +106,8 @@ class HomeRuntimeCoordinator {
     if (previous.sessionId != next.sessionId ||
         previous.selectedProjectId != next.selectedProjectId ||
         previous.selectedWorktreeId != next.selectedWorktreeId) {
-      CoduxLog.info(
-        '[codux-flutter-runtime] state reason=$reason project=${previous.selectedProjectId ?? ''}->${next.selectedProjectId ?? ''} worktree=${previous.selectedWorktreeId ?? ''}->${next.selectedWorktreeId ?? ''} session=${previous.sessionId ?? ''}->${next.sessionId ?? ''}',
+      WeCodeLog.info(
+        '[wecode-flutter-runtime] state reason=$reason project=${previous.selectedProjectId ?? ''}->${next.selectedProjectId ?? ''} worktree=${previous.selectedWorktreeId ?? ''}->${next.selectedWorktreeId ?? ''} session=${previous.sessionId ?? ''}->${next.sessionId ?? ''}',
       );
     }
     if (plan.bindSessionId != null &&
@@ -126,8 +126,8 @@ class HomeRuntimeCoordinator {
       sendProjectSelect(plan.requestProjectSelectId!, reason: reason);
     }
     if (plan.bindSessionId != null && !remoteProtocolReady) {
-      CoduxLog.debug(
-        '[codux-flutter-terminal] defer bind session=${plan.bindSessionId} reason=$reason protocolReady=false',
+      WeCodeLog.debug(
+        '[wecode-flutter-terminal] defer bind session=${plan.bindSessionId} reason=$reason protocolReady=false',
       );
       return;
     }
@@ -165,8 +165,8 @@ class HomeRuntimeCoordinator {
       capability: terminalBufferCapability,
       restored: restored,
     );
-    CoduxLog.info(
-      '[codux-flutter-terminal] bind session=$bindSessionId project=${boundProjectId ?? ''} cached=${bindResult.restored}',
+    WeCodeLog.info(
+      '[wecode-flutter-terminal] bind session=$bindSessionId project=${boundProjectId ?? ''} cached=${bindResult.restored}',
     );
     focusTerminalViewSoon();
     final evicted = outputController.evictInactiveSessions(bindSessionId);
@@ -175,8 +175,8 @@ class HomeRuntimeCoordinator {
       terminalBindingCoordinator.markSessionBaselineStale(sessionId);
     }
     if (evicted.isNotEmpty) {
-      CoduxLog.info(
-        '[codux-flutter-terminal] evict inactive sessions=${evicted.length} keep=$bindSessionId',
+      WeCodeLog.info(
+        '[wecode-flutter-terminal] evict inactive sessions=${evicted.length} keep=$bindSessionId',
       );
     }
     if (bindResult.baselineRequested) {

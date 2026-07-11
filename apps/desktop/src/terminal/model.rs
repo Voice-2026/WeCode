@@ -68,7 +68,7 @@ impl TerminalModel {
             Arc::new(Mutex::new(Box::new(stdin_writer)));
         // The engine answers VT queries (DSR/CPR, DECRQM, DA, ...) itself;
         // replies are forwarded straight to the PTY from the worker thread.
-        let responder: codux_terminal_core::TerminalPtyResponder = {
+        let responder: wecode_terminal_core::TerminalPtyResponder = {
             let writer = stdin_writer.clone();
             Arc::new(move |bytes: &[u8]| {
                 let mut writer = writer.lock();
@@ -85,10 +85,10 @@ impl TerminalModel {
         // Transient engine events (OSC 52 stores, BEL) hop from the worker
         // thread to the UI thread, where clipboard and bell live.
         let (engine_event_tx, engine_event_rx) =
-            flume::unbounded::<codux_terminal_core::TerminalScreenEvent>();
+            flume::unbounded::<wecode_terminal_core::TerminalScreenEvent>();
         screen
             .lock()
-            .set_event_sink(Arc::new(move |event: codux_terminal_core::TerminalScreenEvent| {
+            .set_event_sink(Arc::new(move |event: wecode_terminal_core::TerminalScreenEvent| {
                 let _ = engine_event_tx.send(event);
             }));
         cx.spawn(async move |this: WeakEntity<Self>, cx| {
@@ -105,11 +105,11 @@ impl TerminalModel {
         if let Some(restored_output) = restored_output.as_ref()
             && !restored_output.tail.is_empty()
         {
-            let restored_text = codux_terminal_core::terminal_legacy_output_plain_text(
+            let restored_text = wecode_terminal_core::terminal_legacy_output_plain_text(
                 &restored_output.tail,
             );
             screen.lock().process_replay(restored_text.as_bytes());
-            codux_runtime::runtime_trace::runtime_trace(
+            wecode_runtime::runtime_trace::runtime_trace(
                 "terminal-restore",
                 &format!(
                     "restored_bootstrap tail_bytes={} total_bytes={}",
@@ -482,14 +482,14 @@ impl TerminalModel {
 
     fn handle_engine_event(
         &mut self,
-        event: codux_terminal_core::TerminalScreenEvent,
+        event: wecode_terminal_core::TerminalScreenEvent,
         cx: &mut Context<Self>,
     ) {
         match event {
-            codux_terminal_core::TerminalScreenEvent::ClipboardStore(text) => {
+            wecode_terminal_core::TerminalScreenEvent::ClipboardStore(text) => {
                 cx.write_to_clipboard(ClipboardItem::new_string(text));
             }
-            codux_terminal_core::TerminalScreenEvent::Bell => self.on_bell(),
+            wecode_terminal_core::TerminalScreenEvent::Bell => self.on_bell(),
         }
     }
 
@@ -663,7 +663,7 @@ impl TerminalModel {
         self.snapshot_publish_pending = true;
         let started_at = Instant::now();
         cx.spawn(async move |this: WeakEntity<Self>, cx| {
-            let snapshot = codux_runtime::async_runtime::spawn_blocking(move || request.snapshot())
+            let snapshot = wecode_runtime::async_runtime::spawn_blocking(move || request.snapshot())
                 .await
                 .ok();
             let _ = this.update(cx, |model, cx| {
@@ -1033,7 +1033,7 @@ impl TerminalModel {
         // lags it, and an unbracketed multi-line paste into a shell executes
         // every line. Pastes are rare user actions, so the blocking worker
         // round-trip is acceptable.
-        self.write_bytes(&codux_terminal_core::terminal_paste_input_bytes(
+        self.write_bytes(&wecode_terminal_core::terminal_paste_input_bytes(
             text,
             self.handle.live_input_mode().bracketed_paste,
         ));
@@ -1111,7 +1111,7 @@ impl TerminalModel {
     ) -> Self {
         let model = Self::new_for_test(cols, rows, scrollback);
         if !restored_output.tail.is_empty() {
-            let restored_text = codux_terminal_core::terminal_legacy_output_plain_text(
+            let restored_text = wecode_terminal_core::terminal_legacy_output_plain_text(
                 &restored_output.tail,
             );
             model
@@ -1242,7 +1242,7 @@ fn trace_snapshot_publish_result(
     if elapsed < TERMINAL_SNAPSHOT_PUBLISH_SLOW && !terminal_trace_enabled() {
         return;
     }
-    codux_runtime::runtime_trace::runtime_trace(
+    wecode_runtime::runtime_trace::runtime_trace(
         "terminal-render",
         &format!(
             "{label} elapsed_ms={} cols={} rows={} cells={} dirty_queued={}",

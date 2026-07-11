@@ -96,7 +96,7 @@ impl NotificationService {
                 }],
                 title: "Test".to_string(),
                 body: format!("Test succeeded: {label}"),
-                group: "codux-test".to_string(),
+                group: "wecode-test".to_string(),
             },
         ))
     }

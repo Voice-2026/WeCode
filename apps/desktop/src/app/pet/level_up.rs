@@ -1,6 +1,6 @@
 use super::*;
 
-impl CoduxApp {
+impl WeCodeApp {
     /// Full-screen level-up celebration: dark scrim, halo rings, confetti,
     /// the pet popping in, and the new level. Click anywhere dismisses.
     pub(in crate::app) fn pet_level_up_overlay(

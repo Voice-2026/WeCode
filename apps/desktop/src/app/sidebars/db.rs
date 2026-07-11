@@ -1,13 +1,13 @@
 use super::*;
-use crate::app::ui_helpers::with_codux_tooltip;
-use codux_runtime::{i18n::translate, settings::locale_from_language_setting};
+use crate::app::ui_helpers::with_wecode_tooltip;
+use wecode_runtime::{i18n::translate, settings::locale_from_language_setting};
 
 pub(in crate::app) fn db_section(
     db: &DBSummary,
     selected_profile_id: Option<&str>,
     language: &str,
     _window: &mut Window,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let locale = locale_from_language_setting(language);
     let title = translate(&locale, "db.panel.title", "Databases");
@@ -81,7 +81,7 @@ pub(in crate::app) fn db_section(
         )
 }
 
-fn db_empty_state(label: String, cx: &mut Context<CoduxApp>) -> impl IntoElement {
+fn db_empty_state(label: String, cx: &mut Context<WeCodeApp>) -> impl IntoElement {
     div()
         .size_full()
         .flex()
@@ -121,7 +121,7 @@ fn db_profile_row(
     copy_label: String,
     read_only_label: String,
     read_write_label: String,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let active = selected_profile_id
         .map(|id| id == profile.id)
@@ -204,7 +204,7 @@ fn db_profile_row(
                         )),
                 ),
         )
-        .child(with_codux_tooltip(
+        .child(with_wecode_tooltip(
             cx.entity(),
             format!("db-copy-tooltip-{}", profile.id),
             Button::new(SharedString::from(format!("db-copy-{}", profile.id)))

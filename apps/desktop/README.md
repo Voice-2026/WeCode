@@ -1,6 +1,6 @@
-# Codux Desktop
+# WeCode Desktop
 
-Codux Desktop is the Rust + GPUI application. It is the primary controller UI and can also act as a remote controlled host for mobile, desktop, and future headless peers.
+WeCode Desktop is the Rust + GPUI application. It is the primary controller UI and can also act as a remote controlled host for mobile, desktop, and future headless peers.
 
 ## Responsibilities
 
@@ -14,11 +14,11 @@ Codux Desktop is the Rust + GPUI application. It is the primary controller UI an
 
 Desktop should reuse:
 
-- `crates/codux-protocol` for protocol constants and wire payload helpers.
-- `crates/codux-remote-transport` for Iroh transport drivers.
-- `crates/codux-runtime-core` for reusable runtime-domain payload and subscription logic.
-- `crates/codux-terminal-core` for terminal model traits and remote terminal semantics.
-- `crates/codux-terminal-pty` as the shared local PTY driver target for future delegation.
+- `crates/wecode-protocol` for protocol constants and wire payload helpers.
+- `crates/wecode-remote-transport` for Iroh transport drivers.
+- `crates/wecode-runtime-core` for reusable runtime-domain payload and subscription logic.
+- `crates/wecode-terminal-core` for terminal model traits and remote terminal semantics.
+- `crates/wecode-terminal-pty` as the shared local PTY driver target for future delegation.
 
 `runtime/` still contains desktop-specific runtime policy, but new cross-platform logic should move into shared crates first.
 
@@ -28,9 +28,9 @@ From the repository root:
 
 ```bash
 just desktop
-cargo run -p codux
-cargo test -p codux
-cargo test -p codux-runtime
+cargo run -p wecode
+cargo test -p wecode
+cargo test -p wecode-runtime
 ```
 
 Release packaging scripts live in `scripts/release/`.

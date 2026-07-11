@@ -5,7 +5,7 @@ part of '../home_page.dart';
 /// runtime-plan application.
 ///
 /// Split into a part + extension to keep the State class navigable; behaviour
-/// is unchanged. Rebuilds route through [_CoduxHomePageState._applyState]
+/// is unchanged. Rebuilds route through [_WeCodeHomePageState._applyState]
 /// (`setState` is `@protected` and cannot be called from an extension).
 extension _HomePageSync on HomeController {
   void _mountVisibleTerminal({required String reason}) {
@@ -13,8 +13,8 @@ extension _HomePageSync on HomeController {
     if (sessionId == null || _workspaceMode != WorkspaceMode.terminal) return;
     if (!_terminalViewportClaimable) return;
     final restored = _restoreTerminalSessionFromCache(sessionId);
-    CoduxLog.debug(
-      '[codux-flutter-terminal] mount session=$sessionId reason=$reason cached=$restored',
+    WeCodeLog.debug(
+      '[wecode-flutter-terminal] mount session=$sessionId reason=$reason cached=$restored',
     );
     _focusTerminalViewSoon();
     if (restored) {
@@ -85,8 +85,8 @@ extension _HomePageSync on HomeController {
           return;
         }
         _remoteSync.markProjectListRequested();
-        CoduxLog.info(
-          '[codux-flutter-projects] request project.list attempt=$_projectListRetryAttempt',
+        WeCodeLog.info(
+          '[wecode-flutter-projects] request project.list attempt=$_projectListRetryAttempt',
         );
         _scheduleProjectListRetry();
       },
@@ -103,8 +103,8 @@ extension _HomePageSync on HomeController {
     _projectListRetryTimer = Timer(delay, () {
       if (!mounted || !_transportReady || _projectListLoaded) return;
       final attempt = _remoteSync.nextProjectListRetryAttempt();
-      CoduxLog.info(
-        '[codux-flutter-projects] retry project.list attempt=$attempt',
+      WeCodeLog.info(
+        '[wecode-flutter-projects] retry project.list attempt=$attempt',
       );
       _requestProjectList();
     });
@@ -114,7 +114,7 @@ extension _HomePageSync on HomeController {
     _remoteSync.markProjectListReceived();
     _projectListRetryTimer?.cancel();
     _projectListRetryTimer = null;
-    CoduxLog.debug('[codux-flutter-projects] project.list received');
+    WeCodeLog.debug('[wecode-flutter-projects] project.list received');
   }
 
   void _requestTerminalList({bool resetRetry = false}) {
@@ -133,8 +133,8 @@ extension _HomePageSync on HomeController {
           return;
         }
         _remoteSync.markTerminalListRequested();
-        CoduxLog.info(
-          '[codux-flutter-terminal] request terminal.list attempt=$_terminalListRetryAttempt',
+        WeCodeLog.info(
+          '[wecode-flutter-terminal] request terminal.list attempt=$_terminalListRetryAttempt',
         );
         _scheduleTerminalListRetry();
       },
@@ -170,8 +170,8 @@ extension _HomePageSync on HomeController {
     _terminalListRetryTimer = Timer(delay, () {
       if (!mounted || !_transportReady || _terminalListLoaded) return;
       final attempt = _remoteSync.nextTerminalListRetryAttempt();
-      CoduxLog.info(
-        '[codux-flutter-terminal] retry terminal.list attempt=$attempt',
+      WeCodeLog.info(
+        '[wecode-flutter-terminal] retry terminal.list attempt=$attempt',
       );
       _requestTerminalList();
     });
@@ -181,7 +181,7 @@ extension _HomePageSync on HomeController {
     _remoteSync.markTerminalListReceived();
     _terminalListRetryTimer?.cancel();
     _terminalListRetryTimer = null;
-    CoduxLog.debug('[codux-flutter-terminal] terminal.list received');
+    WeCodeLog.debug('[wecode-flutter-terminal] terminal.list received');
   }
 
   void _markActiveDeviceResponsive() {
@@ -198,8 +198,8 @@ extension _HomePageSync on HomeController {
       if (scope?.projectPath != null && scope!.projectPath!.trim().isNotEmpty)
         'projectPath': scope.projectPath!,
     };
-    CoduxLog.info(
-      '[codux-flutter-projects] send project.select reason=$reason project=$projectId worktree=${payload['worktreeId'] ?? ''}',
+    WeCodeLog.info(
+      '[wecode-flutter-projects] send project.select reason=$reason project=$projectId worktree=${payload['worktreeId'] ?? ''}',
     );
     final sent = _send(
       RelayEnvelope(type: RemoteMessageType.projectSelect, payload: payload),
@@ -210,16 +210,16 @@ extension _HomePageSync on HomeController {
         }
         _remoteRuntime.clearPendingProjectSelectSent(projectId);
         if (!mounted || _disposing) return;
-        CoduxLog.warn(
-          '[codux-flutter-projects] project.select delivery failed reason=$reason project=$projectId result=${result.name}',
+        WeCodeLog.warn(
+          '[wecode-flutter-projects] project.select delivery failed reason=$reason project=$projectId result=${result.name}',
         );
       },
     );
     if (sent) {
       _remoteRuntime.markProjectSelectSent(projectId);
     } else {
-      CoduxLog.warn(
-        '[codux-flutter-projects] project.select not sent reason=$reason project=$projectId connected=$_transportConnected ready=$_transportReady',
+      WeCodeLog.warn(
+        '[wecode-flutter-projects] project.select not sent reason=$reason project=$projectId connected=$_transportConnected ready=$_transportReady',
       );
     }
     return sent;
@@ -233,8 +233,8 @@ extension _HomePageSync on HomeController {
       if (_remoteRuntime.pendingProjectSelect(includeSent: true) != projectId) {
         return;
       }
-      CoduxLog.warn(
-        '[codux-flutter-projects] project.select ack timeout project=$projectId',
+      WeCodeLog.warn(
+        '[wecode-flutter-projects] project.select ack timeout project=$projectId',
       );
       _remoteRuntime.clearPendingProjectSelectSent(projectId);
       _drivePendingProjectSelect(reason: 'ack-timeout');
@@ -322,7 +322,7 @@ extension _HomePageSync on HomeController {
     try {
       await _storage.saveCachedProjects(device, projects);
     } catch (error) {
-      CoduxLog.warn('[codux-flutter-projects] cache save failed: $error');
+      WeCodeLog.warn('[wecode-flutter-projects] cache save failed: $error');
     }
   }
 

@@ -19,7 +19,7 @@ fn desktop_pet_action_status(action_id: &str) -> &'static str {
     }
 }
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(super) fn new_desktop_pet_window_from_state(
         state: RuntimeState,
         runtime: RuntimeInventory,
@@ -373,7 +373,7 @@ impl CoduxApp {
                 macos_window::make_desktop_pet_window_transparent(window);
                 #[cfg(any(target_os = "macos", target_os = "windows"))]
                 macos_window::sync_desktop_pet_mouse_passthrough(window);
-                let app = CoduxApp::new_desktop_pet_window_from_state(
+                let app = WeCodeApp::new_desktop_pet_window_from_state(
                     self.state.clone(),
                     self.runtime.clone(),
                     self.runtime_service.clone(),
@@ -386,7 +386,7 @@ impl CoduxApp {
                     cx,
                 );
                 #[cfg(any(target_os = "macos", target_os = "windows"))]
-                let window_handle = window.window_handle().downcast::<CoduxApp>();
+                let window_handle = window.window_handle().downcast::<WeCodeApp>();
                 let view = cx.new(|_| app);
                 view.update(cx, |app, cx| {
                     app.parent_main_window = Some(parent_main_window);
@@ -668,8 +668,8 @@ impl CoduxApp {
         let facts = context.facts.clone();
         let tone = context.tone;
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let request = codux_runtime::llm::PetIdleSpeechRequest { event, facts };
-            let result = codux_runtime::async_runtime::spawn_blocking(move || {
+            let request = wecode_runtime::llm::PetIdleSpeechRequest { event, facts };
+            let result = wecode_runtime::async_runtime::spawn_blocking(move || {
                 service.pet_idle_speech(request)
             })
             .await
@@ -698,7 +698,7 @@ impl CoduxApp {
         key: String,
         tone: DesktopPetActivityTone,
         generation: u64,
-        result: Result<codux_runtime::llm::PetIdleSpeechResponse, String>,
+        result: Result<wecode_runtime::llm::PetIdleSpeechResponse, String>,
         cx: &mut Context<Self>,
     ) {
         // Drop a response that a newer dispatch has superseded -- it must not
@@ -738,14 +738,14 @@ impl CoduxApp {
         action: &'static str,
         status: String,
         task: impl FnOnce(RuntimeService) -> Result<(), String> + Send + 'static,
-        after_success: impl FnOnce(&mut CoduxApp, &mut Context<CoduxApp>) + 'static,
+        after_success: impl FnOnce(&mut WeCodeApp, &mut Context<WeCodeApp>) + 'static,
         cx: &mut Context<Self>,
     ) {
         let service = self.runtime_service.clone();
         self.runtime_trace("pet", &format!("{action} queued"));
         self.status_message = status;
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let result = codux_runtime::async_runtime::run_limited_blocking(move || {
+            let result = wecode_runtime::async_runtime::run_limited_blocking(move || {
                 service.runtime_trace_frontend("pet", &format!("{action} start"));
                 let result = task(service.clone());
                 match &result {
@@ -817,7 +817,7 @@ impl CoduxApp {
         self.invalidate_ui_region(cx, UiRegion::Root);
 
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let result = codux_runtime::async_runtime::run_limited_blocking(move || {
+            let result = wecode_runtime::async_runtime::run_limited_blocking(move || {
                 service.runtime_trace_frontend(
                     "desktop-pet",
                     &format!("menu_action start action={action_id}"),
@@ -895,8 +895,8 @@ impl CoduxApp {
             "help:export-diagnostics" => self.export_diagnostics(cx),
             "help:runtime-log" => self.open_runtime_log(cx),
             "help:live-log" => self.open_live_log(cx),
-            "help:website" => self.open_codux_website(cx),
-            "help:github" => self.open_codux_github(cx),
+            "help:website" => self.open_wecode_website(cx),
+            "help:github" => self.open_wecode_github(cx),
             _ => {}
         }
     }
@@ -959,7 +959,7 @@ impl CoduxApp {
         ));
         let window_handle = window.window_handle();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let result = codux_runtime::async_runtime::spawn(async move {
+            let result = wecode_runtime::async_runtime::spawn(async move {
                 service.resolve_custom_pet_install(request).await
             })
             .await
@@ -1068,7 +1068,7 @@ impl CoduxApp {
         self.pet_install_error = None;
         self.status_message = "custom pet install started".to_string();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let result = codux_runtime::async_runtime::spawn(async move {
+            let result = wecode_runtime::async_runtime::spawn(async move {
                 let custom_pet = service.install_custom_pet(request).await?;
                 Ok((
                     service.reload_pet(),
@@ -1321,11 +1321,11 @@ impl CoduxApp {
         let side = self
             .runtime_service
             .desktop_pet_placement(
-                codux_runtime::desktop_pet::DesktopPetPhysicalPosition {
+                wecode_runtime::desktop_pet::DesktopPetPhysicalPosition {
                     x: bounds.origin.x.to_f64(),
                     y: bounds.origin.y.to_f64(),
                 },
-                codux_runtime::desktop_pet::DesktopPetPhysicalSize {
+                wecode_runtime::desktop_pet::DesktopPetPhysicalSize {
                     width: bounds.size.width.to_f64(),
                     height: bounds.size.height.to_f64(),
                 },

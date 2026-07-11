@@ -17,10 +17,10 @@ if (!dryRun) {
   updateCargoVersion("apps/desktop/runtime/Cargo.toml", version);
   updateCargoVersion("apps/agent/Cargo.toml", version);
   updateCargoVersion("apps/wrapper-helper/Cargo.toml", version);
-  updateCargoLockPackageVersion("Cargo.lock", "codux", version);
-  updateCargoLockPackageVersion("Cargo.lock", "codux-agent", version);
-  updateCargoLockPackageVersion("Cargo.lock", "codux-wrapper-helper", version);
-  updateCargoLockPackageVersion("Cargo.lock", "codux-runtime", version);
+  updateCargoLockPackageVersion("Cargo.lock", "wecode", version);
+  updateCargoLockPackageVersion("Cargo.lock", "wecode-agent", version);
+  updateCargoLockPackageVersion("Cargo.lock", "wecode-wrapper-helper", version);
+  updateCargoLockPackageVersion("Cargo.lock", "wecode-runtime", version);
 }
 
 const notesPath =
@@ -38,9 +38,9 @@ if (process.env.GITHUB_OUTPUT) {
     [
       `version=${version}`,
       `channel=${channel}`,
-      `notes<<__CODUX_RELEASE_NOTES__`,
+      `notes<<__WECODE_RELEASE_NOTES__`,
       notes,
-      `__CODUX_RELEASE_NOTES__`,
+      `__WECODE_RELEASE_NOTES__`,
     ].join("\n") + "\n",
   );
 } else {
@@ -135,52 +135,52 @@ function buildReleaseNotes(nextVersion) {
 function buildDownloadGuide() {
   const assets = [
     {
-      name: `codux-${version}-macos-aarch64.dmg`,
+      name: `wecode-${version}-macos-aarch64.dmg`,
       usageEn: `Apple Silicon Mac stable release`,
       usageZh: `Apple Silicon Mac 正式版本`,
     },
     {
-      name: `codux-${version}-macos-x86_64.dmg`,
+      name: `wecode-${version}-macos-x86_64.dmg`,
       usageEn: `Intel Mac stable release`,
       usageZh: `Intel Mac 正式版本`,
     },
     {
-      name: `codux-${version}-macos-aarch64-debug.dmg`,
+      name: `wecode-${version}-macos-aarch64-debug.dmg`,
       usageEn: `Apple Silicon Mac debug build`,
       usageZh: `Apple Silicon Mac 测试版本`,
     },
     {
-      name: `codux-${version}-macos-x86_64-debug.dmg`,
+      name: `wecode-${version}-macos-x86_64-debug.dmg`,
       usageEn: `Intel Mac debug build`,
       usageZh: `Intel Mac 测试版本`,
     },
     {
-      name: `codux-${version}-windows-x86_64-setup.exe`,
+      name: `wecode-${version}-windows-x86_64-setup.exe`,
       usageEn: `Windows 64-bit installer`,
       usageZh: `Windows 64 位安装包`,
     },
     {
-      name: `codux-agent-${version}-macos-aarch64`,
+      name: `wecode-agent-${version}-macos-aarch64`,
       usageEn: `Apple Silicon Mac headless agent`,
       usageZh: `Apple Silicon Mac 主机端`,
     },
     {
-      name: `codux-agent-${version}-macos-x86_64`,
+      name: `wecode-agent-${version}-macos-x86_64`,
       usageEn: `Intel Mac headless agent`,
       usageZh: `Intel Mac 主机端`,
     },
     {
-      name: `codux-agent-${version}-linux-x86_64`,
+      name: `wecode-agent-${version}-linux-x86_64`,
       usageEn: `Linux x86_64 headless agent`,
       usageZh: `Linux x86_64 主机端`,
     },
     {
-      name: `codux-agent-${version}-linux-aarch64`,
+      name: `wecode-agent-${version}-linux-aarch64`,
       usageEn: `Linux ARM64 headless agent`,
       usageZh: `Linux ARM64 主机端`,
     },
     {
-      name: `codux-agent-${version}-windows-x86_64.exe`,
+      name: `wecode-agent-${version}-windows-x86_64.exe`,
       usageEn: `Windows 64-bit headless agent`,
       usageZh: `Windows 64 位主机端`,
     },
@@ -197,6 +197,6 @@ function buildDownloadGuide() {
 }
 
 function releaseAssetUrl(assetName) {
-  const repo = process.env.GITHUB_REPOSITORY || "duxweb/codux";
+  const repo = process.env.GITHUB_REPOSITORY || "duxweb/wecode";
   return `https://github.com/${repo}/releases/download/${encodeURIComponent(tagName)}/${encodeURIComponent(assetName)}`;
 }

@@ -5,7 +5,7 @@ pub(in crate::app::settings) fn remote_pairing_overlay(
     loading: bool,
     error: Option<&str>,
     language: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     let title = settings_text(language, "settings.remote.pairing", "Pairing");
     div()
@@ -89,7 +89,7 @@ pub(in crate::app::settings) fn remote_pairing_overlay(
 pub(super) fn remote_add_dropdown(
     language: &str,
     disabled: bool,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     let app_entity = cx.entity();
     let share = settings_text(language, "remote.add.share", "Share this device");
@@ -128,7 +128,7 @@ pub(super) fn remote_add_dropdown(
         .into_any_element()
 }
 
-/// "Connect to a device" overlay: paste another host's `codux://pair` ticket to
+/// "Connect to a device" overlay: paste another host's `wecode://pair` ticket to
 /// pair this desktop to it (controller direction). Mirrors the project-editor
 /// pairing panel but lives in Settings → Remote.
 pub(in crate::app::settings) fn remote_connect_overlay(
@@ -138,7 +138,7 @@ pub(in crate::app::settings) fn remote_connect_overlay(
     busy: bool,
     language: &str,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     let mut card = div()
         .w(px(420.0))
@@ -169,7 +169,7 @@ pub(in crate::app::settings) fn remote_connect_overlay(
                 .child(settings_text(
                     language,
                     "remote.connect.hint",
-                    "Paste the codux://pair link from the host. The name below is how this desktop will appear on that host.",
+                    "Paste the wecode://pair link from the host. The name below is how this desktop will appear on that host.",
                 )),
         )
         .child(settings_textarea(
@@ -179,7 +179,7 @@ pub(in crate::app::settings) fn remote_connect_overlay(
             settings_text(
                 language,
                 "remote.connect.ticket_placeholder",
-                "codux://pair?payload=…",
+                "wecode://pair?payload=…",
             ),
             window,
             cx,
@@ -259,7 +259,7 @@ pub(in crate::app::settings) fn remote_connect_overlay(
         .into_any_element()
 }
 
-pub(super) fn remote_pairing_placeholder(cx: &mut Context<CoduxApp>) -> AnyElement {
+pub(super) fn remote_pairing_placeholder(cx: &mut Context<WeCodeApp>) -> AnyElement {
     div()
         .size(px(242.0))
         .rounded(px(12.0))
@@ -291,7 +291,7 @@ pub(super) fn remote_pairing_detail(
     loading: bool,
     error: Option<&str>,
     language: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     if let Some(error) = error.filter(|value| !value.trim().is_empty()) {
         return div()
@@ -370,7 +370,7 @@ pub(super) fn remote_pairing_detail(
 pub(super) fn remote_pairing_cancel_button(
     pairing: Option<RemotePairingInfo>,
     language: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     if let Some(pairing) = pairing {
         let pairing_id = pairing.pairing_id;
@@ -395,7 +395,7 @@ pub(super) fn remote_pairing_cancel_button(
 pub(in crate::app::settings) fn remote_pending_pairing_overlay(
     pairing: RemotePendingPairing,
     language: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     let confirm_id = pairing.id.clone();
     let reject_id = pairing.id.clone();
@@ -529,7 +529,7 @@ pub(in crate::app::settings) fn remote_pending_pairing_overlay(
 pub(super) fn remote_pending_pairing_details(
     pairing: &RemotePendingPairing,
     language: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     div()
         .w_full()
@@ -574,7 +574,7 @@ pub(super) fn remote_pending_pairing_row(
     icon: HeroIconName,
     label: String,
     value: AnyElement,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     div()
         .flex()

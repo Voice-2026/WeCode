@@ -5,7 +5,7 @@ use super::*;
 pub(super) fn settings_pet_pane(
     settings: &SettingsSummary,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     let language = settings.language.as_str();
     let speech_disabled = settings.pet_speech_mode == "off";

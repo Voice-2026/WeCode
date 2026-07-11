@@ -1,12 +1,12 @@
-# Codux Host (`codux`)
+# WeCode Host (`wecode`)
 
-The headless Codux host. Run it on any machine — a server, a spare Mac, a Linux
-box — and your desktop Codux apps can connect to it to run that machine's
+The headless WeCode host. Run it on any machine — a server, a spare Mac, a Linux
+box — and your desktop WeCode apps can connect to it to run that machine's
 terminals, Git, AI sessions and memory remotely, over an end-to-end encrypted
 iroh link.
 
 It is the non-GUI counterpart of the desktop app: same protocol, same transport,
-no window. One binary, `codux`, drives everything.
+no window. One binary, `wecode`, drives everything.
 
 ## Cross-platform
 
@@ -18,10 +18,10 @@ platform-neutral. The service installer targets launchd (macOS), `systemd --user
 ## Install
 
 One line (macOS / Linux) — downloads the right prebuilt binary, installs it as
-`codux` on your `PATH`, no build toolchain needed:
+`wecode` on your `PATH`, no build toolchain needed:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/duxweb/codux/main/apps/agent/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/duxweb/wecode/main/apps/agent/scripts/install.sh | sh
 ```
 
 Flags: `--beta` (newest beta-tagged release), `--version <x.y.z>` (pin a version),
@@ -30,90 +30,90 @@ Flags: `--beta` (newest beta-tagged release), `--version <x.y.z>` (pin a version
 Pass them after `sh -s --`, e.g. install the beta and set it up as a service:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/duxweb/codux/main/apps/agent/scripts/install.sh | sh -s -- --beta --setup
+curl -fsSL https://raw.githubusercontent.com/duxweb/wecode/main/apps/agent/scripts/install.sh | sh -s -- --beta --setup
 ```
 
 Uninstall — stops the host, removes its OS service, deletes the binary (add
-`--purge` to also wipe `~/.codux-agent` config + pairings):
+`--purge` to also wipe `~/.wecode-agent` config + pairings):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/duxweb/codux/main/apps/agent/scripts/install.sh | sh -s -- --uninstall
+curl -fsSL https://raw.githubusercontent.com/duxweb/wecode/main/apps/agent/scripts/install.sh | sh -s -- --uninstall
 ```
 
-Or do it by hand — download the `codux-agent-<version>-<os>-<arch>` binary from
-[Releases](https://github.com/duxweb/codux/releases), put it on your `PATH`, then:
+Or do it by hand — download the `wecode-agent-<version>-<os>-<arch>` binary from
+[Releases](https://github.com/duxweb/wecode/releases), put it on your `PATH`, then:
 
 ```bash
-codux config     # set it up (device name, relay)
-codux install    # run as a startup service
-codux qrcode     # show the pairing QR for your phone/desktop
+wecode config     # set it up (device name, relay)
+wecode install    # run as a startup service
+wecode qrcode     # show the pairing QR for your phone/desktop
 ```
 
 Build from source:
 
 ```bash
-cargo build -p codux-agent --release   # produces `codux-agent`
+cargo build -p wecode-agent --release   # produces `wecode-agent`
 ```
 
 ## Commands
 
 | Command | What it does |
 |---|---|
-| `codux version` | Print the version and protocol revision. |
-| `codux config` | Interactive setup wizard. Writes `codux.toml`, reusing existing values as defaults. Steps: device name → relay network → (custom relay: URL + reachability check + optional auth). |
-| `codux start` | Start the host in the foreground (ASCII banner + logs). Idempotent — if one is already running it prints where, instead of starting a second. |
-| `codux stop` | Stop the running host. |
-| `codux status` | Whether the host is running, since when, the node id, and how many devices are paired. |
-| `codux install` | Register `codux start` with the OS service manager so it starts at login and restarts on failure. |
-| `codux uninstall` | Stop and remove the service. |
-| `codux qrcode` | Print the pairing QR in the terminal (starts the host first if needed). Pairing is auto-confirmed — the one-time ticket is the gate. |
-| `codux link` | Print the pairing ticket as text, to paste into the desktop's "Connect" box. |
-| `codux update` | Check GitHub Releases for a newer build, then download, verify, replace this binary, and restart the host. |
-| `codux device` | Table of paired devices (id, name, type, last seen). |
-| `codux device:del <id>` | Remove a paired device. |
-| `codux device:rename <id>` | Rename a paired device (prompts for the new name). |
-| `codux device:clear` | Remove every paired device. |
+| `wecode version` | Print the version and protocol revision. |
+| `wecode config` | Interactive setup wizard. Writes `wecode.toml`, reusing existing values as defaults. Steps: device name → relay network → (custom relay: URL + reachability check + optional auth). |
+| `wecode start` | Start the host in the foreground (ASCII banner + logs). Idempotent — if one is already running it prints where, instead of starting a second. |
+| `wecode stop` | Stop the running host. |
+| `wecode status` | Whether the host is running, since when, the node id, and how many devices are paired. |
+| `wecode install` | Register `wecode start` with the OS service manager so it starts at login and restarts on failure. |
+| `wecode uninstall` | Stop and remove the service. |
+| `wecode qrcode` | Print the pairing QR in the terminal (starts the host first if needed). Pairing is auto-confirmed — the one-time ticket is the gate. |
+| `wecode link` | Print the pairing ticket as text, to paste into the desktop's "Connect" box. |
+| `wecode update` | Check GitHub Releases for a newer build, then download, verify, replace this binary, and restart the host. |
+| `wecode device` | Table of paired devices (id, name, type, last seen). |
+| `wecode device:del <id>` | Remove a paired device. |
+| `wecode device:rename <id>` | Rename a paired device (prompts for the new name). |
+| `wecode device:clear` | Remove every paired device. |
 
-Run `codux <command> --help` for details.
+Run `wecode <command> --help` for details.
 
 ## How it works
 
 - **Single instance.** The running host holds an advisory lock
-  (`codux.lock`); `start` and the pairing commands use it to detect "already
+  (`wecode.lock`); `start` and the pairing commands use it to detect "already
   running" rather than starting a second copy.
 - **Stable identity.** `host_id` + `host_token` (generated once by `config`)
   seed the iroh node identity, so the pairing ticket and every saved desktop's
   reconnect target survive restarts. They are never rotated automatically.
-- **Pairing.** The host publishes its `codux://pair` ticket to
+- **Pairing.** The host publishes its `wecode://pair` ticket to
   `pair-ticket.json` on start; `link` and `qrcode` read it. Because reaching the
   host already requires the one-time iroh ticket, pairing is auto-confirmed.
 - **Auto-recovery.** A desktop that drops and reconnects resumes the *same* host
   terminal sessions — the PTYs (and their running shells/AI) stay alive across a
   client disconnect.
 
-## Files (`~/.codux-agent`, or `$CODUX_AGENT_DATA_DIR`)
+## Files (`~/.wecode-agent`, or `$WECODE_AGENT_DATA_DIR`)
 
 ```
-codux.toml         configuration (from `codux config`)
+wecode.toml         configuration (from `wecode config`)
 devices.json       paired devices
 pair-ticket.json   the published pairing ticket
 status.json        running daemon status (pid, start time, node)
-codux.lock         single-instance lock
-codux.log          background daemon log
+wecode.lock         single-instance lock
+wecode.log          background daemon log
 ```
 
 ## Smoke tests
 
 ```bash
-codux smoke pty         # spawn a PTY and read its output
-codux smoke transport   # in-process iroh host↔controller round trip
-codux smoke serve       # full controlled-host domain verification
+wecode smoke pty         # spawn a PTY and read its output
+wecode smoke transport   # in-process iroh host↔controller round trip
+wecode smoke serve       # full controlled-host domain verification
 ```
 
 ## Web Tunnel test page
 
 The running host always serves a host-local diagnostic page for verifying
-desktop ⇄ agent web access. Pair the agent with Codux Desktop, open a remote
+desktop ⇄ agent web access. Pair the agent with WeCode Desktop, open a remote
 project on that host, click the globe "Web Tunnel Browser" button in the desktop
 toolbar, and visit:
 
@@ -123,7 +123,7 @@ http://127.0.0.1:8765/
 
 The page shows a tunnel health check and live round-trip latency. On a single
 computer this still tests the same tunnel path, but it does not prove
-cross-machine network reachability; for that, run the Codux host on a different
+cross-machine network reachability; for that, run the WeCode host on a different
 machine and connect to it from the desktop.
 
 For real app previews, use the same browser window and enter the host-local URL
@@ -133,6 +133,6 @@ resolved on the host side.
 ## Boundary
 
 Keep the agent thin. Shared host behavior belongs in
-`crates/codux-runtime-core`, transport in `crates/codux-remote-transport`, PTY in
-`crates/codux-terminal-pty`. The agent is just the CLI, config, service, and
+`crates/wecode-runtime-core`, transport in `crates/wecode-remote-transport`, PTY in
+`crates/wecode-terminal-pty`. The agent is just the CLI, config, service, and
 state-file glue around them.

@@ -3,7 +3,7 @@ use crate::app::app_state::RemoteBrowseEntry;
 use gpui::Focusable;
 use gpui_component::input::{Input, InputEvent, InputState, SelectAll};
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn project_editor_workspace(
         &self,
         window: &mut Window,
@@ -119,7 +119,7 @@ impl CoduxApp {
     }
 }
 
-impl CoduxApp {
+impl WeCodeApp {
     /// The file-picker sub-window: a standard child window (shared title bar via
     /// `child_window_shell`, shared `dialog_footer_bar`) for browsing a local or
     /// remote-host directory and picking a folder. The chosen path is pushed back
@@ -428,7 +428,7 @@ fn file_picker_new_folder_row(
     value: &str,
     placeholder: String,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     let value = value.to_string();
     let input_state =
@@ -494,7 +494,7 @@ fn file_picker_rename_row(
     value: &str,
     placeholder: String,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     let value = value.to_string();
     let input_state =
@@ -573,7 +573,7 @@ fn file_picker_entry_row(
     choose_label: String,
     rename_label: String,
     delete_label: String,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
     allow_mutations: bool,
 ) -> AnyElement {
     let id = format!("file-picker-{}", entry.path);
@@ -644,7 +644,7 @@ fn file_picker_entry_row(
                     HeroIconName::Check
                 })
                 .on_click(move |_, window, cx| {
-                    cx.update_entity(&open_entity, |app: &mut CoduxApp, cx| {
+                    cx.update_entity(&open_entity, |app: &mut WeCodeApp, cx| {
                         app.file_picker_choose_entry(
                             open_entry.path.clone(),
                             open_entry.is_dir,
@@ -662,7 +662,7 @@ fn file_picker_entry_row(
                 PopupMenuItem::new(rename_label.clone())
                     .icon(HeroIconName::PencilSquare)
                     .on_click(move |_, _window, cx| {
-                        cx.update_entity(&rename_entity, |app: &mut CoduxApp, cx| {
+                        cx.update_entity(&rename_entity, |app: &mut WeCodeApp, cx| {
                             app.start_file_picker_rename(rename_entry.clone(), cx);
                         });
                     }),
@@ -671,7 +671,7 @@ fn file_picker_entry_row(
                 PopupMenuItem::new(delete_label.clone())
                     .icon(HeroIconName::Trash)
                     .on_click(move |_, _window, cx| {
-                        cx.update_entity(&delete_entity, |app: &mut CoduxApp, cx| {
+                        cx.update_entity(&delete_entity, |app: &mut WeCodeApp, cx| {
                             app.request_delete_file_picker_entry(delete_entry.clone(), cx);
                         });
                     }),
@@ -684,7 +684,7 @@ fn file_picker_status_state(
     icon: HeroIconName,
     label: String,
     loading: bool,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     div()
         .min_h(px(180.0))
@@ -729,8 +729,8 @@ fn file_picker_device_row(
     id: String,
     label: String,
     selected: bool,
-    cx: &mut Context<CoduxApp>,
-    on_click: impl Fn(&mut CoduxApp, &mut Window, &mut Context<CoduxApp>) + 'static,
+    cx: &mut Context<WeCodeApp>,
+    on_click: impl Fn(&mut WeCodeApp, &mut Window, &mut Context<WeCodeApp>) + 'static,
 ) -> AnyElement {
     let mut row = div()
         .id(SharedString::from(id))
@@ -761,7 +761,7 @@ fn file_picker_breadcrumb(
     path: &str,
     root_label: &str,
     is_remote: bool,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     let bar = div()
         .flex()
@@ -809,7 +809,7 @@ fn file_picker_breadcrumb(
 fn file_picker_refresh_button(
     loading: bool,
     tooltip: String,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     Button::new("file-picker-refresh")
         .ghost()
@@ -835,12 +835,12 @@ struct FilePickerCrumb {
     target: String,
 }
 
-/// Adapt the shared, typed-path-backed [`codux_runtime::path::breadcrumb_segments`]
+/// Adapt the shared, typed-path-backed [`wecode_runtime::path::breadcrumb_segments`]
 /// splitter into the picker's crumb type. Splitting lives in the core crate so
 /// Windows / POSIX / UNC / drive-list paths are all parsed the same way wherever
 /// they're shown.
 fn file_picker_breadcrumb_model(path: &str) -> (String, Vec<FilePickerCrumb>) {
-    let (root_target, segments) = codux_runtime::path::breadcrumb_segments(path);
+    let (root_target, segments) = wecode_runtime::path::breadcrumb_segments(path);
     let crumbs = segments
         .into_iter()
         .map(|(label, target)| FilePickerCrumb { label, target })
@@ -863,7 +863,7 @@ fn file_picker_root_crumb(
     label: &str,
     root_target: &str,
     is_remote: bool,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     let root_target = root_target.to_string();
     div()
@@ -903,7 +903,7 @@ fn file_picker_crumb(
     id: &str,
     label: &str,
     target: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     let target = target.to_string();
     div()
@@ -985,8 +985,8 @@ fn project_editor_field(
     value: &str,
     placeholder: impl Into<String>,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
-    action: impl Fn(&mut CoduxApp, String, &mut Window, &mut Context<CoduxApp>) + 'static,
+    cx: &mut Context<WeCodeApp>,
+    action: impl Fn(&mut WeCodeApp, String, &mut Window, &mut Context<WeCodeApp>) + 'static,
 ) -> AnyElement {
     div()
         .flex()
@@ -1016,7 +1016,7 @@ fn project_editor_symbol_field(
     none_label: String,
     selected_symbol: Option<&str>,
     selected_color: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     let accent = hex_color(selected_color).unwrap_or(theme::ACCENT);
     div()
@@ -1088,7 +1088,7 @@ fn project_editor_symbol_field(
 fn project_editor_color_field(
     label: String,
     selected_color: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     div()
         .flex()
@@ -1141,8 +1141,8 @@ fn project_editor_input(
     value: &str,
     placeholder: impl Into<String>,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
-    action: impl Fn(&mut CoduxApp, String, &mut Window, &mut Context<CoduxApp>) + 'static,
+    cx: &mut Context<WeCodeApp>,
+    action: impl Fn(&mut WeCodeApp, String, &mut Window, &mut Context<WeCodeApp>) + 'static,
 ) -> AnyElement {
     let value = value.to_string();
     let placeholder = placeholder.into();
@@ -1179,7 +1179,7 @@ fn project_editor_path_field(
     device_label: String,
     is_remote: bool,
     _window: &mut Window,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     // The directory is read-only: it can only be set via the picker (Choose), so
     // the device + path always stay consistent. The whole box is clickable.
@@ -1305,7 +1305,7 @@ mod breadcrumb_tests {
     #[test]
     fn windows_drive_path_splits_into_clickable_crumbs() {
         let (root, segments) = crumbs(r"C:\Users\dux");
-        assert_eq!(root, codux_runtime::path::FILE_LIST_DRIVES_SENTINEL);
+        assert_eq!(root, wecode_runtime::path::FILE_LIST_DRIVES_SENTINEL);
         assert_eq!(
             segments,
             vec![
@@ -1331,8 +1331,8 @@ mod breadcrumb_tests {
 
     #[test]
     fn drive_list_view_has_no_segments() {
-        let (root, segments) = crumbs(codux_runtime::path::FILE_LIST_DRIVES_SENTINEL);
-        assert_eq!(root, codux_runtime::path::FILE_LIST_DRIVES_SENTINEL);
+        let (root, segments) = crumbs(wecode_runtime::path::FILE_LIST_DRIVES_SENTINEL);
+        assert_eq!(root, wecode_runtime::path::FILE_LIST_DRIVES_SENTINEL);
         assert!(segments.is_empty());
     }
 }

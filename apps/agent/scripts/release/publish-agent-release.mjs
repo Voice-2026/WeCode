@@ -9,7 +9,7 @@ const root = process.cwd();
 const dryRun = process.argv.includes("--dry-run");
 const version = requiredEnv("RELEASE_VERSION");
 const tagName = process.env.RELEASE_TAG || `v${version}`;
-const repo = process.env.GITHUB_REPOSITORY || "duxweb/codux";
+const repo = process.env.GITHUB_REPOSITORY || "duxweb/wecode";
 const artifactsDir = process.env.RELEASE_ARTIFACTS_DIR || path.join(root, "release-artifacts");
 
 const assets = collectAgentAssets(artifactsDir);
@@ -55,9 +55,9 @@ function walk(dir) {
 
 function isAgentAsset(name) {
   return (
-    new RegExp(`^codux-agent-${escapeRegExp(version)}-(macos|linux|windows)-(aarch64|x86_64)(?:\\.exe)?$`).test(
+    new RegExp(`^wecode-agent-${escapeRegExp(version)}-(macos|linux|windows)-(aarch64|x86_64)(?:\\.exe)?$`).test(
       name,
-    ) || /^codux-(macos|linux|windows)-(aarch64|x86_64)(?:\.exe)?$/.test(name)
+    ) || /^wecode-(macos|linux|windows)-(aarch64|x86_64)(?:\.exe)?$/.test(name)
   );
 }
 

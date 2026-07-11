@@ -4,7 +4,7 @@ part of '../home_page.dart';
 /// + upload + voice, update/about, log viewer and edge-back navigation.
 ///
 /// Split into a part + extension to keep the State class navigable; behaviour
-/// is unchanged. Rebuilds route through [_CoduxHomePageState._applyState]
+/// is unchanged. Rebuilds route through [_WeCodeHomePageState._applyState]
 /// (`setState` is `@protected` and cannot be called from an extension).
 extension _HomePageActions on HomeController {
   Future<void> _refreshDeviceList() async {
@@ -93,8 +93,8 @@ extension _HomePageActions on HomeController {
     if (resetTerminal) {
       _releaseTerminalViewport();
     }
-    CoduxLog.info(
-      '[codux-flutter-projects] user select project=${project.id} previous=${_selectedProjectId ?? ''} changed=$projectChanged mode=${_workspaceMode.name} terminalVisible=$resetTerminal currentSession=${_sessionId ?? ''}',
+    WeCodeLog.info(
+      '[wecode-flutter-projects] user select project=${project.id} previous=${_selectedProjectId ?? ''} changed=$projectChanged mode=${_workspaceMode.name} terminalVisible=$resetTerminal currentSession=${_sessionId ?? ''}',
     );
     _applyState(() {
       _currentAIStats = null;
@@ -180,8 +180,8 @@ extension _HomePageActions on HomeController {
 
   Future<void> _chooseUploadForTerminal() async {
     if (_terminalUploadLoading) return;
-    CoduxLog.info(
-      '[codux-flutter-upload] choose start connected=$_isConnected path=$_connectionPath session=$_sessionId',
+    WeCodeLog.info(
+      '[wecode-flutter-upload] choose start connected=$_isConnected path=$_connectionPath session=$_sessionId',
     );
     if (!_canUploadOverCurrentPath) {
       _showSnack(_t('upload.directRequired'));
@@ -201,7 +201,7 @@ extension _HomePageActions on HomeController {
         imageLabel: prefs.t('upload.chooseImage'),
       ),
     );
-    CoduxLog.info('[codux-flutter-upload] source selected source=$source');
+    WeCodeLog.info('[wecode-flutter-upload] source selected source=$source');
     if (source == null || !mounted) return;
     await _uploadPickedFileToTerminal(source);
   }
@@ -227,8 +227,8 @@ extension _HomePageActions on HomeController {
     );
     final files = result?.files;
     final picked = files == null || files.isEmpty ? null : files.single;
-    CoduxLog.info(
-      '[codux-flutter-upload] picker result selected=${picked != null} source=$source',
+    WeCodeLog.info(
+      '[wecode-flutter-upload] picker result selected=${picked != null} source=$source',
     );
     if (picked == null) return;
     if (picked.size > 20 * 1024 * 1024) {
@@ -243,7 +243,7 @@ extension _HomePageActions on HomeController {
       return;
     }
     if (bytes.isEmpty) {
-      CoduxLog.warn('[codux-flutter-upload] picked file is empty');
+      WeCodeLog.warn('[wecode-flutter-upload] picked file is empty');
       return;
     }
     if (!_canUploadOverCurrentPath) {
@@ -274,14 +274,14 @@ extension _HomePageActions on HomeController {
         bytes: bytes,
         kind: terminalUploadKind(source),
       );
-      CoduxLog.info(
-        '[codux-flutter-upload] blob enqueue result=$sent session=$id name=${picked.name} bytes=${bytes.length}',
+      WeCodeLog.info(
+        '[wecode-flutter-upload] blob enqueue result=$sent session=$id name=${picked.name} bytes=${bytes.length}',
       );
       if (sent != true) {
         throw StateError('Upload transport is not connected');
       }
-      CoduxLog.info(
-        '[codux-flutter-upload] blob sent session=$id name=${picked.name} bytes=${bytes.length}',
+      WeCodeLog.info(
+        '[wecode-flutter-upload] blob sent session=$id name=${picked.name} bytes=${bytes.length}',
       );
       if (!mounted) return;
       final insertingMessage = _t(terminalUploadInsertingKey(source));
@@ -291,7 +291,7 @@ extension _HomePageActions on HomeController {
       });
       await uploadCompletion.future.timeout(const Duration(seconds: 30));
     } catch (error) {
-      CoduxLog.warn('[codux-flutter-upload] upload failed: $error');
+      WeCodeLog.warn('[wecode-flutter-upload] upload failed: $error');
       if (!mounted) return;
       if (_terminalUploadCompletion == uploadCompletion) {
         _terminalUploadCompletion = null;
@@ -353,12 +353,12 @@ extension _HomePageActions on HomeController {
     showDialog<void>(
       // ignore: use_build_context_synchronously  (mounted == view.mounted)
       context: context,
-      builder: (ctx) => CoduxAboutDialog(
+      builder: (ctx) => WeCodeAboutDialog(
         title: _t('app.about'),
         body: _t('app.aboutText'),
         versionText: 'v${info.version}+${info.buildNumber}',
         closeLabel: _t('app.close'),
-        onOpenGithub: () => _openUrl('https://github.com/duxweb/codux-flutter'),
+        onOpenGithub: () => _openUrl('https://github.com/duxweb/wecode-flutter'),
       ),
     );
   }

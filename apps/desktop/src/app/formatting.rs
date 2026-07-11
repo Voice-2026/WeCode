@@ -1,5 +1,5 @@
-use codux_runtime::{i18n::translate, settings::locale_from_language_setting};
 use std::time::{SystemTime, UNIX_EPOCH};
+use wecode_runtime::{i18n::translate, settings::locale_from_language_setting};
 
 pub(in crate::app) fn compact_number(value: i64) -> String {
     let abs = value.saturating_abs();
@@ -23,7 +23,7 @@ pub(in crate::app) fn compact_token_unit(value: i64) -> String {
 }
 
 pub(in crate::app) fn usage_amount_label(
-    amounts: &[codux_runtime::ai_history::AIUsageAmount],
+    amounts: &[wecode_runtime::ai_history::AIUsageAmount],
 ) -> Option<String> {
     amounts
         .iter()

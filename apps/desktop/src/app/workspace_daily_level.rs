@@ -4,9 +4,9 @@ use gpui::Anchor;
 use gpui_component::popover::Popover;
 
 pub(in crate::app) fn workspace_level_button(
-    daily_level: &codux_runtime::ai_history::AIHistoryDailyLevelView,
+    daily_level: &wecode_runtime::ai_history::AIHistoryDailyLevelView,
     language: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let language = language.to_string();
     let current_tier = daily_level.current_tier.clone();
@@ -38,16 +38,16 @@ pub(in crate::app) fn workspace_level_button(
 }
 
 fn daily_level_title(
-    tier: &codux_runtime::ai_history::AIHistoryDailyLevelTierView,
+    tier: &wecode_runtime::ai_history::AIHistoryDailyLevelTierView,
     language: &str,
 ) -> String {
     workspace_i18n(language, &format!("rank.{}", tier.id), &tier.title)
 }
 
 fn workspace_daily_level_button_content(
-    tier: codux_runtime::ai_history::AIHistoryDailyLevelTierView,
+    tier: wecode_runtime::ai_history::AIHistoryDailyLevelTierView,
     label: String,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     div()
         .h(px(20.0))
@@ -65,7 +65,7 @@ fn workspace_daily_level_button_content(
 }
 
 fn workspace_level_popover_content(
-    daily_level: codux_runtime::ai_history::AIHistoryDailyLevelView,
+    daily_level: wecode_runtime::ai_history::AIHistoryDailyLevelView,
     language: String,
     hover_surface: gpui::Hsla,
     transparent: gpui::Hsla,
@@ -190,7 +190,7 @@ fn workspace_level_popover_content(
 }
 
 fn daily_level_badge(
-    tier: &codux_runtime::ai_history::AIHistoryDailyLevelTierView,
+    tier: &wecode_runtime::ai_history::AIHistoryDailyLevelTierView,
     box_size: f32,
     icon_size: f32,
 ) -> impl IntoElement {

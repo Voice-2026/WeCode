@@ -1,6 +1,6 @@
 use super::*;
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn schedule_terminal_layout_restore(
         &mut self,
         mut terminal_layout: TerminalLayoutSummary,

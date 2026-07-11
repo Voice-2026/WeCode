@@ -3,7 +3,7 @@ use crate::remote::transport::RemoteTransport;
 use crate::remote::types::RemoteOutgoingEnvelope;
 use crate::terminal_layout::TerminalPaneSummary;
 use async_trait::async_trait;
-use codux_remote_transport::RemoteTransportKind;
+use wecode_remote_transport::RemoteTransportKind;
 
 pub(super) fn temp_support_dir(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("{name}-{}", uuid::Uuid::new_v4()));

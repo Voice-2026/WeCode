@@ -87,8 +87,8 @@ class HomeWorktreeActions {
       return;
     }
     if (worktree.projectId != project.id) {
-      CoduxLog.warn(
-        '[codux-flutter-worktree] ignore select project=${project.id} worktree=${worktree.id} worktreeProject=${worktree.projectId}',
+      WeCodeLog.warn(
+        '[wecode-flutter-worktree] ignore select project=${project.id} worktree=${worktree.id} worktreeProject=${worktree.projectId}',
       );
       return;
     }

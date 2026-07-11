@@ -39,7 +39,7 @@
 - 提升 Git 操作在 worktree 和远程项目中的可靠性，覆盖修改最近提交说明、已有仓库初始化、分支切换、Quick Pick/Input 交互和失败弹窗。
 - 提升 Windows 与 Linux 终端稳定性，修复粘贴快捷键、PowerShell wrapper 路径处理、隐藏控制台窗口、conhost 浅色主题识别，以及 Windows 文件预览关闭按钮问题。
 - 修复终端非 ASCII 组合字符、Nerd Font 图标、powerline 分隔符，以及 reflow 后输入法光标位置的渲染问题。
-- 优化已保存 SSH 的自动连接与重连、`codux-ssh` 非交互执行、SCP 支持，以及 agent 中继配置参数。
+- 优化已保存 SSH 的自动连接与重连、`wecode-ssh` 非交互执行、SCP 支持，以及 agent 中继配置参数。
 
 ## [2.0.0-rc.3] - 2026-07-05
 
@@ -158,20 +158,20 @@
 
 ### 新增
 
-- 新增按项目绑定的数据库连接管理与 `codux-db` 运行时命令，AI 会话可以发现已保存数据库，但不会看到凭证。
+- 新增按项目绑定的数据库连接管理与 `wecode-db` 运行时命令，AI 会话可以发现已保存数据库，但不会看到凭证。
 - README 新增 AI CLI 支持矩阵，明确实时状态、Token 用量、设置支持，以及哪些工具支持非侵入式环境指令注入。
 
 ### 修复
 
-- 修复 Codux 环境指令投递链路，支持的 AI CLI 即使关闭记忆，也能收到 `codux-ssh` 与 `codux-db` 使用说明。
-- 修复 Kimi Code 通过 Codux 托管的 `--agent-file` 注入环境指令；同时将 CodeWhale 明确标记为交互式会话不注入，因为暂无已确认的非侵入提示词通道。
+- 修复 WeCode 环境指令投递链路，支持的 AI CLI 即使关闭记忆，也能收到 `wecode-ssh` 与 `wecode-db` 使用说明。
+- 修复 Kimi Code 通过 WeCode 托管的 `--agent-file` 注入环境指令；同时将 CodeWhale 明确标记为交互式会话不注入，因为暂无已确认的非侵入提示词通道。
 - 修复记忆提取预检门控、记忆相关性排序、敏感信息脱敏、完成状态竞态，以及记忆 launch artifact 测试隔离问题。
 - 修复移动端接管活跃远程终端历史时加载缓慢或一直转圈的问题：空 baseline 会正确闭环，主机端 baseline 生成也不再阻塞同步接收路径。
 
 ### 调整
 
 - 明确 Kiro CLI、CodeWhale、Agy 的环境指令不支持项，不再为了注入提示词强写项目文件或用户级配置。
-- 优化数据库与 SSH 的 launch 指令，要求 agent 在使用时通过 `codux-db list`、`codux-ssh list` 获取当前配置。
+- 优化数据库与 SSH 的 launch 指令，要求 agent 在使用时通过 `wecode-db list`、`wecode-ssh list` 获取当前配置。
 
 ## [2.0.0-beta.6] - 2026-07-01
 
@@ -200,7 +200,7 @@
 
 - 项目切换时立即恢复终端布局，在本地与远程项目之间切换不再等待异步 terminal-load worker。
 - 将远程终端 create 生命周期集中到共享 runtime helper，桌面 host 与无界面 agent 复用同一套逻辑，并移除重复的 host 特定包装路径。
-- 优化 `codux-ssh` 一次性远程命令性能，加入更安全的 SSH 连接复用与 stdin 转发，同时账号密码仍保留在已保存配置 / helper 通道内。
+- 优化 `wecode-ssh` 一次性远程命令性能，加入更安全的 SSH 连接复用与 stdin 转发，同时账号密码仍保留在已保存配置 / helper 通道内。
 
 ## [2.0.0-beta.4] - 2026-06-30
 
@@ -224,7 +224,7 @@
 
 ### Added
 
-- 局域网点对点（p2p）直连：桌面端或手机通过 iroh mDNS 在同一网络内发现 Codux 主机并直接连接,不再绕中继,连接徽章上会标明「直连 / 中继」。
+- 局域网点对点（p2p）直连：桌面端或手机通过 iroh mDNS 在同一网络内发现 WeCode 主机并直接连接,不再绕中继,连接徽章上会标明「直连 / 中继」。
 - 持久化、多客户端远程终端：切换项目或设备时重新挂回同一个主机 shell,多个客户端可共享同一个 agent 终端并交接 viewport(点手机徽章即可收回 viewport),主机端现在也转发 Ctrl-C 与 viewport 滚动。
 - Git 侧栏目录支持右键菜单——对整个目录执行暂存、取消暂存、放弃或加入 .gitignore——与文件级操作一致。
 - 更精简的配对二维码(只含 node id + relay url)并带设备角色徽章;当摄像头实时扫码不顺时,手机端可从相册照片 / 截图导入配对二维码作为兜底。
@@ -232,7 +232,7 @@
 ### Changed
 
 - 远程重连更快：端点池化 + 暖重拨跳过冷启动;桌面端与 agent 实时通道都不再发送已无用的逐帧屏幕 keyframe。
-- 统一多端内部实现：共用一套远程终端分发路由、共用终端流通道分类器、配对二维码解析经 FFI 共享,worktree 的创建 / 合并 / 删除并入共享的 codux-git 引擎。
+- 统一多端内部实现：共用一套远程终端分发路由、共用终端流通道分类器、配对二维码解析经 FFI 共享,worktree 的创建 / 合并 / 删除并入共享的 wecode-git 引擎。
 - 简化桌面配对为「先匹配再确认」流程,去掉单独的操作员弹窗。
 
 ### Fixed
@@ -264,8 +264,8 @@
 
 ### Added
 
-- 多端互联：桌面端（或手机）可连接运行在服务器、闲置 Mac 或 Linux 上的无界面 **Codux 主机**（主机端，`codux-agent`），通过端到端加密的 Iroh 传输远程驱动它的终端、Git、AI 会话与记忆。（Beta）
-- 无界面 Codux 主机端应用（`codux-agent`），支持 macOS、Linux、Windows（x86_64 与 arm64），可装为开机自启服务，支持二维码或 ticket 配对；客户端断线重连后恢复同一批会话。
+- 多端互联：桌面端（或手机）可连接运行在服务器、闲置 Mac 或 Linux 上的无界面 **WeCode 主机**（主机端，`wecode-agent`），通过端到端加密的 Iroh 传输远程驱动它的终端、Git、AI 会话与记忆。（Beta）
+- 无界面 WeCode 主机端应用（`wecode-agent`），支持 macOS、Linux、Windows（x86_64 与 arm64），可装为开机自启服务，支持二维码或 ticket 配对；客户端断线重连后恢复同一批会话。
 - 桌面端与主机端均提供按平台分类、永远指向最新版的一键下载直链。
 
 ### Changed
@@ -295,7 +295,7 @@
 ### 修复
 
 - 修复桌面端和移动端远程终端 viewport ownership，远程 viewer 只驱动列数，Host 保留 normal-screen 行数，alt-screen 会话通过 keyframe 恢复而不是复用过期 host rows。
-- 修复终端输入中 escape-notation 文本可能通过 IME commit 路径误发送的问题，并将诊断 trace 限定在 `CODUX_TERMINAL_TRACE` 下。
+- 修复终端输入中 escape-notation 文本可能通过 IME commit 路径误发送的问题，并将诊断 trace 限定在 `WECODE_TERMINAL_TRACE` 下。
 - 修复记忆提取队列锁竞争，扩大可重试错误识别，减少热路径数据库操作，并在同一个连接 / 事务中应用提取结果。
 - 修复 AI 用量统计中 Claude cache token 低估和 Codex token 膨胀的问题，并在解析器修复后重新索引用量历史。
 - 修复桌面宠物 LLM 消息竞态和 JSON 形态气泡文本，气泡现在显示预期的纯文本内容。
@@ -427,7 +427,7 @@
 
 - 正式接入桌面端与移动端共用的 v3 远程链路，优先使用 WebRTC DataChannel 直连，不可用时回落 WebSocket 中继。
 - 新增无状态 Relay 短码配对，二维码只携带短期 ticket，中继服务只负责临时交换配对载荷。
-- 新增全球公共、China 节点和自定义 Relay 预设，内置 `https://codux-node.dux.plus` 与 `https://codux-service.dux.plus`。
+- 新增全球公共、China 节点和自定义 Relay 预设，内置 `https://wecode-node.dux.plus` 与 `https://wecode-service.dux.plus`。
 - 新增 CodeWhale 统一 AI runtime 驱动，覆盖运行状态、hook、历史索引、模型 / 会话探测和记忆注入。
 - 新增文件编辑 / 预览子窗口、Markdown 源码 / 预览双栏、媒体预览、剪贴板图片粘贴、终端链接交互、项目 / 标签拖拽排序和终端标签重命名弹窗。
 
@@ -474,7 +474,7 @@
 
 ### 修复
 
-- 修复同一应用内切换焦点时 Codux 子窗口被强制拉回主窗口前方的问题，同时保留从其他应用切回时恢复子窗口前置的行为。
+- 修复同一应用内切换焦点时 WeCode 子窗口被强制拉回主窗口前方的问题，同时保留从其他应用切回时恢复子窗口前置的行为。
 
 ## [1.6.5] - 2026-06-07
 
@@ -482,7 +482,7 @@
 
 - 新增非文件视图下的文件编辑与预览子窗口，支持 Markdown 源码 / 预览双栏和媒体预览。
 - 新增文件侧栏粘贴剪贴板图片，以及终端粘贴剪贴板图片时可转为临时文件路径的能力。
-- 新增应用重新激活时子窗口自动前置，避免切回 Codux 后子窗口被主窗口遮挡。
+- 新增应用重新激活时子窗口自动前置，避免切回 WeCode 后子窗口被主窗口遮挡。
 
 ### 调整
 
@@ -495,7 +495,7 @@
 - 修复 Markdown 预览窗口内容显示、滚动和文本选择问题。
 - 修复 Git 评审中新增文件无法打开的问题，并简化 Git diff 预览操作。
 - 修复文件侧栏粘贴剪贴板图片可能崩溃的问题，并补充复制图片数据的 runtime 测试。
-- 修复切换到其他应用再回到 Codux 时，文件子窗口可能停留在主窗口后方的问题。
+- 修复切换到其他应用再回到 WeCode 时，文件子窗口可能停留在主窗口后方的问题。
 
 ## [1.6.4] - 2026-06-06
 
@@ -510,7 +510,7 @@
 
 ### 修复
 
-- 修复 AI 历史标题提取，Codux 记忆、全局提示词和启动上下文不会再被当成会话标题。
+- 修复 AI 历史标题提取，WeCode 记忆、全局提示词和启动上下文不会再被当成会话标题。
 - 修复旧版自定义宠物进度字段的兼容读取。
 - 修复终端标签重命名文案，统一走 10 语言本地化资源。
 
@@ -536,7 +536,7 @@
 
 - 新增 CodeWhale 支持，覆盖 AI runtime 识别、hook 事件、历史索引、模型 / 会话探测、wrapper 脚本和权限设置。
 - 新增各 AI 工具的 runtime 驱动，Codex、Claude、Gemini、Kiro、Agy、OpenCode 和 CodeWhale 的 hook、探测、历史来源和记忆注入走统一扩展链路。
-- 新增 AI 工具的 SSH 启动上下文注入，托管 CLI 会话可以直接使用 `codux-ssh`，同时不暴露已保存凭证。
+- 新增 AI 工具的 SSH 启动上下文注入，托管 CLI 会话可以直接使用 `wecode-ssh`，同时不暴露已保存凭证。
 
 ### 调整
 
@@ -551,7 +551,7 @@
 ### 修复
 
 - 修复 Windows 下程序化发送终端命令时使用 `\n` 导致恢复会话进入续行提示的问题。
-- 修复 `codux-ssh` 非交互命令，长时间命令或密码认证命令会正常退出。
+- 修复 `wecode-ssh` 非交互命令，长时间命令或密码认证命令会正常退出。
 - 修复 SSH 连接右键菜单，编辑项改为使用统一的多语言“编辑”文案，不再显示较长的 SSH 专用文案。
 - 修复 SSH 连接测试反馈，测试结果会在编辑窗口底部以红 / 绿状态点和简短文字显示。
 - 修复不支持 async hook 配置导致的 Codex 警告，runtime hook 保持在受支持的同步链路。
@@ -633,28 +633,28 @@
 
 ### 调整
 
-- 将 Codux Desktop 重构为 Rust 原生 GPUI 应用，替换原有 Tauri/WebView 桌面壳，同时保持现有产品范围和用户侧工作流作为本次基线版本。
+- 将 WeCode Desktop 重构为 Rust 原生 GPUI 应用，替换原有 Tauri/WebView 桌面壳，同时保持现有产品范围和用户侧工作流作为本次基线版本。
 - 主窗口、终端工作区、项目与 worktree 导航、文件浏览、Git 评审、AI runtime 状态、设置、更新弹窗和桌面宠物界面切换到原生 GPUI 渲染链路。
 - 围绕 Rust runtime 和本地缓存存储统一运行时状态、项目 / worktree UI 状态、终端布局、文件编辑器布局、Git 评审状态和桌面宠物基线处理。
 - 更新 Rust 原生桌面端的发布与自动更新链路，包括 GitHub Releases 元数据、Windows 安装包、macOS 应用包，以及独立公证的 macOS formal 包。
 
 ### 说明
 
-- 这是 Codux 的首个 1.5.0 GPUI 稳定基线版本，重点是从 Tauri 切换到 Rust + GPUI 的桌面架构迁移，不作为现有 Codux 工作流之外的新增功能版本。
+- 这是 WeCode 的首个 1.5.0 GPUI 稳定基线版本，重点是从 Tauri 切换到 Rust + GPUI 的桌面架构迁移，不作为现有 WeCode 工作流之外的新增功能版本。
 - 包含 1.5.0-beta.1 测试周期中的验证和修复，覆盖 GPUI 终端恢复、项目 / worktree 状态恢复、AI runtime 状态、桌面宠物、远程移动端终端兼容，以及兼容 Tauri 更新链路的发布产物格式。
 
 ## [1.5.0-beta.1] - 2026-06-03
 
 ### 调整
 
-- 将 Codux Desktop 重构为 Rust 原生 GPUI 应用，替换原有 Tauri/WebView 桌面壳，同时保持现有产品范围和用户侧工作流作为本次基线版本。
+- 将 WeCode Desktop 重构为 Rust 原生 GPUI 应用，替换原有 Tauri/WebView 桌面壳，同时保持现有产品范围和用户侧工作流作为本次基线版本。
 - 主窗口、终端工作区、项目与 worktree 导航、文件浏览、Git 评审、AI runtime 状态、设置、更新弹窗和桌面宠物界面切换到原生 GPUI 渲染链路。
 - 围绕 Rust runtime 和本地缓存存储统一运行时状态、项目 / worktree UI 状态、终端布局、文件编辑器布局、Git 评审状态和桌面宠物基线处理。
 - 更新 Rust 原生桌面端的发布与自动更新链路，包括 GitHub Releases 元数据、Windows 安装包、macOS 应用包，以及独立公证的 macOS formal 包。
 
 ### 说明
 
-- 这是 Codux 的首个 1.5.0 GPUI 基线测试版，重点是从 Tauri 切换到 Rust + GPUI 的桌面架构迁移，不作为现有 Codux 工作流之外的新增功能版本。
+- 这是 WeCode 的首个 1.5.0 GPUI 基线测试版，重点是从 Tauri 切换到 Rust + GPUI 的桌面架构迁移，不作为现有 WeCode 工作流之外的新增功能版本。
 
 ## [1.0.8] - 2026-05-27
 
@@ -702,7 +702,7 @@
 
 ### 调整
 
-- 将终端依赖回退到同类 Tauri 终端应用普遍使用的 xterm.js 5.5 稳定版本线，同时保留 Codux 现有输入和选区兼容补丁。
+- 将终端依赖回退到同类 Tauri 终端应用普遍使用的 xterm.js 5.5 稳定版本线，同时保留 WeCode 现有输入和选区兼容补丁。
 
 ### 修复
 
@@ -760,7 +760,7 @@
 
 ### 新增
 
-- 发布首个 macOS 和 Windows 跨平台稳定版 Codux。
+- 发布首个 macOS 和 Windows 跨平台稳定版 WeCode。
 - Git 提交消息生成新增 AI 提供方选择，支持自动、关闭和指定提供方。
 - 新增运行时遥测和日志轮转，便于定位 CPU、内存、GPU、AI runtime、Git 和记忆抽取问题。
 
@@ -793,7 +793,7 @@
 
 ### 新增
 
-- 新增保存 SSH 配置的独立弹窗，支持凭证测试、双击连接、右键操作，并提供可被 AI 工具通过统一注入上下文发现的 `codux-ssh` 运行时命令。
+- 新增保存 SSH 配置的独立弹窗，支持凭证测试、双击连接、右键操作，并提供可被 AI 工具通过统一注入上下文发现的 `wecode-ssh` 运行时命令。
 - 新增检查更新确认更新日志后的下载 / 安装进度流程。
 
 ### 调整
@@ -825,7 +825,7 @@
 
 ### 新增
 
-- 新增 Codux 的首个跨平台 Tauri 测试版，可从 `tauri` 分支构建 macOS 和 Windows 版本。
+- 新增 WeCode 的首个跨平台 Tauri 测试版，可从 `tauri` 分支构建 macOS 和 Windows 版本。
 - 新增基于 GitHub Release 通道的 Tauri updater，稳定版和测试版分别使用独立的 `latest.json` 端点。
 - 新增 Windows 桌面端支持，包括自绘窗口、兼容 Mica 的窗口效果、WebView2 终端渲染和 PowerShell 默认终端。
 
@@ -833,7 +833,7 @@
 
 - 将主工作区、项目 / worktree 侧栏、Git 面板、文件编辑器、AI 统计、记忆状态、桌面宠物、设置和远程配对界面迁移到 Tauri 应用。
 - 重构项目、Git、worktree、AI runtime、远程和宠物状态链路，由 Rust 持有持久化和运行态数据，React UI 只订阅 snapshot / event 展示。
-- 对齐 Tauri 应用身份、可见产品名、更新通道命名和发布资产，为后续替换 Codux Swift 版做准备。
+- 对齐 Tauri 应用身份、可见产品名、更新通道命名和发布资产，为后续替换 WeCode Swift 版做准备。
 
 ### 修复
 
@@ -878,8 +878,8 @@
 
 ### 修复
 
-- 兼容新版 Codex hooks feature flag，启动 Codex 时优先使用 `--enable hooks`，仅在旧版 CLI 仍只暴露 `codex_hooks` 时回退，在应用启动托管配置时迁移为 `[features].hooks = true`，并只信任 Codux 自己写入的 hook hash。
-- 清理 Codux 托管的旧 Codex tool-use hook、不再支持的 session-end hook 和跨 owner 重复 hook，减少新版 Codex `/hooks` 审查列表中的冗余项。
+- 兼容新版 Codex hooks feature flag，启动 Codex 时优先使用 `--enable hooks`，仅在旧版 CLI 仍只暴露 `codex_hooks` 时回退，在应用启动托管配置时迁移为 `[features].hooks = true`，并只信任 WeCode 自己写入的 hook hash。
+- 清理 WeCode 托管的旧 Codex tool-use hook、不再支持的 session-end hook 和跨 owner 重复 hook，减少新版 Codex `/hooks` 审查列表中的冗余项。
 
 ## [0.9.9] - 2026-05-07
 
@@ -983,7 +983,7 @@
 ### 调整
 
 - Ghostty 终端依赖切回官方 `Lakr233/libghostty-spm` main 分支。
-- 保存的 SSH 连接改为只向终端发送一条 `codux-ssh <profile>` 命令，不再把 expect 脚本整段粘贴进终端。
+- 保存的 SSH 连接改为只向终端发送一条 `wecode-ssh <profile>` 命令，不再把 expect 脚本整段粘贴进终端。
 - 继续减少窗口拖拽缩放时的终端刷新压力，Ghostty frame 和 viewport 会在 live resize 过程中合并刷新。
 
 ### 修复
@@ -1050,7 +1050,7 @@
 
 ### 新增
 
-- 新增 Codux Mobile 共享远程终端分屏，移动端可以浏览、新建、切换、调整尺寸和关闭 macOS 端同一套分屏会话。
+- 新增 WeCode Mobile 共享远程终端分屏，移动端可以浏览、新建、切换、调整尺寸和关闭 macOS 端同一套分屏会话。
 - 新增基于 WebRTC DataChannel 的远程终端 P2P 传输，优先使用 STUN 直连，失败后回退到加密 WebSocket 中继。
 - 新增移动端文件管理的粘贴、拖拽移动、行内重命名、媒体和 Office 文件外部打开，以及文件拖入终端插入路径能力。
 
@@ -1132,7 +1132,7 @@
 
 - 在标题栏新增远程连接状态入口，使用在线/离线状态点和设备弹窗展示已配对移动端。
 - 新增一次性二维码配对流程，支持移动端确认信息、匹配码、拒绝提示，以及重启后恢复已配对设备列表。
-- 新增 Codux macOS 与 Codux Mobile 之间的端到端加密远程 payload 传输，包含主机/设备密钥管理和安全消息转发。
+- 新增 WeCode macOS 与 WeCode Mobile 之间的端到端加密远程 payload 传输，包含主机/设备密钥管理和安全消息转发。
 - 新增移动端远程文件重命名和删除能力，由 macOS 主机执行文件操作。
 
 ### 调整
@@ -1151,7 +1151,7 @@
 ### 调整
 
 - 简化项目活动状态链路，侧边栏 loading 和完成态只依赖实时运行会话与 UI 完成展示，不再回退到旧的缓存状态文件。
-- 移除当前 Codux 版本已不再使用的旧 dmux 状态自动合并兼容，以及旧版记忆提取响应 schema 兼容逻辑。
+- 移除当前 WeCode 版本已不再使用的旧 dmux 状态自动合并兼容，以及旧版记忆提取响应 schema 兼容逻辑。
 
 ### 修复
 
@@ -1168,7 +1168,7 @@
 
 ### 修复
 
-- 恢复旧 dmux 项目/工作区配置，会把旧项目状态合并到新的 Codux 应用数据目录，且不覆盖当前设置。
+- 恢复旧 dmux 项目/工作区配置，会把旧项目状态合并到新的 WeCode 应用数据目录，且不覆盖当前设置。
 - 修复终端启动模型覆盖参数：Codex 使用 `--model=...`，Claude/Gemini/OpenCode 使用 `--model ...`，模型留空时保持各 CLI 自带默认值。
 
 ## [0.5.9] - 2026-04-24
@@ -1213,7 +1213,7 @@
 
 ### 修复
 
-- 修复正式版 AI 记忆提取后台 worker 的 CLI 路径解析，现在会从用户登录 shell 环境读取真实 PATH；即使 Codux 从 Finder 启动，也能找到本机安装的 Codex、Claude、Gemini、OpenCode。
+- 修复正式版 AI 记忆提取后台 worker 的 CLI 路径解析，现在会从用户登录 shell 环境读取真实 PATH；即使 WeCode 从 Finder 启动，也能找到本机安装的 Codex、Claude、Gemini、OpenCode。
 - 修复正式版标题栏浮动提示的锚点坐标计算，改为基于真实 AppKit 控件 frame 定位，避免打包后 hover 提示仍然漂移到按钮下方其他位置。
 
 ## [0.5.2] - 2026-04-24
@@ -1225,7 +1225,7 @@
 ### 修复
 
 - 修复正式版浮动提示定位，将提示锚定到真实控件 overlay，并使用稳定的屏幕坐标显示。
-- 修复 AI 记忆提取后台 worker，使 Claude、Codex、Gemini、OpenCode 提供商运行时跳过 Codux 终端 wrapper，直接解析用户本机安装的真实 CLI。
+- 修复 AI 记忆提取后台 worker，使 Claude、Codex、Gemini、OpenCode 提供商运行时跳过 WeCode 终端 wrapper，直接解析用户本机安装的真实 CLI。
 
 ## [0.5.1] - 2026-04-24
 
@@ -1249,13 +1249,13 @@
 - 新增第一版 AI 记忆系统，支持基于 SQLite 的用户记忆、项目记忆、提取队列、合并后的项目总记忆，以及面向支持工具的少量 working memory 注入。
 - 新增 AI 设置页，统一配置 Claude、Codex、Gemini、OpenCode 以及 OpenAI 兼容提取提供商，支持模型、Base URL、API Key 和记忆提取开关。
 - 新增标题栏记忆状态指示器，无需进入设置即可看到记忆提取和队列状态。
-- 新增项目 `.env` 环境加载能力；文件存在时，Codux 托管终端会自动获得其中的 AI CLI 凭据和代理变量。
+- 新增项目 `.env` 环境加载能力；文件存在时，WeCode 托管终端会自动获得其中的 AI CLI 凭据和代理变量。
 
 ### Changed
 
 - 将设置中的 Tools 调整为 AI，并把运行权限、提供商配置和记忆设置合并到统一的 AI 设置界面。
 - 外观主题与背景色调整恢复为稳定的“重启后生效”路径，不再对已有终端 surface 做即时应用。
-- 更新 README 中的排障日志路径，统一为当前 Codux 支持目录和 `runtime.log` / `runtime.previous.log` 文件名。
+- 更新 README 中的排障日志路径，统一为当前 WeCode 支持目录和 `runtime.log` / `runtime.previous.log` 文件名。
 
 ### Fixed
 
@@ -1268,7 +1268,7 @@
 
 ### Changed
 
-- 更新内置的 Ghostty 依赖到最新的 AppKit 输入修正版本，让 Codux 直接继承上游终端输入链路修复，不再继续依赖本地兼容性补丁。
+- 更新内置的 Ghostty 依赖到最新的 AppKit 输入修正版本，让 WeCode 直接继承上游终端输入链路修复，不再继续依赖本地兼容性补丁。
 - 压缩运行时日志噪音，屏蔽重复的活动状态解析、未变化历史索引、socket 收包以及无变化 hook ingress 明细，只保留状态切换、失败和真正有排障价值的通知诊断日志。
 
 ### Fixed
@@ -1374,7 +1374,7 @@
 
 ### Changed
 
-- 加固 Claude 包裹启动链路，让 Codux 在启动托管的 Claude 会话时更可靠地解析真实 Claude 二进制，并优先使用系统工具路径。
+- 加固 Claude 包裹启动链路，让 WeCode 在启动托管的 Claude 会话时更可靠地解析真实 Claude 二进制，并优先使用系统工具路径。
 
 ### Fixed
 
@@ -1385,7 +1385,7 @@
 ### Added
 
 - 新增“设置 > 外观”中的终端字号控制，可直接用数字输入调整终端文字大小。
-- 新增“设置 > 工具”标签页，用于配置 Codex、Claude Code、Gemini 和 OpenCode 在 Codux 终端中的默认权限模式。
+- 新增“设置 > 工具”标签页，用于配置 Codex、Claude Code、Gemini 和 OpenCode 在 WeCode 终端中的默认权限模式。
 - 新增“设置 > 通知”标签页，可分别为 Bark、ntfy、WxPusher、飞书、钉钉、企微、Telegram、Discord、Slack 和通用 Webhook 配置开关、地址与 token。
 - 新增外部通知后台发送链路，已配置的通知渠道会在完成事件后静默异步发送，失败不会阻塞界面，只记录到调试日志。
 - 将 WxPusher 收口为 SPT 极简发送模式，移除了无效的 token 输入项，并让设置界面与单参数配置方式保持一致。
@@ -1393,7 +1393,7 @@
 ### Changed
 
 - 加固 Codex、Claude、Gemini 和 OpenCode 的运行时驱动，让 loading、中断、恢复以及按轮次统计的实时 token 显示都改为由工具自身事件驱动，不再出现跨会话串值。
-- 收紧 Codux 终端内的工具二进制解析逻辑，Claude 现在会跟随当前 shell 实际解析到的可执行路径，而不是再去猜测用户的安装位置。
+- 收紧 WeCode 终端内的工具二进制解析逻辑，Claude 现在会跟随当前 shell 实际解析到的可执行路径，而不是再去猜测用户的安装位置。
 - 调整 AI 统计面板底部状态条，在刷新进行中会隐藏刷新按钮，让更新中状态只保留进度与停止控制。
 - 调整应用菜单中的“关于”和“检查更新”项，为两者加入图标并统一归到同一组应用信息入口中。
 - 调整通知设置卡片，为不同渠道补充专属字段名、多语言说明文案、对齐更稳定的输入布局，以及跳转到各渠道官方文档的入口。

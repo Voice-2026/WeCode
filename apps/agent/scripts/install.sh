@@ -1,41 +1,41 @@
 #!/bin/sh
-# Codux headless host (`codux`) installer / uninstaller.
+# WeCode headless host (`wecode`) installer / uninstaller.
 #
-# Install   download the prebuilt codux-agent binary for this machine and put it
-#           on your PATH as `codux` (no build toolchain needed).
+# Install   download the prebuilt wecode-agent binary for this machine and put it
+#           on your PATH as `wecode` (no build toolchain needed).
 # Uninstall stop the host, remove its OS service, and delete the binary.
 #
-#   curl -fsSL https://raw.githubusercontent.com/duxweb/codux/main/apps/agent/scripts/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/duxweb/wecode/main/apps/agent/scripts/install.sh | sh
 #   curl -fsSL .../install.sh | sh -s -- --uninstall
 #
 # Options (pass after `sh -s --`, or as env vars):
-#   --beta              newest beta-tagged build             (CODUX_CHANNEL=beta)
-#   --stable            newest stable build  [default]              (CODUX_CHANNEL=stable)
-#   --version <x.y.z>   install an exact version                    (CODUX_VERSION=x.y.z)
-#   --dir <path>        install / locate dir                        (CODUX_INSTALL_DIR=path)
-#   --mirror <prefix>   prepend a download mirror (slow GitHub?)    (CODUX_DOWNLOAD_BASE=prefix)
-#   --setup             run `codux config` + `codux install` after  (CODUX_SETUP=1)
-#   --device-name <n>   set the host name during --setup            (CODUX_DEVICE_NAME=n)
+#   --beta              newest beta-tagged build             (WECODE_CHANNEL=beta)
+#   --stable            newest stable build  [default]              (WECODE_CHANNEL=stable)
+#   --version <x.y.z>   install an exact version                    (WECODE_VERSION=x.y.z)
+#   --dir <path>        install / locate dir                        (WECODE_INSTALL_DIR=path)
+#   --mirror <prefix>   prepend a download mirror (slow GitHub?)    (WECODE_DOWNLOAD_BASE=prefix)
+#   --setup             run `wecode config` + `wecode install` after  (WECODE_SETUP=1)
+#   --device-name <n>   set the host name during --setup            (WECODE_DEVICE_NAME=n)
 #   --relay-preset <p>  set relay: global|china-tencent|china-aliyun|custom
-#   --relay-url <url>   set a custom relay URL                      (CODUX_RELAY_URL=url)
-#   --relay-auth <tok>  set custom relay auth token                 (CODUX_RELAY_AUTHENTICATION=tok)
+#   --relay-url <url>   set a custom relay URL                      (WECODE_RELAY_URL=url)
+#   --relay-auth <tok>  set custom relay auth token                 (WECODE_RELAY_AUTHENTICATION=tok)
 #   --uninstall         remove the host (stops it, removes service + binary)
 #   --purge             with --uninstall, also delete the data dir  (config, pairings, logs)
 #   --help              show this help
 set -eu
 
-REPO="duxweb/codux"
-BIN_NAME="codux"
+REPO="duxweb/wecode"
+BIN_NAME="wecode"
 MODE="install"
-CHANNEL="${CODUX_CHANNEL:-stable}"
-VERSION="${CODUX_VERSION:-}"
-INSTALL_DIR="${CODUX_INSTALL_DIR:-}"
-MIRROR="${CODUX_DOWNLOAD_BASE:-}"
-RUN_SETUP="${CODUX_SETUP:-0}"
-DEVICE_NAME="${CODUX_DEVICE_NAME:-}"
-RELAY_PRESET="${CODUX_RELAY_PRESET:-}"
-RELAY_URL="${CODUX_RELAY_URL:-}"
-RELAY_AUTHENTICATION="${CODUX_RELAY_AUTHENTICATION:-}"
+CHANNEL="${WECODE_CHANNEL:-stable}"
+VERSION="${WECODE_VERSION:-}"
+INSTALL_DIR="${WECODE_INSTALL_DIR:-}"
+MIRROR="${WECODE_DOWNLOAD_BASE:-}"
+RUN_SETUP="${WECODE_SETUP:-0}"
+DEVICE_NAME="${WECODE_DEVICE_NAME:-}"
+RELAY_PRESET="${WECODE_RELAY_PRESET:-}"
+RELAY_URL="${WECODE_RELAY_URL:-}"
+RELAY_AUTHENTICATION="${WECODE_RELAY_AUTHENTICATION:-}"
 PURGE=0
 
 say()  { printf '%s\n' "$*"; }
@@ -46,25 +46,25 @@ have() { command -v "$1" >/dev/null 2>&1; }
 
 show_help() {
   cat <<'EOF'
-Codux headless host (codux) installer / uninstaller.
+WeCode headless host (wecode) installer / uninstaller.
 
-Install   download the prebuilt codux-agent binary and put it on PATH as `codux`.
+Install   download the prebuilt wecode-agent binary and put it on PATH as `wecode`.
 Uninstall stop the host, remove its OS service, delete the binary.
 
-  curl -fsSL https://raw.githubusercontent.com/duxweb/codux/main/apps/agent/scripts/install.sh | sh
+  curl -fsSL https://raw.githubusercontent.com/duxweb/wecode/main/apps/agent/scripts/install.sh | sh
   curl -fsSL .../install.sh | sh -s -- --uninstall
 
 Options (pass after `sh -s --`, or as env vars):
-  --beta              newest beta-tagged build             (CODUX_CHANNEL=beta)
-  --stable            newest stable build  [default]              (CODUX_CHANNEL=stable)
-  --version <x.y.z>   install an exact version                    (CODUX_VERSION=x.y.z)
-  --dir <path>        install / locate dir                        (CODUX_INSTALL_DIR=path)
-  --mirror <prefix>   prepend a download mirror (slow GitHub?)    (CODUX_DOWNLOAD_BASE=prefix)
-  --setup             run `codux config` + `codux install` after  (CODUX_SETUP=1)
-  --device-name <n>   set the host name during --setup            (CODUX_DEVICE_NAME=n)
+  --beta              newest beta-tagged build             (WECODE_CHANNEL=beta)
+  --stable            newest stable build  [default]              (WECODE_CHANNEL=stable)
+  --version <x.y.z>   install an exact version                    (WECODE_VERSION=x.y.z)
+  --dir <path>        install / locate dir                        (WECODE_INSTALL_DIR=path)
+  --mirror <prefix>   prepend a download mirror (slow GitHub?)    (WECODE_DOWNLOAD_BASE=prefix)
+  --setup             run `wecode config` + `wecode install` after  (WECODE_SETUP=1)
+  --device-name <n>   set the host name during --setup            (WECODE_DEVICE_NAME=n)
   --relay-preset <p>  set relay: global|china-tencent|china-aliyun|custom
-  --relay-url <url>   set a custom relay URL                      (CODUX_RELAY_URL=url)
-  --relay-auth <tok>  set custom relay auth token                 (CODUX_RELAY_AUTHENTICATION=tok)
+  --relay-url <url>   set a custom relay URL                      (WECODE_RELAY_URL=url)
+  --relay-auth <tok>  set custom relay auth token                 (WECODE_RELAY_AUTHENTICATION=tok)
   --uninstall         remove the host (stops it, removes service + binary)
   --purge             with --uninstall, also delete the data dir  (config, pairings, logs)
   --help              show this help
@@ -105,7 +105,7 @@ detect_os() {
     Darwin) printf 'macos' ;;
     Linux)  printf 'linux' ;;
     MINGW*|MSYS*|CYGWIN*)
-      err "Windows isn't supported by this script. Download codux-agent-<ver>-windows-x86_64.exe from https://github.com/$REPO/releases and add it to your PATH as codux.exe" ;;
+      err "Windows isn't supported by this script. Download wecode-agent-<ver>-windows-x86_64.exe from https://github.com/$REPO/releases and add it to your PATH as wecode.exe" ;;
     *) err "unsupported OS: $(uname -s)" ;;
   esac
 }
@@ -141,7 +141,7 @@ choose_install_dir() {
 }
 
 find_installed_binary() {
-  # Locate an installed `codux` for uninstall. Prefers --dir, then PATH, then common dirs.
+  # Locate an installed `wecode` for uninstall. Prefers --dir, then PATH, then common dirs.
   if [ -n "$INSTALL_DIR" ] && [ -x "$INSTALL_DIR/$BIN_NAME" ]; then
     printf '%s' "$INSTALL_DIR/$BIN_NAME"; return 0
   fi
@@ -152,7 +152,7 @@ find_installed_binary() {
   return 1
 }
 
-data_dir() { printf '%s' "${CODUX_AGENT_DATA_DIR:-$HOME/.codux-agent}"; }
+data_dir() { printf '%s' "${WECODE_AGENT_DATA_DIR:-$HOME/.wecode-agent}"; }
 
 append_config_arg() {
   # Append one CLI option to CONFIG_ARGS. Values are single shell words here;
@@ -186,7 +186,7 @@ EOF
 do_install() {
   OS="$(detect_os)"
   ARCH="$(detect_arch)"
-  ASSET="codux-${OS}-${ARCH}"
+  ASSET="wecode-${OS}-${ARCH}"
 
   if [ -n "$VERSION" ]; then
     TAG="v${VERSION#v}"
@@ -204,7 +204,7 @@ do_install() {
   INSTALL_DIR="$(choose_install_dir)"
   DEST="$INSTALL_DIR/$BIN_NAME"
 
-  info "Installing codux host: $LABEL  [$OS/$ARCH]"
+  info "Installing wecode host: $LABEL  [$OS/$ARCH]"
   info "From: ${MIRROR}${URL}"
   info "To:   $DEST"
 
@@ -213,7 +213,7 @@ do_install() {
   [ -w "$INSTALL_DIR" ] \
     || err "$INSTALL_DIR is not writable — re-run with sudo or pass --dir <writable path>"
 
-  TMP="$(mktemp "${TMPDIR:-/tmp}/codux.XXXXXX")" || err "could not create a temp file"
+  TMP="$(mktemp "${TMPDIR:-/tmp}/wecode.XXXXXX")" || err "could not create a temp file"
   trap 'rm -f "$TMP"' EXIT INT TERM
 
   download "$URL" "$TMP" \
@@ -261,7 +261,7 @@ do_install() {
 
 do_uninstall() {
   if bin="$(find_installed_binary)"; then
-    info "Removing codux host: $bin"
+    info "Removing wecode host: $bin"
     # Stop the running host and remove its OS service before deleting the binary.
     "$bin" stop </dev/null >/dev/null 2>&1 || true
     "$bin" uninstall </dev/null >/dev/null 2>&1 || true

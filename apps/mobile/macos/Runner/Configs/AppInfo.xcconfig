@@ -5,10 +5,10 @@
 // 'flutter create' template.
 
 // The application's name. By default this is also the title of the Flutter window.
-PRODUCT_NAME = codux_flutter
+PRODUCT_NAME = wecode_flutter
 
 // The application's bundle identifier
-PRODUCT_BUNDLE_IDENTIFIER = com.codux.coduxFlutter
+PRODUCT_BUNDLE_IDENTIFIER = com.wecode.wecodeFlutter
 
 // The copyright displayed in application information
-PRODUCT_COPYRIGHT = Copyright © 2026 com.codux. All rights reserved.
+PRODUCT_COPYRIGHT = Copyright © 2026 com.wecode. All rights reserved.

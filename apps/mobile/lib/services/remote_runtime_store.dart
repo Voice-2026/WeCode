@@ -1,5 +1,5 @@
-import 'package:codux_protocol_ffi/codux_protocol_ffi.dart'
-    as codux_runtime_core;
+import 'package:wecode_protocol_ffi/wecode_protocol_ffi.dart'
+    as wecode_runtime_core;
 
 import '../models/remote_models.dart';
 import 'remote_terminal_scope.dart';
@@ -90,8 +90,8 @@ class RemoteRuntimePlan {
 class RemoteRuntimeStore {
   RemoteRuntimeStore();
 
-  final codux_runtime_core.RemoteRuntimeCore _core =
-      codux_runtime_core.RemoteRuntimeCore();
+  final wecode_runtime_core.RemoteRuntimeCore _core =
+      wecode_runtime_core.RemoteRuntimeCore();
 
   RemoteRuntimeState get state => _stateFromCore();
   List<ProjectInfo> get projects => state.projects;
@@ -343,7 +343,7 @@ class RemoteRuntimeStore {
   }
 }
 
-RemoteRuntimePlan _planFromCore(codux_runtime_core.RemoteRuntimeCorePlan plan) {
+RemoteRuntimePlan _planFromCore(wecode_runtime_core.RemoteRuntimeCorePlan plan) {
   return RemoteRuntimePlan(
     stateChanged: plan.stateChanged,
     clearTerminal: plan.clearTerminal,

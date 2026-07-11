@@ -108,7 +108,7 @@ impl DBStore {
         let profile = sanitize_request(request)?;
         let wrapper = db_wrapper_path(wrapper_bin_dir);
         if !wrapper.exists() {
-            return Err("codux-db wrapper is not ready.".to_string());
+            return Err("wecode-db wrapper is not ready.".to_string());
         }
         let profiles_file = write_test_profile_file(&profile)?;
         let output = run_db_test_command(&wrapper, &profile, &profiles_file);
@@ -179,18 +179,18 @@ pub fn db_wrapper_path(runtime_assets: impl AsRef<Path>) -> PathBuf {
     {
         let runtime_assets = runtime_assets.as_ref();
         if runtime_assets.ends_with("bin") {
-            runtime_assets.join("codux-db.ps1")
+            runtime_assets.join("wecode-db.ps1")
         } else {
-            runtime_assets.join("scripts/wrappers/bin/codux-db.ps1")
+            runtime_assets.join("scripts/wrappers/bin/wecode-db.ps1")
         }
     }
     #[cfg(not(windows))]
     {
         let runtime_assets = runtime_assets.as_ref();
         if runtime_assets.ends_with("bin") {
-            runtime_assets.join("codux-db")
+            runtime_assets.join("wecode-db")
         } else {
-            runtime_assets.join("scripts/wrappers/bin/codux-db")
+            runtime_assets.join("scripts/wrappers/bin/wecode-db")
         }
     }
 }

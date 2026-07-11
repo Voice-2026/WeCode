@@ -1,14 +1,14 @@
 use super::*;
 
 pub(in crate::app) struct ReviewWorkspaceView {
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     snapshot: super::workspace_review::ReviewWorkspaceSnapshot,
     file_list_view: Option<gpui::Entity<ReviewFileListView>>,
     diff_content_view: Option<gpui::Entity<ReviewDiffContentView>>,
 }
 
 pub(in crate::app) struct StatsWorkspaceView {
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     snapshot: super::workspace_stats::StatsWorkspaceSnapshot,
     scroll_handle: gpui::ScrollHandle,
     container_width: Option<Pixels>,
@@ -19,7 +19,7 @@ pub(in crate::app) struct StatsWorkspaceView {
 
 impl StatsWorkspaceView {
     pub(super) fn new(
-        app_entity: gpui::Entity<CoduxApp>,
+        app_entity: gpui::Entity<WeCodeApp>,
         snapshot: super::workspace_stats::StatsWorkspaceSnapshot,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -96,7 +96,7 @@ impl Render for StatsWorkspaceView {
 
 impl ReviewWorkspaceView {
     pub(super) fn new(
-        app_entity: gpui::Entity<CoduxApp>,
+        app_entity: gpui::Entity<WeCodeApp>,
         snapshot: super::workspace_review::ReviewWorkspaceSnapshot,
     ) -> Self {
         Self {
@@ -168,13 +168,13 @@ impl ReviewWorkspaceView {
 }
 
 pub(in crate::app) struct ReviewFileListView {
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     snapshot: super::workspace_review::ReviewFileListSnapshot,
 }
 
 impl ReviewFileListView {
     fn new(
-        app_entity: gpui::Entity<CoduxApp>,
+        app_entity: gpui::Entity<WeCodeApp>,
         snapshot: super::workspace_review::ReviewFileListSnapshot,
     ) -> Self {
         Self {

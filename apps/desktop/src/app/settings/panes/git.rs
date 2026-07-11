@@ -5,7 +5,7 @@ use super::*;
 pub(super) fn settings_git_pane(
     settings: &SettingsSummary,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     let language = settings.language.as_str();
     settings_form(vec![

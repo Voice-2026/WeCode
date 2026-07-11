@@ -485,11 +485,11 @@ fn update_download_path(url: &str, version: Option<&str>) -> Result<PathBuf, Str
         .unwrap_or_else(|| {
             let version = version.unwrap_or("latest");
             if cfg!(target_os = "macos") {
-                format!("Codux-{version}.dmg")
+                format!("WeCode-{version}.dmg")
             } else if cfg!(target_os = "windows") {
-                format!("Codux-{version}.zip")
+                format!("WeCode-{version}.zip")
             } else {
-                format!("Codux-{version}.tar.gz")
+                format!("WeCode-{version}.tar.gz")
             }
         });
     Ok(runtime_temp_dir().join("updates").join(file_name))
@@ -562,7 +562,7 @@ fn prepare_update_install(artifact_path: &Path) -> Result<PendingUpdateInstall, 
             installed: false,
             restart_to_install: false,
             message: format!(
-                "Update downloaded to {}. Complete the installer to update Codux.",
+                "Update downloaded to {}. Complete the installer to update WeCode.",
                 artifact_path.display()
             ),
         })
@@ -577,7 +577,7 @@ fn prepare_windows_update_install(artifact_path: &Path) -> Result<PendingUpdateI
             installed: false,
             restart_to_install: false,
             message: format!(
-                "Update downloaded to {}. Complete the installer to update Codux.",
+                "Update downloaded to {}. Complete the installer to update WeCode.",
                 artifact_path.display()
             ),
         });
@@ -592,7 +592,7 @@ fn prepare_windows_update_install(artifact_path: &Path) -> Result<PendingUpdateI
     Ok(PendingUpdateInstall {
         installed: false,
         restart_to_install: true,
-        message: "Update downloaded. Restart Codux to apply it.".to_string(),
+        message: "Update downloaded. Restart WeCode to apply it.".to_string(),
     })
 }
 
@@ -636,7 +636,7 @@ fn prepare_macos_update_install(artifact_path: &Path) -> Result<PendingUpdateIns
             installed: false,
             restart_to_install: false,
             message: format!(
-                "Update downloaded to {}. Complete the installer to update Codux.",
+                "Update downloaded to {}. Complete the installer to update WeCode.",
                 artifact_path.display()
             ),
         });
@@ -648,7 +648,7 @@ fn prepare_macos_update_install(artifact_path: &Path) -> Result<PendingUpdateIns
             installed: false,
             restart_to_install: false,
             message: format!(
-                "Update downloaded to {}. Complete the installer to update Codux.",
+                "Update downloaded to {}. Complete the installer to update WeCode.",
                 artifact_path.display()
             ),
         });
@@ -669,7 +669,7 @@ fn prepare_macos_update_install(artifact_path: &Path) -> Result<PendingUpdateIns
     Ok(PendingUpdateInstall {
         installed: false,
         restart_to_install: true,
-        message: "Update downloaded. Restart Codux to apply it.".to_string(),
+        message: "Update downloaded. Restart WeCode to apply it.".to_string(),
     })
 }
 
@@ -705,7 +705,7 @@ fn macos_update_install_script(
     let app_name = current_app
         .file_name()
         .and_then(|name| name.to_str())
-        .unwrap_or("Codux.app");
+        .unwrap_or("WeCode.app");
     let reopen_path = current_app.display().to_string();
     format!(
         r#"#!/bin/sh
@@ -1001,7 +1001,7 @@ mod tests {
 
     #[test]
     fn normalize_destination_adds_json_extension() {
-        let path = normalize_destination("/tmp/codux-diagnostics").unwrap();
+        let path = normalize_destination("/tmp/wecode-diagnostics").unwrap();
         assert_eq!(
             path.extension().and_then(|value| value.to_str()),
             Some("json")
@@ -1010,9 +1010,9 @@ mod tests {
 
     #[test]
     fn file_urls_parse_to_local_paths() {
-        let parsed = Url::parse("file:///tmp/codux-log.txt").unwrap();
+        let parsed = Url::parse("file:///tmp/wecode-log.txt").unwrap();
         let path = parsed.to_file_path().unwrap();
-        assert_eq!(path, PathBuf::from("/tmp/codux-log.txt"));
+        assert_eq!(path, PathBuf::from("/tmp/wecode-log.txt"));
     }
 
     #[test]
@@ -1037,7 +1037,7 @@ mod tests {
     #[test]
     fn runtime_log_preview_includes_recent_rotated_log() {
         let directory =
-            std::env::temp_dir().join(format!("codux-runtime-preview-{}", uuid::Uuid::new_v4()));
+            std::env::temp_dir().join(format!("wecode-runtime-preview-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&directory).unwrap();
         let source = directory.join("runtime-rust.log");
         let destination = directory.join("runtime-rust-preview.log");
@@ -1057,7 +1057,7 @@ mod tests {
     #[test]
     fn runtime_log_preview_requires_current_log() {
         let directory =
-            std::env::temp_dir().join(format!("codux-runtime-preview-{}", uuid::Uuid::new_v4()));
+            std::env::temp_dir().join(format!("wecode-runtime-preview-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&directory).unwrap();
         let source = directory.join("runtime-rust.log");
         fs::write(source.with_file_name("runtime-rust.log.1"), "previous\n").unwrap();
@@ -1072,7 +1072,7 @@ mod tests {
     #[test]
     fn update_signature_verification_skips_empty_signature() {
         let path = std::env::temp_dir().join(format!(
-            "codux-update-signature-test-{}",
+            "wecode-update-signature-test-{}",
             uuid::Uuid::new_v4()
         ));
         fs::write(&path, b"payload").unwrap();
@@ -1086,7 +1086,7 @@ mod tests {
     #[test]
     fn update_signature_verification_rejects_invalid_signature() {
         let path = std::env::temp_dir().join(format!(
-            "codux-update-signature-test-{}",
+            "wecode-update-signature-test-{}",
             uuid::Uuid::new_v4()
         ));
         fs::write(&path, b"payload").unwrap();
@@ -1107,9 +1107,9 @@ mod tests {
     #[test]
     fn macos_update_helper_waits_for_parent_and_cleans_itself() {
         let script = macos_update_install_script(
-            Path::new("/tmp/Codux.app.tar.gz"),
-            Path::new("/tmp/codux staging"),
-            Path::new("/Applications/Codux.app"),
+            Path::new("/tmp/WeCode.app.tar.gz"),
+            Path::new("/tmp/wecode staging"),
+            Path::new("/Applications/WeCode.app"),
             12345,
         );
 
@@ -1118,33 +1118,33 @@ mod tests {
         assert!(script.contains("trap 'rm -f \"$0\"' EXIT"));
         assert!(script.contains("/usr/bin/tar -xzf \"$ARTIFACT\""));
         assert!(script.contains("/usr/bin/ditto \"$NEW_APP\" \"$CURRENT_APP\""));
-        assert!(script.contains("/usr/bin/open '/Applications/Codux.app'"));
+        assert!(script.contains("/usr/bin/open '/Applications/WeCode.app'"));
     }
 
     #[cfg(target_os = "macos")]
     #[test]
     fn macos_update_archive_accepts_tauri_tarball() {
         assert!(is_macos_update_archive(Path::new(
-            "/tmp/Codux-updater.app.tar.gz"
+            "/tmp/WeCode-updater.app.tar.gz"
         )));
-        assert!(is_macos_update_archive(Path::new("/tmp/Codux.app.zip")));
-        assert!(!is_macos_update_archive(Path::new("/tmp/Codux.dmg")));
+        assert!(is_macos_update_archive(Path::new("/tmp/WeCode.app.zip")));
+        assert!(!is_macos_update_archive(Path::new("/tmp/WeCode.dmg")));
     }
 
     #[cfg(target_os = "macos")]
     #[test]
     fn current_macos_app_bundle_resolves_bundle_from_executable_path() {
         let bundle =
-            current_macos_app_bundle(Path::new("/Applications/Codux.app/Contents/MacOS/Codux"));
+            current_macos_app_bundle(Path::new("/Applications/WeCode.app/Contents/MacOS/WeCode"));
 
-        assert_eq!(bundle, Some(PathBuf::from("/Applications/Codux.app")));
+        assert_eq!(bundle, Some(PathBuf::from("/Applications/WeCode.app")));
     }
 
     #[cfg(target_os = "windows")]
     #[test]
     fn windows_update_helper_runs_nsis_silently_and_reopens_app() {
         let script =
-            windows_update_install_script(Path::new(r"C:\Temp\Codux-setup.exe"), 12345).unwrap();
+            windows_update_install_script(Path::new(r"C:\Temp\WeCode-setup.exe"), 12345).unwrap();
 
         assert!(script.contains("PARENT_PID=12345"));
         assert!(script.contains("set \"INSTALL_DIR="));

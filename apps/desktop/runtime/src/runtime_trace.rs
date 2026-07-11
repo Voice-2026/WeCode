@@ -92,7 +92,7 @@ mod tests {
     #[test]
     fn rotate_runtime_log_preserves_previous_current_log() {
         let directory =
-            std::env::temp_dir().join(format!("codux-runtime-log-{}", uuid::Uuid::new_v4()));
+            std::env::temp_dir().join(format!("wecode-runtime-log-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&directory).unwrap();
         let path = directory.join("runtime-rust.log");
         fs::write(&path, "current\n").unwrap();

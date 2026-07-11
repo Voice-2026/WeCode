@@ -1,18 +1,18 @@
 import 'package:flutter/foundation.dart';
 
-enum CoduxLogLevel { debug, info, warn, error, off }
+enum WeCodeLogLevel { debug, info, warn, error, off }
 
-CoduxLogLevel coduxLogLevelFromName(String value) => CoduxLog._parse(value);
+WeCodeLogLevel wecodeLogLevelFromName(String value) => WeCodeLog._parse(value);
 
-class CoduxLogEntry {
-  const CoduxLogEntry({
+class WeCodeLogEntry {
+  const WeCodeLogEntry({
     required this.time,
     required this.level,
     required this.message,
   });
 
   final DateTime time;
-  final CoduxLogLevel level;
+  final WeCodeLogLevel level;
   final String message;
 
   String format() {
@@ -21,46 +21,46 @@ class CoduxLogEntry {
   }
 }
 
-class CoduxLog {
-  CoduxLog._();
+class WeCodeLog {
+  WeCodeLog._();
 
   static const int _maxEntries = 800;
-  static final List<CoduxLogEntry> _entries = [];
+  static final List<WeCodeLogEntry> _entries = [];
 
   static const _levelName = String.fromEnvironment(
-    'CODUX_LOG_LEVEL',
+    'WECODE_LOG_LEVEL',
     defaultValue: 'info',
   );
 
-  static CoduxLogLevel _level = _parse(_levelName);
+  static WeCodeLogLevel _level = _parse(_levelName);
 
-  static CoduxLogLevel get level => _level;
+  static WeCodeLogLevel get level => _level;
   static String get nativeLevelName => _level.name;
-  static bool get isDebugEnabled => _enabled(CoduxLogLevel.debug);
+  static bool get isDebugEnabled => _enabled(WeCodeLogLevel.debug);
 
   static void setLevelName(String value) {
     _level = _parse(value);
   }
 
-  static void debug(String message) => _print(CoduxLogLevel.debug, message);
+  static void debug(String message) => _print(WeCodeLogLevel.debug, message);
 
-  static void info(String message) => _print(CoduxLogLevel.info, message);
+  static void info(String message) => _print(WeCodeLogLevel.info, message);
 
-  static void warn(String message) => _print(CoduxLogLevel.warn, message);
+  static void warn(String message) => _print(WeCodeLogLevel.warn, message);
 
-  static void error(String message) => _print(CoduxLogLevel.error, message);
+  static void error(String message) => _print(WeCodeLogLevel.error, message);
 
-  static List<CoduxLogEntry> snapshot() => List.unmodifiable(_entries);
+  static List<WeCodeLogEntry> snapshot() => List.unmodifiable(_entries);
 
   static String snapshotText() =>
       snapshot().map((entry) => entry.format()).join('\n');
 
   static void clear() => _entries.clear();
 
-  static void _print(CoduxLogLevel messageLevel, String message) {
+  static void _print(WeCodeLogLevel messageLevel, String message) {
     if (!_enabled(messageLevel)) return;
     _entries.add(
-      CoduxLogEntry(
+      WeCodeLogEntry(
         time: DateTime.now(),
         level: messageLevel,
         message: message,
@@ -72,16 +72,16 @@ class CoduxLog {
     debugPrint(message);
   }
 
-  static bool _enabled(CoduxLogLevel messageLevel) {
-    if (_level == CoduxLogLevel.off) return false;
+  static bool _enabled(WeCodeLogLevel messageLevel) {
+    if (_level == WeCodeLogLevel.off) return false;
     return messageLevel.index >= _level.index;
   }
 
-  static CoduxLogLevel _parse(String value) {
+  static WeCodeLogLevel _parse(String value) {
     final normalized = value.trim().toLowerCase();
-    for (final item in CoduxLogLevel.values) {
+    for (final item in WeCodeLogLevel.values) {
       if (item.name == normalized) return item;
     }
-    return CoduxLogLevel.warn;
+    return WeCodeLogLevel.warn;
   }
 }

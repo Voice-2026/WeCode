@@ -1,6 +1,6 @@
 use super::*;
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn clear_git_review_derived_content(&mut self) {
         self.git_review_content = None;
         self.git_review_derived_rows = None;
@@ -274,8 +274,8 @@ impl CoduxApp {
         self.git_diff_preview = "loading diff...".to_string();
         self.invalidate_ui(cx, [UiRegion::GitSidebar, UiRegion::WorkspaceBody]);
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let result = codux_runtime::async_runtime::run_limited_blocking_with_priority(
-                codux_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND + generation,
+            let result = wecode_runtime::async_runtime::run_limited_blocking_with_priority(
+                wecode_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND + generation,
                 move || {
                     let diff = runtime_service.read_project_git_review_diff(
                         &project_path,
@@ -379,7 +379,7 @@ impl CoduxApp {
         let bounds = Bounds::centered(None, size(px(920.0), px(680.0)), cx);
         let result = cx.open_window(
             WindowOptions {
-                titlebar: Some(theme::codux_child_titlebar(format!(
+                titlebar: Some(theme::wecode_child_titlebar(format!(
                     "Diff - {selected_file}"
                 ))),
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -389,7 +389,7 @@ impl CoduxApp {
             move |window, cx| {
                 macos_window::configure_document_child_window_controls(window);
                 let mut app =
-                    CoduxApp::new_settings_window_from_state(state, runtime, runtime_service);
+                    WeCodeApp::new_settings_window_from_state(state, runtime, runtime_service);
                 app.window_mode = AppWindowMode::GitDiff;
                 app.git_diff_window_path = Some(selected_file.clone());
                 app.git_diff_window_content = "Loading diff...".to_string();
@@ -418,8 +418,8 @@ impl CoduxApp {
                 let diff_project_path = project_path.clone();
                 let diff_selected_file = selected_file.clone();
                 view.update(cx, |_app, cx| {
-                    cx.spawn(async move |this: gpui::WeakEntity<CoduxApp>, cx| {
-                        let result = codux_runtime::async_runtime::spawn_blocking(move || {
+                    cx.spawn(async move |this: gpui::WeakEntity<WeCodeApp>, cx| {
+                        let result = wecode_runtime::async_runtime::spawn_blocking(move || {
                             let diff = service.read_project_git_review_diff(
                                 &diff_project_path,
                                 &diff_selected_file,

@@ -1,5 +1,5 @@
-import 'package:codux_flutter/models/remote_models.dart';
-import 'package:codux_flutter/services/remote_project_controller.dart';
+import 'package:wecode_flutter/models/remote_models.dart';
+import 'package:wecode_flutter/services/remote_project_controller.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -9,14 +9,14 @@ void main() {
   test('builds add project envelope with path-derived name', () {
     final plan = controller.savePlan(
       mode: ProjectFormMode.add,
-      path: '/Volumes/Web/codux',
+      path: '/Volumes/Web/wecode',
       name: '',
     );
 
     expect(plan.valid, isTrue);
-    expect(plan.name, 'codux');
+    expect(plan.name, 'wecode');
     expect(plan.envelope!.type, 'project.add');
-    expect((plan.envelope!.payload as Map)['name'], 'codux');
+    expect((plan.envelope!.payload as Map)['name'], 'wecode');
   });
 
   test('builds edit project envelope with selected project', () {

@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn terminal_baseline_viewport_does_not_steal_from_other_owner() {
-    let support_dir = temp_support_dir("codux-remote-terminal-baseline-no-steal");
+    let support_dir = temp_support_dir("wecode-remote-terminal-baseline-no-steal");
     write_paired_remote_settings(&support_dir);
     let terminals = Arc::new(TerminalManager::new());
     let runtime = Arc::new(RemoteHostRuntime::new_with_ai_history_and_terminals(
@@ -77,7 +77,7 @@ fn terminal_baseline_viewport_does_not_steal_from_other_owner() {
 
 #[test]
 fn project_terminal_baseline_viewport_targets_active_split_only() {
-    let support_dir = temp_support_dir("codux-remote-project-baseline-active-viewport");
+    let support_dir = temp_support_dir("wecode-remote-project-baseline-active-viewport");
     write_paired_remote_settings(&support_dir);
     let project_dir = support_dir.join("project-a");
     fs::create_dir_all(&project_dir).expect("create project dir");
@@ -218,7 +218,7 @@ fn project_terminal_baseline_viewport_targets_active_split_only() {
 
 #[test]
 fn viewport_state_marks_stale_output_per_viewer() {
-    let support_dir = temp_support_dir("codux-remote-viewport-state-per-viewer-stale");
+    let support_dir = temp_support_dir("wecode-remote-viewport-state-per-viewer-stale");
     let project_dir = support_dir.join("project-a");
     fs::create_dir_all(&project_dir).expect("create project dir");
     let terminals = Arc::new(TerminalManager::new());
@@ -283,7 +283,7 @@ fn viewport_state_marks_stale_output_per_viewer() {
 
 #[test]
 fn terminal_viewport_resize_uses_remote_owner() {
-    let support_dir = temp_support_dir("codux-remote-terminal-viewport-owner");
+    let support_dir = temp_support_dir("wecode-remote-terminal-viewport-owner");
     let terminals = Arc::new(TerminalManager::new());
     let runtime = Arc::new(RemoteHostRuntime::new_with_ai_history_and_terminals(
         support_dir.clone(),
@@ -395,7 +395,7 @@ fn terminal_viewport_resize_uses_remote_owner() {
 
 #[test]
 fn terminal_viewport_resize_pushes_state_without_screen_keyframe() {
-    let support_dir = temp_support_dir("codux-remote-terminal-viewport-keyframe");
+    let support_dir = temp_support_dir("wecode-remote-terminal-viewport-keyframe");
     write_paired_remote_settings(&support_dir);
     let terminals = Arc::new(TerminalManager::new());
     let runtime = Arc::new(RemoteHostRuntime::new_with_ai_history_and_terminals(
@@ -492,7 +492,7 @@ fn terminal_viewport_resize_pushes_state_without_screen_keyframe() {
 
 #[test]
 fn terminal_input_reclaims_viewport_after_lease_expired_to_host() {
-    let support_dir = temp_support_dir("codux-remote-terminal-input-reclaim");
+    let support_dir = temp_support_dir("wecode-remote-terminal-input-reclaim");
     write_paired_remote_settings(&support_dir);
     let terminals = Arc::new(TerminalManager::new());
     let runtime = Arc::new(RemoteHostRuntime::new_with_ai_history_and_terminals(
@@ -556,7 +556,7 @@ fn terminal_input_reclaims_viewport_after_lease_expired_to_host() {
 
 #[test]
 fn terminal_resize_without_owner_claims_remote_viewport_for_compatibility() {
-    let support_dir = temp_support_dir("codux-remote-terminal-resize-without-owner");
+    let support_dir = temp_support_dir("wecode-remote-terminal-resize-without-owner");
     let terminals = Arc::new(TerminalManager::new());
     let runtime = Arc::new(RemoteHostRuntime::new_with_ai_history_and_terminals(
         support_dir.clone(),
@@ -600,7 +600,7 @@ fn terminal_resize_without_owner_claims_remote_viewport_for_compatibility() {
 
 #[test]
 fn terminal_resize_without_dimensions_is_rejected() {
-    let support_dir = temp_support_dir("codux-remote-terminal-resize-reject");
+    let support_dir = temp_support_dir("wecode-remote-terminal-resize-reject");
     let terminals = Arc::new(TerminalManager::new());
     let runtime = Arc::new(RemoteHostRuntime::new_with_ai_history_and_terminals(
         support_dir.clone(),

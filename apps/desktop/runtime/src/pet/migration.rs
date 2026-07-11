@@ -136,9 +136,9 @@ fn mac_pet_state_paths() -> Vec<PathBuf> {
             .join("Library")
             .join("Application Support");
         vec![
-            support.join("Codux").join("pet-state.dat"),
-            support.join("Codux-dev").join("pet-state.dat"),
-            support.join("Codux-debug").join("pet-state.dat"),
+            support.join("WeCode").join("pet-state.dat"),
+            support.join("WeCode-dev").join("pet-state.dat"),
+            support.join("WeCode-debug").join("pet-state.dat"),
             support.join("dmux").join("pet-state.dat"),
             support.join("dmux-dev").join("pet-state.dat"),
         ]
@@ -156,9 +156,9 @@ fn mac_custom_pet_paths() -> Vec<PathBuf> {
             .join("Library")
             .join("Application Support");
         vec![
-            support.join("Codux").join("custom-pets"),
-            support.join("Codux-dev").join("custom-pets"),
-            support.join("Codux-debug").join("custom-pets"),
+            support.join("WeCode").join("custom-pets"),
+            support.join("WeCode-dev").join("custom-pets"),
+            support.join("WeCode-debug").join("custom-pets"),
         ]
     }
     #[cfg(not(target_os = "macos"))]

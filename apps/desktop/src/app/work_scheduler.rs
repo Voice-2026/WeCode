@@ -15,7 +15,7 @@ impl ScheduledWorkPolicy {
     }
 }
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn scheduled_work_busy_or_recent(
         &self,
         key: &str,

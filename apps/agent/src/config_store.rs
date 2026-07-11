@@ -1,4 +1,4 @@
-//! The headless host's persisted configuration (`codux.toml`).
+//! The headless host's persisted configuration (`wecode.toml`).
 //!
 //! `host_id` + `host_token` seed the iroh node identity (see
 //! `host_secret_key`), so they must stay stable across restarts — otherwise the
@@ -13,7 +13,7 @@ pub const RELAY_PRESET_CUSTOM: &str = "custom";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default, rename_all = "snake_case")]
-pub struct CoduxConfig {
+pub struct WeCodeConfig {
     /// The name shown for this host on paired desktops.
     pub device_name: String,
     /// Stable logical host id (part of the node-identity seed).
@@ -28,7 +28,7 @@ pub struct CoduxConfig {
     pub relay_authentication: String,
 }
 
-impl Default for CoduxConfig {
+impl Default for WeCodeConfig {
     fn default() -> Self {
         Self {
             device_name: default_device_name(),
@@ -41,7 +41,7 @@ impl Default for CoduxConfig {
     }
 }
 
-impl CoduxConfig {
+impl WeCodeConfig {
     /// Load the config, or a default if none exists yet.
     pub fn load() -> Self {
         std::fs::read_to_string(paths::config_path())
@@ -64,7 +64,7 @@ impl CoduxConfig {
             generated = true;
         }
         if self.host_id.trim().is_empty() {
-            self.host_id = format!("codux-{}", random_hex(6));
+            self.host_id = format!("wecode-{}", random_hex(6));
             generated = true;
         }
         if self.host_token.trim().is_empty() {
@@ -104,12 +104,12 @@ pub fn default_device_name() -> String {
         .or_else(|| std::env::var("HOSTNAME").ok())
         .map(|name| name.trim().to_string())
         .filter(|name| !name.is_empty())
-        .unwrap_or_else(|| "codux-agent".to_string())
+        .unwrap_or_else(|| "wecode-agent".to_string())
 }
 
 fn is_placeholder_device_name(value: &str) -> bool {
     let value = value.trim();
-    value.is_empty() || value.eq_ignore_ascii_case("codux-agent")
+    value.is_empty() || value.eq_ignore_ascii_case("wecode-agent")
 }
 
 fn display_host_name(host_name: Option<String>, user_name: Option<String>) -> Option<String> {

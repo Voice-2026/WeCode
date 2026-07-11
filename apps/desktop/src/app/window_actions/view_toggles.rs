@@ -1,6 +1,6 @@
 use super::*;
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn toggle_project_column(
         &mut self,
         _window: &mut Window,

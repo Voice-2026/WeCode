@@ -29,7 +29,7 @@ fn sanitize_terminal_theme(value: &str) -> String {
 fn terminal_theme_options() -> &'static [&'static str] {
     &[
         "Auto",
-        "Codux Dark",
+        "WeCode Dark",
         "Deep Ocean",
         "Arctic Night",
         "Forest Night",
@@ -37,7 +37,7 @@ fn terminal_theme_options() -> &'static [&'static str] {
         "Amethyst Dusk",
         "Rose Noir",
         "Carbon",
-        "Codux Light",
+        "WeCode Light",
         "Glacier",
         "Morning Mist",
         "Matcha",

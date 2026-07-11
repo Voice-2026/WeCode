@@ -397,7 +397,7 @@ fn terminal_osc_color_report(code: u8, color: Hsla) -> Vec<u8> {
 
 fn terminal_trace_enabled() -> bool {
     *TERMINAL_TRACE_ENABLED.get_or_init(|| {
-        env::var("CODUX_TERMINAL_TRACE")
+        env::var("WECODE_TERMINAL_TRACE")
             .map(|value| {
                 let value = value.trim();
                 !value.is_empty() && value != "0" && !value.eq_ignore_ascii_case("false")
@@ -408,7 +408,7 @@ fn terminal_trace_enabled() -> bool {
 
 fn terminal_trace(message: &str) {
     if terminal_trace_enabled() {
-        codux_runtime::runtime_trace::runtime_trace("terminal-pty", message);
+        wecode_runtime::runtime_trace::runtime_trace("terminal-pty", message);
     }
 }
 

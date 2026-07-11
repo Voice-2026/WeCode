@@ -63,7 +63,7 @@ mod tests {
     #[test]
     fn ai_history_commands_delegate_to_indexed_runtime_layer() {
         let support_dir =
-            std::env::temp_dir().join(format!("codux-app-command-ai-history-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("wecode-app-command-ai-history-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&support_dir).expect("support dir");
         let service = RuntimeService::new(support_dir.clone());
         let project = AIHistoryProjectRequest {

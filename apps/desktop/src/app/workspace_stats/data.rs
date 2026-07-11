@@ -1,9 +1,9 @@
 use super::*;
 
 pub(super) fn stats_range_summary<'a>(
-    global: &'a codux_runtime::ai_history::AIGlobalHistorySummary,
+    global: &'a wecode_runtime::ai_history::AIGlobalHistorySummary,
     range: StatsTimeRange,
-) -> Option<&'a codux_runtime::ai_history::AIGlobalHistoryRangeSummary> {
+) -> Option<&'a wecode_runtime::ai_history::AIGlobalHistoryRangeSummary> {
     let key = stats_time_range_key(range);
     global
         .range_summaries
@@ -21,8 +21,8 @@ pub(super) fn stats_time_range_key(range: StatsTimeRange) -> &'static str {
 }
 
 pub(super) fn stats_tool_rows(
-    global: &codux_runtime::ai_history::AIGlobalHistorySummary,
-    range: Option<&codux_runtime::ai_history::AIGlobalHistoryRangeSummary>,
+    global: &wecode_runtime::ai_history::AIGlobalHistorySummary,
+    range: Option<&wecode_runtime::ai_history::AIGlobalHistoryRangeSummary>,
     include_cached: bool,
 ) -> Vec<StatsRankRow> {
     let rows = range
@@ -32,8 +32,8 @@ pub(super) fn stats_tool_rows(
 }
 
 pub(super) fn stats_model_rows(
-    global: &codux_runtime::ai_history::AIGlobalHistorySummary,
-    range: Option<&codux_runtime::ai_history::AIGlobalHistoryRangeSummary>,
+    global: &wecode_runtime::ai_history::AIGlobalHistorySummary,
+    range: Option<&wecode_runtime::ai_history::AIGlobalHistoryRangeSummary>,
     include_cached: bool,
 ) -> Vec<StatsRankRow> {
     let rows = range
@@ -43,7 +43,7 @@ pub(super) fn stats_model_rows(
 }
 
 pub(super) fn stats_breakdown_rows(
-    rows: &[codux_runtime::ai_history_normalized::AIUsageBreakdownItem],
+    rows: &[wecode_runtime::ai_history_normalized::AIUsageBreakdownItem],
     include_cached: bool,
     limit: usize,
 ) -> Vec<StatsRankRow> {
@@ -54,7 +54,7 @@ pub(super) fn stats_breakdown_rows(
             if label.is_empty() || label.eq_ignore_ascii_case("unknown") {
                 return None;
             }
-            let value = codux_runtime::ai_history::display_tokens(
+            let value = wecode_runtime::ai_history::display_tokens(
                 row.total_tokens,
                 row.cached_input_tokens,
                 include_cached,
@@ -84,8 +84,8 @@ pub(super) fn rank_rows_from_values(
 }
 
 pub(super) fn stats_project_table_rows(
-    global: &codux_runtime::ai_history::AIGlobalHistorySummary,
-    range: Option<&codux_runtime::ai_history::AIGlobalHistoryRangeSummary>,
+    global: &wecode_runtime::ai_history::AIGlobalHistorySummary,
+    range: Option<&wecode_runtime::ai_history::AIGlobalHistoryRangeSummary>,
 ) -> Vec<StatsProjectRow> {
     let projects = range
         .map(|range| range.project_totals.as_slice())
@@ -131,16 +131,16 @@ pub(super) fn stats_total_tokens(no_cache_tokens: i64, cached_input_tokens: i64)
 }
 
 pub(super) fn stats_global_heatmap(
-    global: &codux_runtime::ai_history::AIGlobalHistorySummary,
+    global: &wecode_runtime::ai_history::AIGlobalHistorySummary,
     include_cached: bool,
-) -> Vec<codux_runtime::ai_history::AIHistoryHeatmapCellView> {
-    let today = codux_runtime::ai_history_normalized::local_day_start_seconds(app_now_seconds());
+) -> Vec<wecode_runtime::ai_history::AIHistoryHeatmapCellView> {
+    let today = wecode_runtime::ai_history_normalized::local_day_start_seconds(app_now_seconds());
     let first_day = today - (STATS_HEATMAP_MAX_COLUMNS * STATS_HEATMAP_ROWS - 1) as f64 * 86_400.0;
     let mut values = (0..STATS_HEATMAP_MAX_COLUMNS)
         .flat_map(|column| {
             (0..STATS_HEATMAP_ROWS).map(move |row| {
                 let day = first_day + (column * STATS_HEATMAP_ROWS + row) as f64 * 86_400.0;
-                codux_runtime::ai_history::AIHistoryHeatmapCellView {
+                wecode_runtime::ai_history::AIHistoryHeatmapCellView {
                     day,
                     value: 0,
                     input_tokens: 0,
@@ -156,11 +156,11 @@ pub(super) fn stats_global_heatmap(
         .collect::<Vec<_>>();
 
     for day in &global.heatmap {
-        let day_start = codux_runtime::ai_history_normalized::local_day_start_seconds(day.day);
+        let day_start = wecode_runtime::ai_history_normalized::local_day_start_seconds(day.day);
         let day_offset = ((today - day_start) / 86_400.0).round() as isize;
         if (0..values.len() as isize).contains(&day_offset) {
             let index = values.len() - 1 - day_offset as usize;
-            values[index].value += codux_runtime::ai_history::display_tokens(
+            values[index].value += wecode_runtime::ai_history::display_tokens(
                 day.total_tokens,
                 day.cached_input_tokens,
                 include_cached,
@@ -198,7 +198,7 @@ pub(super) fn stats_global_heatmap(
 }
 
 pub(super) fn stats_trend_buckets(
-    global: &codux_runtime::ai_history::AIGlobalHistorySummary,
+    global: &wecode_runtime::ai_history::AIGlobalHistorySummary,
     include_cached: bool,
 ) -> Vec<StatsTrendBucket> {
     let mut rows = global
@@ -210,7 +210,7 @@ pub(super) fn stats_trend_buckets(
             output_tokens: bucket.output_tokens.max(0),
             cached_input_tokens: bucket.cached_input_tokens.max(0),
             no_cache_tokens: bucket.total_tokens.max(0),
-            total_tokens: codux_runtime::ai_history::display_tokens(
+            total_tokens: wecode_runtime::ai_history::display_tokens(
                 bucket.total_tokens.max(0),
                 bucket.cached_input_tokens.max(0),
                 include_cached,

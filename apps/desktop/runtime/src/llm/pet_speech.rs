@@ -83,7 +83,7 @@ fn pet_speech_system_prompt(locale: &str, mode: &str) -> String {
     let language = pet_speech_language_label(locale);
     let persona = pet_speech_persona(mode);
     format!(
-        "You are Codux's desktop pet, a small companion that watches AI coding work and helps the user keep momentum.\n\
+        "You are WeCode's desktop pet, a small companion that watches AI coding work and helps the user keep momentum.\n\
 Return minified JSON only: {{\"text\":\"...\"}}.\n\
 Write exactly one random, self-initiated, original short pet line in {language}.\n\
 Personality: {persona}\n\

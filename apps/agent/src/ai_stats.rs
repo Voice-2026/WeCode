@@ -1,4 +1,4 @@
-//! AI usage stats for the headless host. The shared `codux-ai-history` engine
+//! AI usage stats for the headless host. The shared `wecode-ai-history` engine
 //! parses each CLI's session history, caches it in SQLite under the agent data
 //! dir, and serves per-project usage snapshots — the same engine the desktop
 //! runs, so the controller's AI stats panel renders with full parity.
@@ -9,10 +9,10 @@
 //! wire builder the desktop host uses. The controller re-requests to pick up
 //! freshly indexed data.
 
-use codux_ai_history::indexer::AIHistoryIndexer;
-use codux_ai_history::normalized::AIHistoryProjectRequest;
-use codux_runtime_core::ai_stats::RemoteAICurrentSessionProvider;
 use serde_json::{Value, json};
+use wecode_ai_history::indexer::AIHistoryIndexer;
+use wecode_ai_history::normalized::AIHistoryProjectRequest;
+use wecode_runtime_core::ai_stats::RemoteAICurrentSessionProvider;
 
 /// Open the indexer against the agent data dir's usage cache.
 pub fn open_indexer() -> AIHistoryIndexer {
@@ -36,7 +36,7 @@ pub fn ai_stats_payload(
     match indexer.project_state(request) {
         Ok(state) => stats_payload_from_state(id, name, state, live_sessions),
         Err(_) => {
-            let mut payload = codux_runtime_core::ai_stats::empty_ai_stats_payload(id, name);
+            let mut payload = wecode_runtime_core::ai_stats::empty_ai_stats_payload(id, name);
             if let Some(object) = payload.as_object_mut() {
                 object.insert("currentSessions".to_string(), json!(live_sessions));
             }
@@ -48,11 +48,11 @@ pub fn ai_stats_payload(
 fn stats_payload_from_state(
     id: &str,
     name: &str,
-    state: codux_ai_history::indexer::AIHistoryProjectState,
-    current_sessions: Vec<codux_protocol::RemoteAICurrentSession>,
+    state: wecode_ai_history::indexer::AIHistoryProjectState,
+    current_sessions: Vec<wecode_protocol::RemoteAICurrentSession>,
 ) -> Value {
-    codux_runtime_core::ai_stats::ai_stats_payload_from_state(id, name, state, current_sessions)
-        .unwrap_or_else(|_| codux_runtime_core::ai_stats::empty_ai_stats_payload(id, name))
+    wecode_runtime_core::ai_stats::ai_stats_payload_from_state(id, name, state, current_sessions)
+        .unwrap_or_else(|_| wecode_runtime_core::ai_stats::empty_ai_stats_payload(id, name))
 }
 
 /// The full `AIHistoryProjectState` (incl. snapshot) for a desktop controller,

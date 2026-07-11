@@ -1,0 +1,77 @@
+#!/usr/bin/expect -f
+
+set timeout 30
+set handoff_timeout 1
+
+if {[info exists env(WECODE_SSH_PASSWORD)]} {
+    set password $env(WECODE_SSH_PASSWORD)
+} else {
+    set password ""
+}
+
+if {[info exists env(WECODE_SSH_KEY_PASSPHRASE)]} {
+    set passphrase $env(WECODE_SSH_KEY_PASSPHRASE)
+} else {
+    set passphrase ""
+}
+
+if {$argc == 0} {
+    puts stderr "wecode-ssh: missing ssh command"
+    exit 64
+}
+
+if {[info exists env(WECODE_SSH_NONINTERACTIVE)] && $env(WECODE_SSH_NONINTERACTIVE) eq "1"} {
+    set noninteractive 1
+} else {
+    set noninteractive 0
+}
+
+spawn {*}$argv
+
+expect {
+    -re "(?i)are you sure you want to continue connecting.*\\?" {
+        send -- "yes\r"
+        set timeout 30
+        exp_continue
+    }
+    -re "(?i)enter passphrase.*:" {
+        if {$passphrase ne ""} {
+            send -- "$passphrase\r"
+            set timeout $handoff_timeout
+            exp_continue
+        }
+    }
+    -re "(?i)password.*:" {
+        if {$password ne ""} {
+            send -- "$password\r"
+            set timeout $handoff_timeout
+            exp_continue
+        }
+    }
+    eof {
+        catch wait wait_result
+        if {[info exists wait_result] && [llength $wait_result] >= 4} {
+            exit [lindex $wait_result 3]
+        }
+        exit 0
+    }
+    timeout {}
+}
+
+if {$noninteractive} {
+    # Wait out the whole command (handoff_timeout is only for the interactive handoff) so slow/large output isn't truncated or deadlocked.
+    set timeout -1
+    expect eof
+    catch wait wait_result
+    if {[info exists wait_result] && [llength $wait_result] >= 4} {
+        exit [lindex $wait_result 3]
+    }
+    exit 0
+}
+
+interact
+catch wait wait_result
+if {[info exists wait_result] && [llength $wait_result] >= 4} {
+    exit [lindex $wait_result 3]
+}
+exit 0

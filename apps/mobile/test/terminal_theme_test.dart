@@ -1,5 +1,5 @@
-import 'package:codux_flutter/theme/app_theme.dart';
-import 'package:codux_flutter/theme/terminal_theme.dart';
+import 'package:wecode_flutter/theme/app_theme.dart';
+import 'package:wecode_flutter/theme/terminal_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 

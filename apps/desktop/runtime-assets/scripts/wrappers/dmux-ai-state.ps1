@@ -201,9 +201,9 @@ function Write-ClaudeMemoryAdditionalContext([string]$HookEventName = "UserPromp
     return
   }
   if ([string]::IsNullOrWhiteSpace($text)) { return }
-  $prefix = "Codux memory refresh: the conversation may have been compacted, or this is a new user turn. Re-apply relevant durable memory below. Prefer current user instructions and repository state over stale memory. Memory index file: $env:DMUX_AI_MEMORY_INDEX_FILE`n`n"
+  $prefix = "WeCode memory refresh: the conversation may have been compacted, or this is a new user turn. Re-apply relevant durable memory below. Prefer current user instructions and repository state over stale memory. Memory index file: $env:DMUX_AI_MEMORY_INDEX_FILE`n`n"
   $payload = $prefix + $text.Trim()
-  $suffix = "`n[Codux memory refresh truncated]"
+  $suffix = "`n[WeCode memory refresh truncated]"
   if ($payload.Length -gt 9500) {
     $payload = $payload.Substring(0, 9500 - $suffix.Length) + $suffix
   }

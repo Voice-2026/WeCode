@@ -7,7 +7,7 @@ pub(super) fn git_status_dir_row(
     expanded: bool,
     depth: usize,
     labels: Rc<GitFileMenuLabels>,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let directory_path = path.to_string();
     let directory_section = section_id.to_string();
@@ -150,7 +150,7 @@ pub(super) fn git_status_file_row(
     selected_files: &HashSet<String>,
     depth: usize,
     labels: Rc<GitFileMenuLabels>,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let status = git_file_status_label(&file);
     let status_color = git_file_status_color(&status);
@@ -385,7 +385,7 @@ pub(in crate::app) fn git_diff_window_workspace(
     derived_rows: Option<&GitReviewDerivedRows>,
     code_scroll_handle: ScrollHandle,
     language: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let labels = GitSidebarLabels::load(language);
     let file_path = selected_path

@@ -6,7 +6,7 @@ pub(super) fn settings_memory_pane(
     settings: &SettingsSummary,
     _memory: &MemorySummary,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     let language = settings.language.as_str();
     let mut cards = vec![

@@ -1,6 +1,6 @@
 use super::*;
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn select_project(
         &mut self,
         project_id: String,
@@ -56,10 +56,10 @@ impl CoduxApp {
         let runtime_service = self.runtime_service.clone();
         let queued_at = Instant::now();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let result = codux_runtime::async_runtime::spawn_blocking({
+            let result = wecode_runtime::async_runtime::spawn_blocking({
                 let project_id = project_id.clone();
                 move || {
-                    codux_runtime::runtime_trace::runtime_trace(
+                    wecode_runtime::runtime_trace::runtime_trace(
                         "project-switch",
                         &format!(
                             "select_persist worker_start project={} queue_wait_ms={}",

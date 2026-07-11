@@ -1,4 +1,3 @@
-use codux_remote_transport::WebTunnelTcpConnectRequest;
 use std::{
     collections::HashMap,
     io,
@@ -13,6 +12,7 @@ use tokio::{
     sync::oneshot,
 };
 use url::Url;
+use wecode_remote_transport::WebTunnelTcpConnectRequest;
 
 const SESSION_TTL: Duration = Duration::from_secs(60 * 60);
 const MAX_HEADER_BYTES: usize = 64 * 1024;
@@ -39,7 +39,7 @@ pub trait HostBrowserController: Send + Sync {
     fn tcp_connect(
         &self,
         request: WebTunnelTcpConnectRequest,
-    ) -> Result<Box<dyn codux_remote_transport::WebTunnelIoStream>, String>;
+    ) -> Result<Box<dyn wecode_remote_transport::WebTunnelIoStream>, String>;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

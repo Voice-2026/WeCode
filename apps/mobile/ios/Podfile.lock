@@ -1,25 +1,25 @@
 PODS:
-  - codux_protocol_ffi (1.8.0):
+  - wecode_protocol_ffi (1.8.0):
     - Flutter
   - Flutter (1.0.0)
   - sherpa_onnx_ios (1.13.0):
     - Flutter
 
 DEPENDENCIES:
-  - codux_protocol_ffi (from `.symlinks/plugins/codux_protocol_ffi/ios`)
+  - wecode_protocol_ffi (from `.symlinks/plugins/wecode_protocol_ffi/ios`)
   - Flutter (from `Flutter`)
   - sherpa_onnx_ios (from `.symlinks/plugins/sherpa_onnx_ios/ios`)
 
 EXTERNAL SOURCES:
-  codux_protocol_ffi:
-    :path: ".symlinks/plugins/codux_protocol_ffi/ios"
+  wecode_protocol_ffi:
+    :path: ".symlinks/plugins/wecode_protocol_ffi/ios"
   Flutter:
     :path: Flutter
   sherpa_onnx_ios:
     :path: ".symlinks/plugins/sherpa_onnx_ios/ios"
 
 SPEC CHECKSUMS:
-  codux_protocol_ffi: 814ff617d2bd11c72373fb40a42e67d16451b131
+  wecode_protocol_ffi: 814ff617d2bd11c72373fb40a42e67d16451b131
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
   sherpa_onnx_ios: dd99d1ea762b50700812684ce429a95709f3756e
 

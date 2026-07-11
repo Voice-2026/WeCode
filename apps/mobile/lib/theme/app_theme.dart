@@ -9,8 +9,8 @@ import 'package:flutter/material.dart';
 /// transitive `const` rule means any widget that reads a token can no longer be
 /// `const`, which in turn forces its ancestors to rebuild when the root rebuilds
 /// on a theme change — so the switch propagates correctly.
-class CoduxTheme {
-  CoduxTheme._();
+class WeCodeTheme {
+  WeCodeTheme._();
 
   static Brightness brightness = Brightness.dark;
 
@@ -25,13 +25,13 @@ class AppColors {
   // Light canvas is a clear gray (not near-white) so white cards/buttons pop now
   // that surfaces are borderless.
   static Color get bgBase =>
-      CoduxTheme._pick(const Color(0xFF141414), const Color(0xFFDCE1E7));
+      WeCodeTheme._pick(const Color(0xFF141414), const Color(0xFFDCE1E7));
   static Color get bgSurface =>
-      CoduxTheme._pick(const Color(0xFF1F1F1F), const Color(0xFFFFFFFF));
+      WeCodeTheme._pick(const Color(0xFF1F1F1F), const Color(0xFFFFFFFF));
   static Color get bgElevated =>
-      CoduxTheme._pick(const Color(0xFF2B2B2B), const Color(0xFFEAEEF2));
+      WeCodeTheme._pick(const Color(0xFF2B2B2B), const Color(0xFFEAEEF2));
   static Color get border =>
-      CoduxTheme._pick(const Color(0xFF383838), const Color(0xFFD0D7DE));
+      WeCodeTheme._pick(const Color(0xFF383838), const Color(0xFFD0D7DE));
 
   // Accent / brand (theme-independent; the live accent comes from colorScheme).
   static const accent = Color(0xFFD7FF61);
@@ -45,17 +45,17 @@ class AppColors {
 
   // Text
   static Color get textPrimary =>
-      CoduxTheme._pick(const Color(0xFFECECEC), const Color(0xFF1F2328));
+      WeCodeTheme._pick(const Color(0xFFECECEC), const Color(0xFF1F2328));
   static Color get textSecondary =>
-      CoduxTheme._pick(const Color(0xFFB0B0B0), const Color(0xFF57606A));
+      WeCodeTheme._pick(const Color(0xFFB0B0B0), const Color(0xFF57606A));
   static Color get textMuted =>
-      CoduxTheme._pick(const Color(0xFF8A8A8A), const Color(0xFF6E7781));
+      WeCodeTheme._pick(const Color(0xFF8A8A8A), const Color(0xFF6E7781));
   static Color get textSubtle =>
-      CoduxTheme._pick(const Color(0xFF6A6A6A), const Color(0xFF8C959F));
+      WeCodeTheme._pick(const Color(0xFF6A6A6A), const Color(0xFF8C959F));
 
   // Modal scrim.
   static Color get backdrop =>
-      CoduxTheme._pick(const Color(0x8B000000), const Color(0x52000000));
+      WeCodeTheme._pick(const Color(0x8B000000), const Color(0x52000000));
 
   // Terminal surfaces + chrome (tab strip, input toolbar) stay dark in both
   // themes — the PTY palette is dark-tuned, so light-mode chrome around it would

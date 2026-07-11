@@ -1,6 +1,6 @@
 use super::*;
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn spawn_worktree_sidebar_load(
         &mut self,
         generation: u64,
@@ -25,8 +25,8 @@ impl CoduxApp {
             .unwrap_or_default();
         let runtime_service = self.runtime_service.clone();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let load = codux_runtime::async_runtime::run_limited_blocking_with_priority(
-                codux_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND + generation,
+            let load = wecode_runtime::async_runtime::run_limited_blocking_with_priority(
+                wecode_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND + generation,
                 move || {
                     let files = runtime_service.reload_project_files(&worktree_path, None);
                     let file_tree_children = expanded_dirs
@@ -197,14 +197,19 @@ impl CoduxApp {
             return;
         };
         if layout_snapshot.tabs.is_empty() && layout_snapshot.top_panes.is_empty() {
-            self.runtime_trace(
-                "terminal-layout",
-                &format!("skip empty layout persist owner={owner_id}"),
-            );
+            let runtime_service = self.runtime_service.clone();
+            wecode_runtime::async_runtime::spawn_blocking(move || {
+                if let Err(error) = runtime_service.delete_terminal_layout(&owner_id) {
+                    wecode_runtime::runtime_trace::runtime_trace(
+                        "terminal-layout",
+                        &format!("failed to delete empty terminal layout {owner_id}: {error}"),
+                    );
+                }
+            });
             return;
         }
         let runtime_service = self.runtime_service.clone();
-        codux_runtime::async_runtime::spawn_blocking(move || {
+        wecode_runtime::async_runtime::spawn_blocking(move || {
             if let Err(error) = runtime_service.save_terminal_layout_with_grid(
                 &owner_id,
                 layout_snapshot.tabs,
@@ -215,7 +220,7 @@ impl CoduxApp {
                 layout_snapshot.bottom_ratio,
                 layout_snapshot.collapsed_panes,
             ) {
-                codux_runtime::runtime_trace::runtime_trace(
+                wecode_runtime::runtime_trace::runtime_trace(
                     "terminal-layout",
                     &format!("failed to persist terminal layout {owner_id}: {error}"),
                 );

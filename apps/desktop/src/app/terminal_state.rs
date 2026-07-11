@@ -7,7 +7,11 @@ use crate::terminal::{
 };
 use crate::theme;
 use anyhow::Result;
-use codux_runtime::{
+use gpui::{Edges, WindowAppearance, px};
+use std::sync::Arc;
+use std::{collections::HashMap, path::PathBuf};
+use uuid::Uuid;
+use wecode_runtime::{
     i18n::translate,
     memory::launch_artifact_paths,
     runtime_bridge::RuntimeInventory,
@@ -23,10 +27,6 @@ use codux_runtime::{
     tool_permissions::ToolPermissionsSummary,
     worktree::WorktreeInfo,
 };
-use gpui::{Edges, WindowAppearance, px};
-use std::sync::Arc;
-use std::{collections::HashMap, path::PathBuf};
-use uuid::Uuid;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::app) enum TerminalSplitDirection {
@@ -48,6 +48,26 @@ pub(in crate::app) struct TerminalSplitLocation {
     pub(in crate::app) child_index: usize,
     pub(in crate::app) parent_axis: Option<SplitAxis>,
     pub(in crate::app) pane_index: usize,
+}
+
+pub(in crate::app) fn terminal_pane_index_for_close(
+    tab: &TerminalTab,
+    terminal_id: Option<&str>,
+    pane_index_hint: usize,
+) -> Option<usize> {
+    if let Some(terminal_id) = terminal_id
+        .map(str::trim)
+        .filter(|terminal_id| !terminal_id.is_empty())
+        && let Some(index) = tab.panes.iter().position(|slot| {
+            slot.terminal_id
+                .as_deref()
+                .or(tab.terminal_id.as_deref())
+                .is_some_and(|candidate| candidate == terminal_id)
+        })
+    {
+        return Some(index);
+    }
+    (pane_index_hint < tab.panes.len()).then_some(pane_index_hint)
 }
 
 #[cfg(test)]
@@ -417,7 +437,7 @@ pub(in crate::app) fn terminal_split_tree_insert_pane(
     direction: TerminalSplitDirection,
 ) -> Result<TerminalSplitNode, &'static str> {
     let split_count = split_tree_leaf_count(tree);
-    if split_count >= codux_runtime::terminal_layout::TERMINAL_SPLIT_CAP {
+    if split_count >= wecode_runtime::terminal_layout::TERMINAL_SPLIT_CAP {
         return Err("main split limit reached");
     }
     let axis = split_axis_for_direction(direction);
@@ -446,7 +466,7 @@ pub(in crate::app) fn terminal_split_tree_insert_pane_root(
     direction: TerminalSplitDirection,
 ) -> Result<TerminalSplitNode, &'static str> {
     let split_count = split_tree_leaf_count(tree);
-    if split_count >= codux_runtime::terminal_layout::TERMINAL_SPLIT_CAP {
+    if split_count >= wecode_runtime::terminal_layout::TERMINAL_SPLIT_CAP {
         return Err("main split limit reached");
     }
     let axis = split_axis_for_direction(direction);
@@ -545,7 +565,7 @@ pub(in crate::app) fn terminal_split_tree_with_restored_location(
     location: Option<TerminalSplitLocation>,
     new_pane_index: usize,
 ) -> Result<(TerminalSplitNode, usize), &'static str> {
-    if split_tree_leaf_count(tree) >= codux_runtime::terminal_layout::TERMINAL_SPLIT_CAP {
+    if split_tree_leaf_count(tree) >= wecode_runtime::terminal_layout::TERMINAL_SPLIT_CAP {
         return Err("main split limit reached");
     }
     if let Some(location) = location {

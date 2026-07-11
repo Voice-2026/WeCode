@@ -8,8 +8,8 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 
 const root = process.cwd();
-const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "codux-cask-test-"));
-const caskPath = path.join(tempDir, "codux.rb");
+const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "wecode-cask-test-"));
+const caskPath = path.join(tempDir, "wecode.rb");
 
 try {
   const result = spawnSync(
@@ -33,10 +33,10 @@ try {
   const cask = fs.readFileSync(caskPath, "utf8");
   assert.match(cask, /on_arm do/);
   assert.match(cask, /sha256 "arm-sha"/);
-  assert.match(cask, /codux-#\{version\}-macos-aarch64\.dmg/);
+  assert.match(cask, /wecode-#\{version\}-macos-aarch64\.dmg/);
   assert.match(cask, /on_intel do/);
   assert.match(cask, /sha256 "intel-sha"/);
-  assert.match(cask, /codux-#\{version\}-macos-x86_64\.dmg/);
+  assert.match(cask, /wecode-#\{version\}-macos-x86_64\.dmg/);
   assert.doesNotMatch(cask, /macos-universal-formal/);
 } finally {
   fs.rmSync(tempDir, { recursive: true, force: true });

@@ -1,6 +1,6 @@
 use super::*;
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(crate) fn start_settings_remote_snapshot_loop(&mut self, cx: &mut Context<Self>) {
         if self.window_mode != AppWindowMode::Settings {
             return;
@@ -17,7 +17,7 @@ impl CoduxApp {
                     Ok(None) => return,
                     Err(_) => return,
                 };
-                let remote = match codux_runtime::async_runtime::spawn_blocking(move || {
+                let remote = match wecode_runtime::async_runtime::spawn_blocking(move || {
                     service.reload_remote()
                 })
                 .await
@@ -82,7 +82,7 @@ impl CoduxApp {
                 let include_slow_tick = ticks % 5 == 0;
                 let include_project_activity_tick = ticks % 75 == 0;
                 let include_runtime_refresh_tick = ticks % 150 == 0;
-                let runtime_queue_status = codux_runtime::async_runtime::blocking_queue_status();
+                let runtime_queue_status = wecode_runtime::async_runtime::blocking_queue_status();
                 let runtime_queue_busy =
                     runtime_queue_status.queued > 0 || runtime_queue_status.running > 0;
                 let runtime_queue_busy_changed = runtime_queue_busy != last_runtime_queue_busy;
@@ -189,7 +189,7 @@ impl CoduxApp {
         }
         let runtime_service = self.runtime_service.clone();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let result = codux_runtime::async_runtime::spawn_blocking(move || {
+            let result = wecode_runtime::async_runtime::spawn_blocking(move || {
                 let started_at = std::time::Instant::now();
                 runtime_service
                     .runtime_trace_frontend("startup", "runtime background initialization start");
@@ -313,7 +313,7 @@ impl CoduxApp {
     }
 }
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn invalidate_for_runtime_activity(
         &mut self,
         result: &RuntimeActivityTickResult,

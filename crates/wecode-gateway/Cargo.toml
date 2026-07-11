@@ -1,0 +1,41 @@
+[package]
+name = "wecode-gateway"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0"
+description = "OpenAI/Anthropic-compatible API gateway backed by Kiro (Amazon Q Developer / AWS CodeWhisperer)"
+
+[[bin]]
+name = "wecode-gateway"
+path = "src/main.rs"
+
+[dependencies]
+axum = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time", "signal", "fs"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+futures = "0.3"
+tokio-stream = "0.1"
+async-stream = "0.3"
+thiserror = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["v4"] }
+base64 = "0.22"
+rand = "0.8"
+chrono = { version = "0.4", features = ["serde"] }
+regex = "1"
+sha2 = "0.10"
+hostname = "0.4"
+whoami = "1"
+bytes = "1"
+tiktoken-rs = { version = "0.6", optional = true }
+
+[features]
+# Use tiktoken cl100k_base for closer token-count parity with the Python gateway.
+tiktoken = ["dep:tiktoken-rs"]
+
+[dev-dependencies]
+tempfile = "3"

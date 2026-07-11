@@ -1,28 +1,28 @@
 [package]
-name = "codux-agent"
+name = "wecode-agent"
 version = "2.0.0-beta.6"
 edition = "2024"
 
-# The cargo binary is `codux-agent` to avoid colliding with the desktop app's
-# `codux` bin in the workspace. The shipped/installed command is `codux`
-# (release artifacts are named `codux-agent-<version>-<os>-<arch>`), and clap's
-# `bin_name` already presents it as `codux` in help/usage.
+# The cargo binary is `wecode-agent` to avoid colliding with the desktop app's
+# `wecode` bin in the workspace. The shipped/installed command is `wecode`
+# (release artifacts are named `wecode-agent-<version>-<os>-<arch>`), and clap's
+# `bin_name` already presents it as `wecode` in help/usage.
 [[bin]]
-name = "codux-agent"
+name = "wecode-agent"
 path = "src/main.rs"
 
 [dependencies]
 base64 = "0.22"
-codux-ai-history = { path = "../../crates/codux-ai-history" }
-codux-ai-sessions = { path = "../../crates/codux-ai-sessions" }
-codux-git = { path = "../../crates/codux-git" }
-codux-memory = { path = "../../crates/codux-memory" }
-codux-protocol = { path = "../../crates/codux-protocol" }
-codux-remote-transport = { path = "../../crates/codux-remote-transport" }
-codux-runtime-live = { path = "../../crates/codux-runtime-live" }
-codux-runtime-core = { path = "../../crates/codux-runtime-core" }
-codux-terminal-core = { path = "../../crates/codux-terminal-core" }
-codux-terminal-pty = { path = "../../crates/codux-terminal-pty" }
+wecode-ai-history = { path = "../../crates/wecode-ai-history" }
+wecode-ai-sessions = { path = "../../crates/wecode-ai-sessions" }
+wecode-git = { path = "../../crates/wecode-git" }
+wecode-memory = { path = "../../crates/wecode-memory" }
+wecode-protocol = { path = "../../crates/wecode-protocol" }
+wecode-remote-transport = { path = "../../crates/wecode-remote-transport" }
+wecode-runtime-live = { path = "../../crates/wecode-runtime-live" }
+wecode-runtime-core = { path = "../../crates/wecode-runtime-core" }
+wecode-terminal-core = { path = "../../crates/wecode-terminal-core" }
+wecode-terminal-pty = { path = "../../crates/wecode-terminal-pty" }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

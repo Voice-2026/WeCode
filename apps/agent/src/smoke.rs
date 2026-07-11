@@ -1,19 +1,19 @@
-//! Internal smoke tests, kept behind the hidden `codux smoke <kind>` command and
+//! Internal smoke tests, kept behind the hidden `wecode smoke <kind>` command and
 //! used by CI to validate the shared crate boundary (PTY, transport, full serve).
 
-use codux_protocol::REMOTE_HOST_INFO;
-use codux_remote_transport::{
-    RemoteControllerTransportConfig, RemoteHostTransportConfig, RemoteTransportCandidate,
-    RemoteTransportFactory,
-};
-use codux_runtime_core::terminal::terminal_snapshot_payload;
-use codux_terminal_core::{TerminalDriver, TerminalLaunchConfig, TerminalSessionHandle};
-use codux_terminal_pty::LocalPtyDriver;
 use std::{
     sync::{Arc, Mutex},
     thread, time,
 };
 use tokio::sync::oneshot;
+use wecode_protocol::REMOTE_HOST_INFO;
+use wecode_remote_transport::{
+    RemoteControllerTransportConfig, RemoteHostTransportConfig, RemoteTransportCandidate,
+    RemoteTransportFactory,
+};
+use wecode_runtime_core::terminal::terminal_snapshot_payload;
+use wecode_terminal_core::{TerminalDriver, TerminalLaunchConfig, TerminalSessionHandle};
+use wecode_terminal_pty::LocalPtyDriver;
 
 pub fn run(kind: &str) -> Result<String, String> {
     match kind {
@@ -36,8 +36,8 @@ fn run_pty_smoke() -> Result<String, String> {
     let driver = LocalPtyDriver::new();
     let session = driver.create(
         TerminalLaunchConfig {
-            command: Some("printf codux-agent-pty-ok".to_string()),
-            title: Some("Codux Agent PTY Smoke".to_string()),
+            command: Some("printf wecode-agent-pty-ok".to_string()),
+            title: Some("WeCode Agent PTY Smoke".to_string()),
             ..Default::default()
         },
         Box::new(|_| true),
@@ -46,7 +46,7 @@ fn run_pty_smoke() -> Result<String, String> {
     let deadline = time::Instant::now() + time::Duration::from_secs(3);
     while time::Instant::now() < deadline {
         let snapshot = session.snapshot();
-        if snapshot.contains("codux-agent-pty-ok") {
+        if snapshot.contains("wecode-agent-pty-ok") {
             let terminal = terminal_snapshot_payload(session.info());
             let _ = session.kill();
             return Ok(format!(
@@ -109,7 +109,7 @@ async fn run_transport_smoke_async() -> Result<String, String> {
         device_id: "device-smoke".to_string(),
         device_token: "token-smoke".to_string(),
         transports: vec![RemoteTransportCandidate {
-            kind: codux_protocol::REMOTE_TRANSPORT_IROH.to_string(),
+            kind: wecode_protocol::REMOTE_TRANSPORT_IROH.to_string(),
             url: "https://relay.example/v3".to_string(),
             node_id,
             relay_url,
@@ -127,7 +127,7 @@ async fn run_transport_smoke_async() -> Result<String, String> {
     let envelope = serde_json::json!({
         "type": REMOTE_HOST_INFO,
         "deviceId": controller_config.device_id,
-        "payload": { "smoke": "codux-agent-transport-ok" },
+        "payload": { "smoke": "wecode-agent-transport-ok" },
     });
     let data = serde_json::to_vec(&envelope).map_err(|error| error.to_string())?;
     if !controller.send(data, None) {
@@ -139,5 +139,5 @@ async fn run_transport_smoke_async() -> Result<String, String> {
         .map_err(|_| "iroh transport message receiver closed".to_string())?;
     host.shutdown().await;
     controller.shutdown().await;
-    Ok(format!("codux-agent-transport-ok\nreceived={observed}"))
+    Ok(format!("wecode-agent-transport-ok\nreceived={observed}"))
 }

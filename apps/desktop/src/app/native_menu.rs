@@ -1,10 +1,10 @@
-use codux_runtime::{
+use gpui::{Menu, MenuItem, NoAction, OsAction, SystemMenuType, actions};
+use wecode_runtime::{
     i18n::translate, runtime_paths::app_display_name, settings::locale_from_language_setting,
 };
-use gpui::{Menu, MenuItem, NoAction, OsAction, SystemMenuType, actions};
 
 actions!(
-    codux_menu,
+    wecode_menu,
     [
         ShowAbout,
         OpenSettings,
@@ -14,7 +14,7 @@ actions!(
         OpenLiveLog,
         OpenWebsite,
         OpenGithub,
-        HideCodux,
+        HideWeCode,
         HideOthers,
         ShowAll,
         NewProject,
@@ -22,7 +22,7 @@ actions!(
         CloseCurrentProject,
         CloseActive,
         CloseWindow,
-        QuitCodux,
+        QuitWeCode,
         ViewTerminal,
         ViewFiles,
         ViewReview,
@@ -152,7 +152,7 @@ impl MenuLabels {
     }
 }
 
-pub(crate) fn codux_menus(language: &str) -> Vec<Menu> {
+pub(crate) fn wecode_menus(language: &str) -> Vec<Menu> {
     let labels = MenuLabels::load(language);
     vec![
         Menu {
@@ -166,11 +166,11 @@ pub(crate) fn codux_menus(language: &str) -> Vec<Menu> {
                 MenuItem::separator(),
                 MenuItem::os_submenu(labels.services, SystemMenuType::Services),
                 MenuItem::separator(),
-                MenuItem::action(labels.hide_app, HideCodux),
+                MenuItem::action(labels.hide_app, HideWeCode),
                 MenuItem::action(labels.hide_others, HideOthers),
                 MenuItem::action(labels.show_all, ShowAll),
                 MenuItem::separator(),
-                MenuItem::action(labels.quit, QuitCodux),
+                MenuItem::action(labels.quit, QuitWeCode),
             ],
         },
         Menu {

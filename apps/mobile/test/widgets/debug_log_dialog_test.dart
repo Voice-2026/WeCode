@@ -1,10 +1,10 @@
-import 'package:codux_flutter/services/log_service.dart';
-import 'package:codux_flutter/widgets/components/debug_log_dialog.dart';
+import 'package:wecode_flutter/services/log_service.dart';
+import 'package:wecode_flutter/widgets/components/debug_log_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  setUp(CoduxLog.clear);
+  setUp(WeCodeLog.clear);
 
   testWidgets('shows empty log state', (tester) async {
     await tester.pumpWidget(
@@ -32,8 +32,8 @@ void main() {
   });
 
   testWidgets('copies and clears log text', (tester) async {
-    CoduxLog.setLevelName('debug');
-    CoduxLog.info('[test] hello');
+    WeCodeLog.setLevelName('debug');
+    WeCodeLog.info('[test] hello');
     var copied = '';
 
     await tester.pumpWidget(

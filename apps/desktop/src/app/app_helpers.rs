@@ -3,20 +3,20 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-#[cfg(test)]
-use codux_runtime::ssh::SSHProfileSummary;
-use codux_runtime::{git::GitSummary, runtime_state::FileEntry};
 use gpui::{Context, Entity, Window};
+#[cfg(test)]
+use wecode_runtime::ssh::SSHProfileSummary;
+use wecode_runtime::{git::GitSummary, runtime_state::FileEntry};
 
-use super::CoduxApp;
+use super::WeCodeApp;
 #[cfg(test)]
 use super::shell_utils::shell_join;
 
-pub(in crate::app) fn defer_codux_app_update<View: 'static>(
-    app_entity: Entity<CoduxApp>,
+pub(in crate::app) fn defer_wecode_app_update<View: 'static>(
+    app_entity: Entity<WeCodeApp>,
     window: &mut Window,
     cx: &mut Context<View>,
-    update: impl FnOnce(&mut CoduxApp, &mut Window, &mut Context<CoduxApp>) + 'static,
+    update: impl FnOnce(&mut WeCodeApp, &mut Window, &mut Context<WeCodeApp>) + 'static,
 ) {
     window.defer(cx, move |window, cx| {
         app_entity.update(cx, |app, cx| update(app, window, cx));
@@ -77,7 +77,7 @@ pub(in crate::app) fn file_search_status_message(index: usize, count: usize) -> 
 
 #[cfg(test)]
 pub(in crate::app) fn ssh_connect_command(profile: &SSHProfileSummary) -> String {
-    shell_join(vec!["codux-ssh".to_string(), profile.id.clone()])
+    shell_join(vec!["wecode-ssh".to_string(), profile.id.clone()])
 }
 
 pub(in crate::app) fn generated_git_commit_message(git: &GitSummary) -> String {
@@ -96,14 +96,14 @@ pub(in crate::app) fn generated_git_branch_name() -> String {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_secs())
         .unwrap_or(0);
-    format!("codux-gpui-{timestamp}")
+    format!("wecode-gpui-{timestamp}")
 }
 
 pub(in crate::app) fn generated_project_child_name(files: &[FileEntry], directory: bool) -> String {
     let prefix = if directory {
-        "codux-folder"
+        "wecode-folder"
     } else {
-        "codux-file"
+        "wecode-file"
     };
     let suffix = if directory { "" } else { ".txt" };
     for index in 1..1000 {

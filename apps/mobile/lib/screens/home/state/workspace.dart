@@ -4,7 +4,7 @@ part of '../home_page.dart';
 /// browser + editor, git/ssh/ai-stats requests and view-mode switching.
 ///
 /// Split into a part + extension to keep the State class navigable; behaviour
-/// is unchanged. Rebuilds route through [_CoduxHomePageState._applyState]
+/// is unchanged. Rebuilds route through [_WeCodeHomePageState._applyState]
 /// (`setState` is `@protected` and cannot be called from an extension).
 extension _HomePageWorkspace on HomeController {
   void _selectTerminal(TerminalInfo terminal) {

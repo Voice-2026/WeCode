@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Codux</string>
+	<string>WeCode</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleLocalizations</key>
@@ -28,7 +28,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>Codux</string>
+	<string>WeCode</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -40,15 +40,15 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>Codux uses the camera to scan pairing QR codes.</string>
+	<string>WeCode uses the camera to scan pairing QR codes.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Codux uses the microphone for local voice input.</string>
+	<string>WeCode uses the microphone for local voice input.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Codux uses the photo library to upload selected images to the terminal.</string>
+	<string>WeCode uses the photo library to upload selected images to the terminal.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Codux uses location permission only when required by iOS to support local network and nearby connectivity features. Codux does not collect or store your location data.</string>
+	<string>WeCode uses location permission only when required by iOS to support local network and nearby connectivity features. WeCode does not collect or store your location data.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Codux uses the local network to connect directly to your paired desktop device.</string>
+	<string>WeCode uses the local network to connect directly to your paired desktop device.</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_dartobservatory._tcp</string>

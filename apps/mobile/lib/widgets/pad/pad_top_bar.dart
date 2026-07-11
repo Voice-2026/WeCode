@@ -57,7 +57,7 @@ class PadTopBar extends StatelessWidget {
                   ),
                   const SizedBox(width: 2),
                   Text(
-                    'Codux',
+                    'WeCode',
                     style: TextStyle(
                       color: PadColors.textPrimary,
                       fontSize: 17,

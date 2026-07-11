@@ -1,7 +1,7 @@
 use super::*;
 
 pub(in crate::app) fn file_editor_workspace(
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     snapshot: FileEditorWorkspaceSnapshot,
     chrome_view: gpui::Entity<FileEditorChromeView>,
     content_view: gpui::Entity<FileEditorContentView>,
@@ -86,7 +86,7 @@ pub(in crate::app) fn file_editor_workspace(
 }
 
 pub(super) fn file_editor_tab_bar(
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     tabs: Vec<FileEditorTab>,
     active_path: Option<String>,
     show_split_close: bool,
@@ -171,7 +171,7 @@ pub(super) fn file_editor_tab_bar(
                             )
                             .on_click(cx.listener(|view, _event, window, cx| {
                                 let app_entity = view.app_entity.clone();
-                                defer_codux_app_update(
+                                defer_wecode_app_update(
                                     app_entity,
                                     window,
                                     cx,
@@ -187,7 +187,7 @@ pub(super) fn file_editor_tab_bar(
 }
 
 fn file_editor_tab_button(
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     tab: FileEditorTab,
     active: bool,
     tab_order: Vec<String>,
@@ -237,7 +237,7 @@ fn file_editor_tab_button(
                 else {
                     return;
                 };
-                defer_codux_app_update(app_entity.clone(), window, cx, move |app, _, app_cx| {
+                defer_wecode_app_update(app_entity.clone(), window, cx, move |app, _, app_cx| {
                     app.reorder_file_editor_tabs(next_paths, app_cx);
                 });
                 cx.stop_propagation();
@@ -245,7 +245,7 @@ fn file_editor_tab_button(
         }))
         .on_click(cx.listener(move |_app, _event, window, cx| {
             let select_path = select_path.clone();
-            defer_codux_app_update(
+            defer_wecode_app_update(
                 app_entity.clone(),
                 window,
                 cx,
@@ -278,7 +278,7 @@ fn file_editor_tab_button(
                 .on_click(cx.listener(move |view, _event, window, cx| {
                     let app_entity = view.app_entity.clone();
                     let close_path = close_path.clone();
-                    defer_codux_app_update(app_entity, window, cx, move |app, window, app_cx| {
+                    defer_wecode_app_update(app_entity, window, cx, move |app, window, app_cx| {
                         app.close_file_editor_tab(close_path, window, app_cx);
                     });
                     cx.stop_propagation();
@@ -336,7 +336,7 @@ pub(super) fn file_editor_tab_content(tab: FileEditorTab, icon_color: gpui::Hsla
 }
 
 pub(super) fn file_editor_toolbar(
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     active_tab: Option<FileEditorTab>,
     markdown_preview: bool,
     window_header: bool,
@@ -571,7 +571,7 @@ pub(super) fn file_editor_toolbar(
 }
 
 fn file_editor_toolbar_button(
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     id: &'static str,
     icon: HeroIconName,
     tooltip: String,
@@ -585,7 +585,7 @@ fn file_editor_toolbar_button(
         &mut Context<FileEditorToolbarView>,
     ) + 'static,
 ) -> impl IntoElement {
-    codux_tooltip_container(app_entity, id, tooltip).child(
+    wecode_tooltip_container(app_entity, id, tooltip).child(
         Button::new(id)
             .compact()
             .ghost()

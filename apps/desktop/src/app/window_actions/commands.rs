@@ -1,6 +1,6 @@
 use super::*;
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn open_settings_window(
         &mut self,
         _window: &mut Window,
@@ -18,7 +18,7 @@ impl CoduxApp {
         let opened = self.open_auxiliary_window(
             AuxiliaryWindowSpec {
                 slot: AuxiliaryWindowSlot::Settings,
-                title: SharedString::from("Codux Settings"),
+                title: SharedString::from("WeCode Settings"),
                 size: size(px(980.0), px(720.0)),
                 min_size: size(px(760.0), px(560.0)),
                 already_open_message: "settings window already opened",
@@ -28,7 +28,7 @@ impl CoduxApp {
             cx,
             move |state, runtime, runtime_service, window, cx| {
                 let mut app =
-                    CoduxApp::new_settings_window_from_state(state, runtime, runtime_service);
+                    WeCodeApp::new_settings_window_from_state(state, runtime, runtime_service);
                 app.active_settings_pane = pane;
                 let _ = (window, cx);
                 app
@@ -67,7 +67,7 @@ impl CoduxApp {
             cx,
             |state, runtime, runtime_service, _window, _cx| {
                 let mut app =
-                    CoduxApp::new_settings_window_from_state(state, runtime, runtime_service);
+                    WeCodeApp::new_settings_window_from_state(state, runtime, runtime_service);
                 app.window_mode = AppWindowMode::GitClone;
                 app.status_message = "Git clone window ready".to_string();
                 app
@@ -101,7 +101,7 @@ impl CoduxApp {
             cx,
             move |state, runtime, runtime_service, _window, _cx| {
                 let mut app =
-                    CoduxApp::new_settings_window_from_state(state, runtime, runtime_service);
+                    WeCodeApp::new_settings_window_from_state(state, runtime, runtime_service);
                 app.window_mode = AppWindowMode::GitCredentials;
                 app.status_message = "Git credentials window ready".to_string();
                 app.git_credential_project_id = project_id;
@@ -197,7 +197,7 @@ impl CoduxApp {
             },
             cx,
             move |state, runtime, runtime_service, _window, _cx| {
-                CoduxApp::new_ssh_profile_editor_window_from_state(
+                WeCodeApp::new_ssh_profile_editor_window_from_state(
                     profile,
                     state,
                     runtime,
@@ -274,7 +274,7 @@ impl CoduxApp {
             },
             cx,
             move |state, runtime, runtime_service, _window, _cx| {
-                CoduxApp::new_db_profile_editor_window_from_state(
+                WeCodeApp::new_db_profile_editor_window_from_state(
                     profile,
                     state,
                     runtime,

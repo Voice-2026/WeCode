@@ -1,4 +1,4 @@
-//! Desktop bridge to the shared `codux-ai-sessions` engine. The DB/session layer
+//! Desktop bridge to the shared `wecode-ai-sessions` engine. The DB/session layer
 //! (summaries, detail, fork, rename, remove) lives in the crate so the headless
 //! host can serve a remote-hosted project's sessions; the desktop keeps its
 //! live-stats view (`stats_view`), which merges `AIRuntimeStateSummary`, on top.
@@ -6,7 +6,7 @@
 #[cfg(test)]
 mod tests;
 
-pub use codux_ai_sessions::*;
+pub use wecode_ai_sessions::*;
 
 use crate::ai_runtime_state::remote_current_sessions_from_runtime_state;
 use std::collections::BTreeMap;
@@ -76,7 +76,7 @@ fn stats_current_sessions(
     selected_scope_id: Option<&str>,
     include_cached: bool,
 ) -> Vec<AIHistoryCurrentSessionView> {
-    codux_ai_sessions::ai_current_session_views(
+    wecode_ai_sessions::ai_current_session_views(
         remote_current_sessions_from_runtime_state(runtime_state, selected_scope_id.unwrap_or("")),
         include_cached,
     )

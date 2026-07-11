@@ -1,6 +1,6 @@
 {
   "id": "ox-default",
   "displayName": "ox",
-  "description": "Codux bundled pet atlas.",
+  "description": "WeCode bundled pet atlas.",
   "spritesheetPath": "spritesheet.png"
 }

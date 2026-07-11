@@ -4,7 +4,7 @@ use super::*;
 pub(super) fn settings_shortcuts_pane(
     settings: &SettingsSummary,
     recording_id: Option<&str>,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     let language = settings.language.as_str();
     settings_form(vec![
@@ -222,7 +222,7 @@ pub(super) fn shortcut_row(
     settings: &SettingsSummary,
     recording_id: Option<&str>,
     language: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     let is_recording = recording_id == Some(shortcut.id);
     let customized = settings.shortcuts.contains_key(shortcut.id);

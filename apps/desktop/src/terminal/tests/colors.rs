@@ -114,25 +114,25 @@ fn terminal_clipboard_image_payload_detection_filters_data_and_html() {
 #[test]
 fn terminal_path_input_quotes_spaces() {
     assert_eq!(
-        terminal_path_input(Path::new("/tmp/codux image.png")),
-        "'/tmp/codux image.png'"
+        terminal_path_input(Path::new("/tmp/wecode image.png")),
+        "'/tmp/wecode image.png'"
     );
     assert_eq!(
-        terminal_path_input(Path::new("/tmp/codux-image.png")),
-        "/tmp/codux-image.png"
+        terminal_path_input(Path::new("/tmp/wecode-image.png")),
+        "/tmp/wecode-image.png"
     );
     assert_eq!(terminal_clipboard_image_extension(ImageFormat::Jpeg), "jpg");
 }
 #[test]
 fn terminal_paths_input_joins_quoted_paths_with_trailing_space() {
     let paths = vec![
-        PathBuf::from("/tmp/codux-image.png"),
-        PathBuf::from("/tmp/codux image.png"),
+        PathBuf::from("/tmp/wecode-image.png"),
+        PathBuf::from("/tmp/wecode image.png"),
     ];
 
     assert_eq!(
         terminal_paths_input(&paths),
-        Some("/tmp/codux-image.png '/tmp/codux image.png' ".to_string())
+        Some("/tmp/wecode-image.png '/tmp/wecode image.png' ".to_string())
     );
     assert_eq!(terminal_paths_input(&[]), None);
 }

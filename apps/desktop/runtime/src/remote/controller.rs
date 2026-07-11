@@ -10,7 +10,13 @@
 //! synchronous `RuntimeService` domain methods that will route through it.
 
 use base64::Engine;
-use codux_protocol::{
+use serde_json::{Value, json};
+use std::collections::{HashMap, VecDeque};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::{self, Sender};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+use wecode_protocol::{
     REMOTE_AI_SESSION, REMOTE_AI_SESSION_RESULT, REMOTE_AI_STATE, REMOTE_AI_STATS, REMOTE_ERROR,
     REMOTE_FILE_BLOB, REMOTE_FILE_BYTES_WRITTEN, REMOTE_FILE_COPIED, REMOTE_FILE_COPY,
     REMOTE_FILE_CREATE_DIRECTORY, REMOTE_FILE_DELETE, REMOTE_FILE_DELETED,
@@ -26,16 +32,10 @@ use codux_protocol::{
     REMOTE_WORKTREE_LIST, REMOTE_WORKTREE_MERGE, REMOTE_WORKTREE_REMOVE, REMOTE_WORKTREE_UPDATED,
     RemoteHostMetrics,
 };
-use codux_remote_transport::{
+use wecode_remote_transport::{
     RemoteControllerTransportConfig, RemoteTransport, RemoteTransportCandidate,
     RemoteTransportStateHandler, WebTunnelIoStream, WebTunnelTcpConnectRequest,
 };
-use serde_json::{Value, json};
-use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::{self, Sender};
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
 
 use super::controller_store::{SavedRemoteHost, SavedRemoteTransport};
 use super::transport_factory::RemoteTransportFactory;
@@ -62,7 +62,7 @@ pub struct RemoteControllerTarget {
     pub relay_authentication: String,
 }
 
-/// A pairing ticket pasted by the user: the host emits a `codux://pair?payload=`
+/// A pairing ticket pasted by the user: the host emits a `wecode://pair?payload=`
 /// URL whose base64url payload is `{code, secret, pairingId, transports[]}`.
 /// Each iroh transport carries either a full `ticket`, or a `node_id` +
 /// `relay_url` pair (the slim QR form) — either is enough to dial.
@@ -108,12 +108,12 @@ pub struct RemoteDirectoryEntry {
     pub is_dir: bool,
 }
 
-/// Parse a pasted `codux://pair?payload=<base64url>` ticket (or a bare base64url
+/// Parse a pasted `wecode://pair?payload=<base64url>` ticket (or a bare base64url
 /// payload) into its fields.
 pub fn parse_pairing_ticket(input: &str) -> Result<PairingTicket, String> {
     let trimmed = input.trim();
-    let encoded = if let Some(rest) = trimmed.strip_prefix("codux://pair") {
-        url::Url::parse(&format!("codux://pair{rest}"))
+    let encoded = if let Some(rest) = trimmed.strip_prefix("wecode://pair") {
+        url::Url::parse(&format!("wecode://pair{rest}"))
             .map_err(|error| error.to_string())?
             .query_pairs()
             .find(|(key, _)| key == "payload")
@@ -754,7 +754,7 @@ impl RemoteController {
         project_id: &str,
         project_name: &str,
         project_path: &str,
-    ) -> Result<codux_ai_history::indexer::AIHistoryProjectState, String> {
+    ) -> Result<wecode_ai_history::indexer::AIHistoryProjectState, String> {
         let value = self.request(
             REMOTE_AI_STATE,
             REMOTE_AI_STATE,
@@ -1085,10 +1085,10 @@ mod e2e {
     //! then drive a domain request. Ignored by default (iroh endpoint setup is
     //! slow and needs no network for direct dial); run with `--ignored`.
     use super::*;
-    use codux_remote_transport::{RemoteHostTransportConfig, RemoteTransportFactory as Shared};
+    use wecode_remote_transport::{RemoteHostTransportConfig, RemoteTransportFactory as Shared};
 
     #[test]
-    #[ignore = "in-process iroh round trip; run with: cargo test -p codux-runtime -- --ignored controller"]
+    #[ignore = "in-process iroh round trip; run with: cargo test -p wecode-runtime -- --ignored controller"]
     fn controller_pairs_and_drives_real_host() {
         crate::async_runtime::block_on(async {
             // A minimal host: auto-confirm pairing and answer host.info, replying
@@ -1198,7 +1198,7 @@ mod e2e {
     }
 
     #[test]
-    #[ignore = "in-process iroh round trip; run with: cargo test -p codux-runtime -- --ignored controller"]
+    #[ignore = "in-process iroh round trip; run with: cargo test -p wecode-runtime -- --ignored controller"]
     fn manager_pairs_from_ticket_and_browses() {
         use super::super::controller_manager::RemoteControllerManager;
 
@@ -1242,7 +1242,7 @@ mod e2e {
 
         // Stand up the host and mint a pasteable ticket from its endpoint ticket.
         let ticket_url = crate::async_runtime::block_on(async {
-            let config = codux_remote_transport::RemoteHostTransportConfig {
+            let config = wecode_remote_transport::RemoteHostTransportConfig {
                 relay_url: "https://relay.example".to_string(),
                 relay_preset: "global".to_string(),
                 iroh_relay_url: String::new(),
@@ -1250,7 +1250,7 @@ mod e2e {
                 host_id: "host-it".to_string(),
                 host_token: "token-it".to_string(),
             };
-            let host = codux_remote_transport::RemoteTransportFactory::connect_host(
+            let host = wecode_remote_transport::RemoteTransportFactory::connect_host(
                 &config,
                 on_message,
                 Arc::new(|_| Ok(())),
@@ -1271,12 +1271,12 @@ mod e2e {
             });
             let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
                 .encode(serde_json::to_vec(&payload).unwrap());
-            format!("codux://pair?payload={encoded}")
+            format!("wecode://pair?payload={encoded}")
         });
 
         // The full user path: paste ticket -> pair (persists + caches) -> browse.
         let support = std::env::temp_dir().join(format!(
-            "codux-controller-mgr-{}-{}",
+            "wecode-controller-mgr-{}-{}",
             std::process::id(),
             uuid::Uuid::new_v4().simple()
         ));
@@ -1305,10 +1305,10 @@ mod e2e {
     }
 
     #[test]
-    #[ignore = "in-process iroh round trip; run with: cargo test -p codux-runtime -- --ignored controller"]
+    #[ignore = "in-process iroh round trip; run with: cargo test -p wecode-runtime -- --ignored controller"]
     fn controller_streams_terminal_output_into_the_router() {
-        use codux_protocol::terminal_live_output_payload;
-        use codux_terminal_core::RemoteTerminalOutputRouter;
+        use wecode_protocol::terminal_live_output_payload;
+        use wecode_terminal_core::RemoteTerminalOutputRouter;
 
         // Host: reply terminal.created, then echo terminal.input back as a
         // terminal.output frame (a fake PTY).
@@ -1358,7 +1358,7 @@ mod e2e {
         });
 
         crate::async_runtime::block_on(async {
-            let config = codux_remote_transport::RemoteHostTransportConfig {
+            let config = wecode_remote_transport::RemoteHostTransportConfig {
                 relay_url: "https://relay.example".to_string(),
                 relay_preset: "global".to_string(),
                 iroh_relay_url: String::new(),
@@ -1366,7 +1366,7 @@ mod e2e {
                 host_id: "h".to_string(),
                 host_token: "t".to_string(),
             };
-            let host = codux_remote_transport::RemoteTransportFactory::connect_host(
+            let host = wecode_remote_transport::RemoteTransportFactory::connect_host(
                 &config,
                 on_message,
                 Arc::new(|_| Ok(())),
@@ -1440,9 +1440,9 @@ mod e2e {
     /// the per-session forwarder on the fresh controller (the desktop's rebind)
     /// is enough to resume — no new session, no host-side change.
     #[test]
-    #[ignore = "in-process iroh round trip; run with: cargo test -p codux-runtime -- --ignored controller"]
+    #[ignore = "in-process iroh round trip; run with: cargo test -p wecode-runtime -- --ignored controller"]
     fn controller_reconnect_resumes_same_terminal_session() {
-        use codux_protocol::terminal_live_output_payload;
+        use wecode_protocol::terminal_live_output_payload;
 
         // Fake host: echo terminal.input back as terminal.output(sessionId=t1),
         // routed to the sender's device id — i.e. to whichever connection holds
@@ -1503,7 +1503,7 @@ mod e2e {
         }
 
         crate::async_runtime::block_on(async {
-            let config = codux_remote_transport::RemoteHostTransportConfig {
+            let config = wecode_remote_transport::RemoteHostTransportConfig {
                 relay_url: "https://relay.example".to_string(),
                 relay_preset: "global".to_string(),
                 iroh_relay_url: String::new(),
@@ -1511,7 +1511,7 @@ mod e2e {
                 host_id: "h".to_string(),
                 host_token: "t".to_string(),
             };
-            let host = codux_remote_transport::RemoteTransportFactory::connect_host(
+            let host = wecode_remote_transport::RemoteTransportFactory::connect_host(
                 &config,
                 on_message,
                 Arc::new(|_| Ok(())),
@@ -1601,7 +1601,7 @@ mod e2e {
 mod tests {
     use super::*;
     use async_trait::async_trait;
-    use codux_protocol::RemoteTransportKind;
+    use wecode_protocol::RemoteTransportKind;
 
     struct NoopTransport;
 
@@ -1755,7 +1755,7 @@ mod tests {
         });
         let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
             .encode(serde_json::to_vec(&payload).unwrap());
-        let url = format!("codux://pair?payload={encoded}");
+        let url = format!("wecode://pair?payload={encoded}");
 
         let ticket = parse_pairing_ticket(&url).unwrap();
         assert_eq!(ticket.code, "1234");
@@ -1765,7 +1765,7 @@ mod tests {
         assert_eq!(ticket.transports[0].ticket, "ticket-blob");
         assert_eq!(ticket.transports[0].relay_authentication, "auth");
 
-        // The bare base64url payload (no codux:// prefix) parses too.
+        // The bare base64url payload (no wecode:// prefix) parses too.
         assert!(parse_pairing_ticket(&encoded).is_ok());
     }
 

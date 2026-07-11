@@ -25,7 +25,7 @@ impl TerminalInputHandler {
         {
             return;
         }
-        let bytes = codux_terminal_core::terminal_text_input_bytes(text);
+        let bytes = wecode_terminal_core::terminal_text_input_bytes(text);
         if bytes.is_empty() {
             return;
         }

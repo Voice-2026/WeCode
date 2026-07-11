@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use codux_protocol::REMOTE_PROTOCOL_VERSION;
+use wecode_protocol::REMOTE_PROTOCOL_VERSION;
 
 mod ai_stats;
 mod cmd_config;
@@ -26,10 +26,10 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Parser)]
 #[command(
-    name = "codux",
-    bin_name = "codux",
+    name = "wecode",
+    bin_name = "wecode",
     version = VERSION,
-    about = "Codux headless host — run your projects' terminals, Git, AI and memory for remote desktops"
+    about = "WeCode headless host — run your projects' terminals, Git, AI and memory for remote desktops"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -40,7 +40,7 @@ struct Cli {
 enum Command {
     /// Show the version and protocol revision.
     Version,
-    /// Interactive setup wizard — writes/updates codux.toml.
+    /// Interactive setup wizard — writes/updates wecode.toml.
     Config {
         /// Set the device name without prompting.
         #[arg(long)]
@@ -55,7 +55,7 @@ enum Command {
         #[arg(long)]
         relay_authentication: Option<String>,
     },
-    /// Install and enable Codux as a system startup service.
+    /// Install and enable WeCode as a system startup service.
     Install,
     /// Stop and remove the system service.
     Uninstall,
@@ -117,7 +117,7 @@ enum Command {
 
 fn main() {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
-    match codux_runtime_live::wrapper_helper::handle_args(&args) {
+    match wecode_runtime_live::wrapper_helper::handle_args(&args) {
         Ok(true) => return,
         Ok(false) => {}
         Err(error) => {
@@ -131,7 +131,7 @@ fn main() {
         None => {
             print_version();
             println!();
-            println!("Run `codux --help` for commands, or `codux config` to set up.");
+            println!("Run `wecode --help` for commands, or `wecode config` to set up.");
             Ok(())
         }
         Some(Command::Version) => {
@@ -186,6 +186,6 @@ fn main() {
 }
 
 fn print_version() {
-    println!("codux {VERSION}");
+    println!("wecode {VERSION}");
     println!("protocol {REMOTE_PROTOCOL_VERSION}");
 }

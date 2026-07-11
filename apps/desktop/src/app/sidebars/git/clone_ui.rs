@@ -3,7 +3,7 @@ use super::*;
 pub(super) fn git_empty_repository_panel(
     labels: Rc<GitSidebarLabels>,
     running_operation: Option<&GitRunningOperation>,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let cloning = running_operation.is_some_and(|operation| operation.label == "clone");
     div()
@@ -117,7 +117,7 @@ pub(in crate::app) fn git_clone_window_workspace(
     running_operation: Option<&GitRunningOperation>,
     language: &str,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let labels = Rc::new(GitSidebarLabels::load(language));
     let cloning = running_operation.is_some_and(|operation| operation.label == "clone");
@@ -191,10 +191,10 @@ fn git_clone_input_label(label: impl Into<String>) -> impl IntoElement {
 }
 
 pub(in crate::app) fn git_credentials_window_workspace(
-    app: &CoduxApp,
+    app: &WeCodeApp,
     language: &str,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let labels = Rc::new(GitSidebarLabels::load(language));
     let retrying = app.git_credential_retrying
@@ -288,8 +288,8 @@ fn git_credentials_input(
     masked: bool,
     disabled: bool,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
-    action: impl Fn(&mut CoduxApp, String, &mut Window, &mut Context<CoduxApp>) + 'static,
+    cx: &mut Context<WeCodeApp>,
+    action: impl Fn(&mut WeCodeApp, String, &mut Window, &mut Context<WeCodeApp>) + 'static,
 ) -> impl IntoElement {
     let value = value.to_string();
     let state = window.use_keyed_state(SharedString::from(format!("git-credential-{id}")), cx, {

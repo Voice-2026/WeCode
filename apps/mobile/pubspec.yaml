@@ -1,5 +1,5 @@
-name: codux_flutter
-description: "Codux mobile client for remote terminal workspaces."
+name: wecode_flutter
+description: "WeCode mobile client for remote terminal workspaces."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -40,8 +40,8 @@ dependencies:
   url_launcher: ^6.3.2
   http: ^1.6.0
   path: ^1.9.1
-  codux_protocol_ffi:
-    path: plugin/codux_protocol_ffi
+  wecode_protocol_ffi:
+    path: plugin/wecode_protocol_ffi
   sherpa_onnx: ^1.13.0
   record: ^6.2.0
   path_provider: ^2.1.5

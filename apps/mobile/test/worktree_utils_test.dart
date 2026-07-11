@@ -1,5 +1,5 @@
-import 'package:codux_flutter/models/remote_models.dart';
-import 'package:codux_flutter/services/worktree_utils.dart';
+import 'package:wecode_flutter/models/remote_models.dart';
+import 'package:wecode_flutter/services/worktree_utils.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

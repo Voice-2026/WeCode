@@ -35,7 +35,7 @@ mod tests {
     #[test]
     fn llm_commands_delegate_to_runtime_llm_layer_without_network() {
         let support_dir =
-            std::env::temp_dir().join(format!("codux-app-command-llm-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("wecode-app-command-llm-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&support_dir).expect("support dir");
         let service = RuntimeService::new(support_dir.clone());
 
@@ -72,7 +72,7 @@ mod tests {
     #[test]
     fn ai_runtime_and_desktop_pet_window_facades_are_available() {
         let support_dir = std::env::temp_dir().join(format!(
-            "codux-app-command-window-runtime-{}",
+            "wecode-app-command-window-runtime-{}",
             Uuid::new_v4()
         ));
         std::fs::create_dir_all(&support_dir).expect("support dir");

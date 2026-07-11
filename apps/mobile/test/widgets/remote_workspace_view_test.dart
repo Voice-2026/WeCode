@@ -1,8 +1,8 @@
-import 'package:codux_flutter/i18n.dart';
-import 'package:codux_flutter/models/remote_models.dart';
-import 'package:codux_flutter/models/workspace_mode.dart';
-import 'package:codux_flutter/theme/app_theme.dart';
-import 'package:codux_flutter/widgets/phone/remote_workspace_view.dart';
+import 'package:wecode_flutter/i18n.dart';
+import 'package:wecode_flutter/models/remote_models.dart';
+import 'package:wecode_flutter/models/workspace_mode.dart';
+import 'package:wecode_flutter/theme/app_theme.dart';
+import 'package:wecode_flutter/widgets/phone/remote_workspace_view.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 

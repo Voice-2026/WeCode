@@ -1,7 +1,7 @@
 use super::*;
 
 pub(in crate::app) fn file_preview_window_workspace(
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     snapshot: FilePreviewWindowSnapshot,
     markdown_state: Option<gpui::Entity<TextViewState>>,
     text_editor: Option<gpui::Entity<InputState>>,
@@ -85,7 +85,7 @@ pub(in crate::app) fn file_preview_window_workspace(
 }
 
 fn file_preview_window_header(
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     title: String,
     relative_path: Option<String>,
     cx: &mut Context<FilePreviewWindowView>,
@@ -205,7 +205,7 @@ fn file_preview_window_header(
 }
 
 fn file_preview_toolbar_button(
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     id: &'static str,
     icon: HeroIconName,
     tooltip: String,
@@ -218,7 +218,7 @@ fn file_preview_toolbar_button(
         &mut Context<FilePreviewWindowView>,
     ) + 'static,
 ) -> impl IntoElement {
-    codux_tooltip_container(app_entity, id, tooltip).child(
+    wecode_tooltip_container(app_entity, id, tooltip).child(
         Button::new(id)
             .compact()
             .ghost()

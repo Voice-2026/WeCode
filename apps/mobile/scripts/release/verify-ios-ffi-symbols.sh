@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [[ $# -ne 1 ]]; then
-  echo "usage: verify-ios-ffi-symbols.sh <Codux.ipa|Runner.app>" >&2
+  echo "usage: verify-ios-ffi-symbols.sh <WeCode.ipa|Runner.app>" >&2
   exit 2
 fi
 
@@ -27,12 +27,12 @@ if [[ -z "$app_path" ]]; then
 fi
 
 required_symbols=(
-  codux_protocol_version
-  codux_terminal_text_input_json
-  codux_controller_transport_connect_json
-  codux_remote_runtime_model_new
-  codux_remote_runtime_model_apply_project_list_json
-  codux_output_router_new
+  wecode_protocol_version
+  wecode_terminal_text_input_json
+  wecode_controller_transport_connect_json
+  wecode_remote_runtime_model_new
+  wecode_remote_runtime_model_apply_project_list_json
+  wecode_output_router_new
 )
 
 mach_o_files=()

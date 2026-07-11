@@ -7,7 +7,7 @@ desktop *args:
     sh tools/run-desktop-dev.sh {{args}}
 
 agent *args:
-    cargo run -p codux-agent -- {{args}}
+    cargo run -p wecode-agent -- {{args}}
 
 mobile *args:
     cd apps/mobile && \
@@ -43,9 +43,9 @@ mobile *args:
                     flutter run -d "$device_id" "$@"; \
                 fi; \
             else \
-                ./plugin/codux_protocol_ffi/scripts/build-android.sh; \
-                adb shell am force-stop com.duxweb.codux.dev >/dev/null 2>&1 || true; \
-                adb shell am force-stop com.duxweb.codux >/dev/null 2>&1 || true; \
+                ./plugin/wecode_protocol_ffi/scripts/build-android.sh; \
+                adb shell am force-stop com.duxweb.wecode.dev >/dev/null 2>&1 || true; \
+                adb shell am force-stop com.duxweb.wecode >/dev/null 2>&1 || true; \
                 flutter run -d "$device_id" "$@"; \
             fi; \
         else \
@@ -65,9 +65,9 @@ test:
     cd apps/mobile && flutter test
 
 ffi:
-    cargo build -p codux-protocol-ffi
+    cargo build -p wecode-protocol-ffi
 
 smoke:
-    cargo run -p codux-agent -- smoke pty
-    cargo run -p codux-agent -- smoke transport
-    cargo run -p codux-agent -- smoke serve
+    cargo run -p wecode-agent -- smoke pty
+    cargo run -p wecode-agent -- smoke transport
+    cargo run -p wecode-agent -- smoke serve

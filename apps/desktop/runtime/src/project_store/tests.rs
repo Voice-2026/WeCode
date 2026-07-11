@@ -328,7 +328,7 @@ fn temp_dir(label: &str) -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    std::env::temp_dir().join(format!("codux-gpui-{label}-{nanos}"))
+    std::env::temp_dir().join(format!("wecode-gpui-{label}-{nanos}"))
 }
 
 fn state_value(support_dir: &PathBuf) -> Value {

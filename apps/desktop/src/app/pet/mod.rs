@@ -1,14 +1,14 @@
 use super::*;
 use crate::app::app_events::PetUpdateEvent;
 use crate::app::app_state::PetLevelUpFx;
-use crate::app::ui_helpers::with_codux_tooltip;
-use codux_runtime::pet::{PetCatalog, PetCatalogItem, PetLegacyRecord, PetStats};
+use crate::app::ui_helpers::with_wecode_tooltip;
 use gpui::{Hsla, ListSizingBehavior};
 use gpui_component::{
     dialog::DialogFooter,
     input::{Input, InputState},
 };
 use std::{ops::Range, rc::Rc, time::Duration};
+use wecode_runtime::pet::{PetCatalog, PetCatalogItem, PetLegacyRecord, PetStats};
 
 use crate::app::workspace_pet_widgets::workspace_pet_install_form;
 
@@ -21,11 +21,11 @@ mod widgets;
 use catalog::*;
 use widgets::*;
 
-impl CoduxApp {
+impl WeCodeApp {
     fn defer_open_pet_window(
         _window: &mut Window,
         cx: &mut Context<Self>,
-        open: impl FnOnce(&mut CoduxApp, &mut Context<CoduxApp>) + 'static,
+        open: impl FnOnce(&mut WeCodeApp, &mut Context<WeCodeApp>) + 'static,
     ) {
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             cx.background_executor()
@@ -128,7 +128,7 @@ impl CoduxApp {
         let bounds = Bounds::centered(None, window_size, cx);
         let result = cx.open_window(
             WindowOptions {
-                titlebar: Some(theme::codux_child_titlebar(title)),
+                titlebar: Some(theme::wecode_child_titlebar(title)),
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 window_min_size: Some(min_size),
                 is_resizable: mode == AppWindowMode::PetDex,
@@ -137,7 +137,7 @@ impl CoduxApp {
             },
             move |window, cx| {
                 macos_window::configure_child_window_controls(window);
-                let app = CoduxApp::new_pet_window_from_state(
+                let app = WeCodeApp::new_pet_window_from_state(
                     mode,
                     state.clone(),
                     runtime.clone(),
@@ -199,7 +199,7 @@ impl CoduxApp {
         let support_dir = self.state.support_dir.clone();
         self.runtime_trace("pet", "cache_refresh queued");
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let result = codux_runtime::async_runtime::run_limited_blocking(move || {
+            let result = wecode_runtime::async_runtime::run_limited_blocking(move || {
                 service.runtime_trace_frontend("pet", "cache_refresh start");
                 let pet = service.reload_pet();
                 let catalog = service.pet_catalog();

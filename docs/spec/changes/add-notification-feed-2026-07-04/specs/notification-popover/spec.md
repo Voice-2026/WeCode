@@ -41,7 +41,7 @@ The system SHALL render the notification popup using the established `Button::dr
 - **THEN** the row SHALL display a distinct indicator (e.g., a warning icon or accent color) differentiating it from `Completed` items
 
 ### Requirement: Jump To Terminal Pane
-The system SHALL make each notification row in the popup clickable. Clicking a row SHALL call `set_active_terminal_runtime_id(Some(item.terminal_id))` on the `CoduxApp` entity to focus the owning terminal pane, SHALL mark the item `Read` via `feed.mark_read(&item.id)`, and SHALL publish a `NotificationFeedUpdateEvent` revision bump so the badge updates.
+The system SHALL make each notification row in the popup clickable. Clicking a row SHALL call `set_active_terminal_runtime_id(Some(item.terminal_id))` on the `WeCodeApp` entity to focus the owning terminal pane, SHALL mark the item `Read` via `feed.mark_read(&item.id)`, and SHALL publish a `NotificationFeedUpdateEvent` revision bump so the badge updates.
 
 #### Scenario: Click focuses the owning terminal
 - **WHEN** the user clicks a notification row whose item has `terminal_id` equal to `"term-42"`

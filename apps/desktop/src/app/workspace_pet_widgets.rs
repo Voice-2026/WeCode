@@ -1,6 +1,6 @@
 use super::*;
 use crate::app::{
-    ui_helpers::{codux_tooltip_container, with_codux_tooltip},
+    ui_helpers::{wecode_tooltip_container, with_wecode_tooltip},
     workspace_shared::{
         workspace_header_badge_button_content, workspace_header_button, workspace_i18n,
     },
@@ -29,7 +29,7 @@ pub(in crate::app) fn workspace_pet_button(
     pet_name_editing: bool,
     pet_sprite_frame: usize,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let app_entity = cx.entity();
     let pet = pet.clone();
@@ -82,9 +82,9 @@ pub(in crate::app) fn workspace_pet_button(
 }
 fn workspace_pet_dex_button(
     dex_tooltip: SharedString,
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
 ) -> impl IntoElement {
-    codux_tooltip_container(app_entity.clone(), "workspace-pet-dex-tooltip", dex_tooltip)
+    wecode_tooltip_container(app_entity.clone(), "workspace-pet-dex-tooltip", dex_tooltip)
         .absolute()
         .right(px(10.0))
         .top(px(10.0))
@@ -105,10 +105,10 @@ fn workspace_pet_rename_action_button(
     id: &'static str,
     icon: HeroIconName,
     tooltip: SharedString,
-    cx: &mut Context<CoduxApp>,
-    on_click: impl Fn(&mut CoduxApp, &gpui::ClickEvent, &mut Window, &mut Context<CoduxApp>) + 'static,
+    cx: &mut Context<WeCodeApp>,
+    on_click: impl Fn(&mut WeCodeApp, &gpui::ClickEvent, &mut Window, &mut Context<WeCodeApp>) + 'static,
 ) -> impl IntoElement {
-    with_codux_tooltip(
+    with_wecode_tooltip(
         cx.entity(),
         format!("pet-rename-tooltip-{id}"),
         Button::new(id)
@@ -130,10 +130,10 @@ fn workspace_pet_install_action_button(
     tooltip: SharedString,
     label: SharedString,
     icon: HeroIconName,
-    cx: &mut Context<CoduxApp>,
-    on_click: impl Fn(&mut CoduxApp, &gpui::ClickEvent, &mut Window, &mut Context<CoduxApp>) + 'static,
+    cx: &mut Context<WeCodeApp>,
+    on_click: impl Fn(&mut WeCodeApp, &gpui::ClickEvent, &mut Window, &mut Context<WeCodeApp>) + 'static,
 ) -> impl IntoElement {
-    with_codux_tooltip(
+    with_wecode_tooltip(
         cx.entity(),
         format!("pet-install-tooltip-{tooltip}"),
         button
@@ -156,9 +156,9 @@ fn workspace_pet_popover_content(
     pet_name_editing: bool,
     _pet_sprite_frame: usize,
     language: String,
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let name = if pet.claimed && !pet.display_name.is_empty() {
         pet.display_name.clone()
@@ -183,7 +183,7 @@ fn workspace_pet_popover_content(
     let progress = pet_snapshot
         .as_ref()
         .map(|snapshot| snapshot.progress.clone())
-        .unwrap_or_else(|| codux_runtime::pet::PetProgressInfo {
+        .unwrap_or_else(|| wecode_runtime::pet::PetProgressInfo {
             level: pet.level.max(1),
             xp_in_level: 0,
             xp_for_level: 0,
@@ -451,7 +451,7 @@ fn workspace_pet_meter(
 }
 
 fn workspace_pet_trait(
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     emoji_kind: &'static str,
     label: String,
     value: i64,
@@ -460,7 +460,7 @@ fn workspace_pet_trait(
     help: String,
 ) -> impl IntoElement {
     let ratio = (value as f32 / 330.0).clamp(0.0, 1.0);
-    codux_tooltip_container(
+    wecode_tooltip_container(
         app_entity,
         SharedString::from(format!("pet-trait-{emoji_kind}")),
         help,
@@ -567,7 +567,7 @@ fn workspace_pet_name_row(
     editing: bool,
     language: &str,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     if !editing {
         return div()
@@ -665,7 +665,7 @@ pub(in crate::app) fn workspace_pet_install_form(
     installing: bool,
     language: &str,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let url_value = install_url.to_string();
     let name_value = install_display_name.to_string();
@@ -832,7 +832,7 @@ fn workspace_pet_install_preview(
     name_state: &gpui::Entity<InputState>,
     installing: bool,
     language: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let image = if let Some(path) = preview
         .local_image_path

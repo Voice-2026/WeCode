@@ -4,7 +4,7 @@ pub(super) fn git_history_panel(
     git: &GitSummary,
     labels: Rc<GitSidebarLabels>,
     scroll_handle: VirtualListScrollHandle,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let commits = Rc::new(git.commits.clone());
     let commit_count = commits.len();
@@ -89,7 +89,7 @@ fn git_history_timeline_row(
     is_last: bool,
     head_label: SharedString,
     labels: Rc<GitHistoryMenuLabels>,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let title = commit.title.clone();
     // Comma-joined tag names from the commit log (see git2_commit_log).
@@ -113,7 +113,7 @@ fn git_history_timeline_row(
         commit.hash, commit.title, commit.author, commit.relative_time
     );
 
-    codux_tooltip_container(
+    wecode_tooltip_container(
         app_entity.clone(),
         SharedString::from(format!("git-history-{}", commit.hash)),
         tooltip,

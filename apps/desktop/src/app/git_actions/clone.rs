@@ -1,6 +1,6 @@
 use super::*;
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn init_project_git(
         &mut self,
         _window: &mut Window,
@@ -39,7 +39,7 @@ impl CoduxApp {
         self.status_message = "Git init started".to_string();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             let worker_project_path = project_path.clone();
-            let result = codux_runtime::async_runtime::spawn_blocking(move || {
+            let result = wecode_runtime::async_runtime::spawn_blocking(move || {
                 service.init_project_git(&worker_project_path)
             })
             .await
@@ -154,7 +154,7 @@ impl CoduxApp {
         );
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             let worker_project_path = project_path.clone();
-            let result = codux_runtime::async_runtime::spawn_blocking(move || {
+            let result = wecode_runtime::async_runtime::spawn_blocking(move || {
                 service.generate_project_git_commit_message(&worker_project_path)
             })
             .await
@@ -232,7 +232,7 @@ impl CoduxApp {
         let timer = cx.background_executor().clone();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             timer.timer(Duration::from_millis(120)).await;
-            let dialog_error = codux_runtime::async_runtime::spawn_blocking(move || {
+            let dialog_error = wecode_runtime::async_runtime::spawn_blocking(move || {
                 service.localized_alert_dialog(LocalizedAlertDialogRequest {
                     title,
                     message: error,
@@ -292,7 +292,7 @@ impl CoduxApp {
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             let worker_project_path = project_path.clone();
             let worker_remote_url = remote_url.clone();
-            let result = codux_runtime::async_runtime::spawn_blocking(move || {
+            let result = wecode_runtime::async_runtime::spawn_blocking(move || {
                 service.clone_project_git(&worker_project_path, &worker_remote_url)
             })
             .await
@@ -399,7 +399,7 @@ impl CoduxApp {
                 username,
                 password_or_token,
             };
-            let result = codux_runtime::async_runtime::spawn_blocking(move || {
+            let result = wecode_runtime::async_runtime::spawn_blocking(move || {
                 service.clone_project_git_with_credentials(
                     &worker_project_path,
                     &worker_remote_url,

@@ -10,7 +10,7 @@ use std::{
 use uuid::Uuid;
 
 pub(super) fn write_test_profile_file(profile: &SSHConnectionProfile) -> Result<PathBuf, String> {
-    let path = std::env::temp_dir().join(format!("codux-ssh-test-{}.json", Uuid::new_v4()));
+    let path = std::env::temp_dir().join(format!("wecode-ssh-test-{}.json", Uuid::new_v4()));
     let data = serde_json::to_vec_pretty(&vec![profile]).map_err(|error| error.to_string())?;
     write_private_file(&path, &data)?;
     Ok(path)
@@ -40,18 +40,18 @@ pub(super) fn ssh_wrapper_path(runtime_assets: impl AsRef<Path>) -> PathBuf {
     {
         let runtime_assets = runtime_assets.as_ref();
         if runtime_assets.ends_with("bin") {
-            runtime_assets.join("codux-ssh.ps1")
+            runtime_assets.join("wecode-ssh.ps1")
         } else {
-            runtime_assets.join("scripts/wrappers/bin/codux-ssh.ps1")
+            runtime_assets.join("scripts/wrappers/bin/wecode-ssh.ps1")
         }
     }
     #[cfg(not(windows))]
     {
         let runtime_assets = runtime_assets.as_ref();
         if runtime_assets.ends_with("bin") {
-            runtime_assets.join("codux-ssh")
+            runtime_assets.join("wecode-ssh")
         } else {
-            runtime_assets.join("scripts/wrappers/bin/codux-ssh")
+            runtime_assets.join("scripts/wrappers/bin/wecode-ssh")
         }
     }
 }
@@ -64,8 +64,8 @@ pub(super) fn run_ssh_test_command(
     let mut child = Command::new(wrapper)
         .arg(profile_id)
         .arg("--")
-        .arg("echo codux-ssh-ok")
-        .env("CODUX_SSH_PROFILES_FILE", profiles_file)
+        .arg("echo wecode-ssh-ok")
+        .env("WECODE_SSH_PROFILES_FILE", profiles_file)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -96,7 +96,7 @@ pub(super) fn run_ssh_test_command(
 pub(super) fn profile_test_result(output: Output) -> SSHProfileTestResult {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    if output.status.success() && stdout.contains("codux-ssh-ok") {
+    if output.status.success() && stdout.contains("wecode-ssh-ok") {
         return SSHProfileTestResult {
             ok: true,
             message: "SSH connection test succeeded.".to_string(),

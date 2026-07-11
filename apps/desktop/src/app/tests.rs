@@ -12,7 +12,8 @@ mod tests {
             shortcuts::{normalized_shortcut_text, shortcut_matches},
             terminal_state::{
                 TerminalSplitDirection, normalize_terminal_restore_state,
-                structural_terminal_layout, terminal_pane_terminal_id, terminal_restore_plan,
+                structural_terminal_layout, terminal_pane_index_for_close,
+                terminal_pane_terminal_id, terminal_restore_plan,
                 terminal_restore_plan_for_language, terminal_split_tree_insert_pane,
                 terminal_split_tree_insert_pane_root, terminal_split_tree_move_pane,
                 terminal_split_tree_remove_pane, terminal_split_tree_update_ratios,
@@ -25,7 +26,9 @@ mod tests {
         },
         terminal::TerminalLaunchContext,
     };
-    use codux_runtime::{
+    use gpui::{Bounds, point, px, size};
+    use std::{collections::HashMap, path::PathBuf};
+    use wecode_runtime::{
         ai_history::{AISessionForkTarget, AISessionSummary},
         git::GitSummary,
         ssh::SSHProfileSummary,
@@ -35,8 +38,6 @@ mod tests {
         },
         terminal_runtime::{TerminalRuntimeSessionSummary, TerminalRuntimeSummary},
     };
-    use gpui::{Bounds, point, px, size};
-    use std::{collections::HashMap, path::PathBuf};
 
     fn terminal_focus_test_tabs() -> Vec<crate::app::types::TerminalTab> {
         vec![crate::app::types::TerminalTab {
@@ -64,6 +65,29 @@ mod tests {
                 },
             ],
         }]
+    }
+
+    #[test]
+    fn terminal_close_resolves_first_of_two_by_stable_id() {
+        let tabs = terminal_focus_test_tabs();
+        let index = terminal_pane_index_for_close(&tabs[0], Some("top-1"), 1);
+        assert_eq!(index, Some(0));
+    }
+
+    #[test]
+    fn terminal_close_resolves_second_of_two_by_stable_id() {
+        let tabs = terminal_focus_test_tabs();
+        let index = terminal_pane_index_for_close(&tabs[0], Some("top-2"), 0);
+        assert_eq!(index, Some(1));
+    }
+
+    #[test]
+    fn terminal_close_resolves_legacy_tab_level_id() {
+        let mut tabs = terminal_focus_test_tabs();
+        tabs[0].terminal_id = Some("legacy-default".to_string());
+        tabs[0].panes[0].terminal_id = None;
+        let index = terminal_pane_index_for_close(&tabs[0], Some("legacy-default"), 1);
+        assert_eq!(index, Some(0));
     }
 
     #[test]
@@ -103,9 +127,9 @@ mod tests {
                 terminal_id: "term-a".to_string(),
                 title: "分屏 1".to_string(),
                 project_id: "project-1".to_string(),
-                project_name: "Codux".to_string(),
-                project_path: "/workspace/codux".to_string(),
-                cwd: "/workspace/codux".to_string(),
+                project_name: "WeCode".to_string(),
+                project_path: "/workspace/wecode".to_string(),
+                cwd: "/workspace/wecode".to_string(),
                 status: "running".to_string(),
                 is_running: true,
                 created_at: 1.0,
@@ -200,9 +224,9 @@ mod tests {
                 terminal_id: "gpui-term-worktree-1-top-1".to_string(),
                 title: "分屏 1".to_string(),
                 project_id: "worktree-1".to_string(),
-                project_name: "Codux".to_string(),
-                project_path: "/workspace/codux".to_string(),
-                cwd: "/workspace/codux".to_string(),
+                project_name: "WeCode".to_string(),
+                project_path: "/workspace/wecode".to_string(),
+                cwd: "/workspace/wecode".to_string(),
                 status: "running".to_string(),
                 is_running: true,
                 created_at: 1.0,
@@ -326,9 +350,9 @@ mod tests {
         let base = TerminalLaunchContext {
             root_project_id: "project-1".to_string(),
             project_id: "project-1".to_string(),
-            project_name: "Codux".to_string(),
-            project_path: PathBuf::from("/workspace/codux"),
-            support_dir: PathBuf::from("/support/Codux"),
+            project_name: "WeCode".to_string(),
+            project_path: PathBuf::from("/workspace/wecode"),
+            support_dir: PathBuf::from("/support/WeCode"),
             runtime_root: PathBuf::from("/runtime-root"),
             terminal_id: None,
             slot_id: None,
@@ -371,9 +395,9 @@ mod tests {
         let base = TerminalLaunchContext {
             root_project_id: "project-1".to_string(),
             project_id: "project-B".to_string(),
-            project_name: "Codux".to_string(),
-            project_path: PathBuf::from("/workspace/codux"),
-            support_dir: PathBuf::from("/support/Codux"),
+            project_name: "WeCode".to_string(),
+            project_path: PathBuf::from("/workspace/wecode"),
+            support_dir: PathBuf::from("/support/WeCode"),
             runtime_root: PathBuf::from("/runtime-root"),
             terminal_id: None,
             slot_id: None,
@@ -811,18 +835,18 @@ mod tests {
 
     #[test]
     fn ai_session_fork_command_reads_prompt_file_for_all_targets() {
-        let path = "/tmp/codux session handoff.md";
+        let path = "/tmp/wecode session handoff.md";
         for target in AI_SESSION_FORK_TARGETS {
             let command = ai_session_fork_command(target, path);
             if cfg!(windows) {
                 assert!(
                     command
-                        .contains("Get-Content -Raw -LiteralPath '/tmp/codux session handoff.md'"),
+                        .contains("Get-Content -Raw -LiteralPath '/tmp/wecode session handoff.md'"),
                     "{command}"
                 );
             } else {
                 assert!(
-                    command.contains("$(cat '/tmp/codux session handoff.md')"),
+                    command.contains("$(cat '/tmp/wecode session handoff.md')"),
                     "{command}"
                 );
             }
@@ -855,7 +879,7 @@ mod tests {
 
         assert_eq!(
             ssh_connect_command(&profile),
-            "codux-ssh 'profile with spaces'"
+            "wecode-ssh 'profile with spaces'"
         );
     }
 
@@ -886,8 +910,8 @@ mod tests {
     #[test]
     fn project_badge_text_uses_up_to_four_project_name_chars() {
         assert_eq!(
-            project_badge_text_from_name(" Codux GPUI "),
-            Some("CG".to_string())
+            project_badge_text_from_name(" WeCode GPUI "),
+            Some("WCG".to_string())
         );
         assert_eq!(
             project_badge_text_from_name("getUserInfo"),
@@ -898,8 +922,8 @@ mod tests {
             Some("WPA".to_string())
         );
         assert_eq!(
-            project_badge_text_from_name("codux"),
-            Some("CODU".to_string())
+            project_badge_text_from_name("wecode"),
+            Some("WECO".to_string())
         );
         assert_eq!(
             project_badge_text_from_name("项目"),

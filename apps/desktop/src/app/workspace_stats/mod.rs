@@ -1,7 +1,6 @@
 use super::*;
-use crate::app::ui_helpers::codux_tooltip_container;
+use crate::app::ui_helpers::wecode_tooltip_container;
 use chrono::{Datelike as _, TimeZone as _, Timelike as _};
-use codux_runtime::i18n::translate;
 use gpui::Rems;
 use gpui_component::{
     Selectable, Size,
@@ -11,6 +10,7 @@ use gpui_component::{
     tab::{Tab, TabBar},
     table::{Column, ColumnSort, DataTable, TableDelegate, TableState},
 };
+use wecode_runtime::i18n::translate;
 
 mod cards;
 mod data;
@@ -56,7 +56,7 @@ pub(in crate::app) struct StatsWorkspaceSnapshot {
     range_session_count: usize,
     range_active_duration_seconds: i64,
     trend_buckets: Vec<StatsTrendBucket>,
-    heatmap: Vec<codux_runtime::ai_history::AIHistoryHeatmapCellView>,
+    heatmap: Vec<wecode_runtime::ai_history::AIHistoryHeatmapCellView>,
     tool_rows: Vec<StatsRankRow>,
     model_rows: Vec<StatsRankRow>,
     project_rows: Vec<StatsProjectRow>,
@@ -116,7 +116,7 @@ impl StatsWorkspaceSnapshot {
     }
 }
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn stats_workspace_snapshot(&self) -> StatsWorkspaceSnapshot {
         let global = &self.state.ai_global_history;
         let include_cached = self.state.settings.statistics_mode.trim() == "includingCache";
@@ -239,7 +239,7 @@ impl CoduxApp {
 }
 
 pub(in crate::app) fn stats_workspace_body(
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     project_table: gpui::Entity<TableState<StatsProjectTableDelegate>>,
     scroll_handle: gpui::ScrollHandle,
     snapshot: StatsWorkspaceSnapshot,

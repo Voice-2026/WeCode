@@ -1,13 +1,13 @@
-import 'package:codux_protocol_ffi/codux_protocol_ffi.dart'
-    as codux_protocol_core;
+import 'package:wecode_protocol_ffi/wecode_protocol_ffi.dart'
+    as wecode_protocol_core;
 
 class RemoteSequenceGuard {
   RemoteSequenceGuard({int maxEntriesPerChannel = 128})
-    : _core = codux_protocol_core.RemoteSequenceGuardCore(
+    : _core = wecode_protocol_core.RemoteSequenceGuardCore(
         maxEntriesPerChannel: maxEntriesPerChannel,
       );
 
-  final codux_protocol_core.RemoteSequenceGuardCore _core;
+  final wecode_protocol_core.RemoteSequenceGuardCore _core;
 
   bool accept({
     required String type,

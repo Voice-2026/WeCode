@@ -157,7 +157,7 @@ pub(in crate::app) fn git_section(
     files_panel_view: gpui::Entity<GitFilesPanelView>,
     history_panel_view: gpui::Entity<GitHistoryPanelView>,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let labels = Rc::new(GitSidebarLabels::load(language));
     let branch = if git.branch.trim().is_empty() {

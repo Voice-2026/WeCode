@@ -1,5 +1,5 @@
 //! Memory serving for the headless host. The controller routes a remote-hosted
-//! project's memory reads here; the agent runs the shared `codux-memory` engine
+//! project's memory reads here; the agent runs the shared `wecode-memory` engine
 //! against its own memory store (`<agent_data_dir>/memory.sqlite3`) so the
 //! project's memory lives where its AI sessions run.
 //!
@@ -7,11 +7,11 @@
 //! Extraction (`memory.extract`, the LLM write path driven by a
 //! controller-forwarded provider config) is the follow-up.
 
-use codux_memory::{
+use serde_json::{Value, json};
+use wecode_memory::{
     MemoryConfig, MemoryManagementRequest, MemoryProjectInfo, MemoryProjectRecord, MemoryService,
     MemorySessionSnapshot,
 };
-use serde_json::{Value, json};
 
 use crate::projects::{AgentProjectStore, agent_data_dir};
 
@@ -52,7 +52,7 @@ pub async fn memory_extract_payload(payload: &Value) -> Value {
     let projects = memory_records();
     // The host's indexed AI sessions are the extraction candidates; the agent
     // runs no live AI supervisor, so there are no runtime snapshots.
-    let history_sessions = codux_ai_history::normalized::indexed_sessions_since_at(
+    let history_sessions = wecode_ai_history::normalized::indexed_sessions_since_at(
         agent_data_dir().join("ai-usage.sqlite3"),
         None,
     )

@@ -7,7 +7,7 @@ pub(super) fn git_diff_window_body(
     empty_label: String,
     original_label: String,
     current_label: String,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     if let Some(rows) = derived_rows {
         return div()
@@ -66,7 +66,7 @@ fn git_diff_window_content_panel(
     title: &str,
     cells: Rc<Vec<GitReviewAlignedCell>>,
     scroll_handle: VirtualListScrollHandle,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let item_sizes = Rc::new(vec![size(px(1.0), px(18.0)); cells.len()]);
     let list_cells = cells.clone();

@@ -12,43 +12,43 @@ pub fn ssh_profiles_file_path_in(support_dir: PathBuf) -> PathBuf {
     support_dir.join("ssh_profiles.json")
 }
 
-pub fn render_ssh_launch_context(codux_ssh_command: Option<String>) -> Option<String> {
-    render_ssh_launch_context_from_support_dir(app_support_dir(), codux_ssh_command)
+pub fn render_ssh_launch_context(wecode_ssh_command: Option<String>) -> Option<String> {
+    render_ssh_launch_context_from_support_dir(app_support_dir(), wecode_ssh_command)
 }
 
 pub fn render_ssh_launch_context_from_support_dir(
     support_dir: PathBuf,
-    codux_ssh_command: Option<String>,
+    wecode_ssh_command: Option<String>,
 ) -> Option<String> {
     let mut profiles = sanitize_profiles(load_profiles(&ssh_profiles_file_path_in(support_dir))?);
-    render_ssh_launch_context_for_profiles(&mut profiles, codux_ssh_command)
+    render_ssh_launch_context_for_profiles(&mut profiles, wecode_ssh_command)
 }
 
 pub(super) fn render_ssh_launch_context_for_profiles(
     profiles: &mut Vec<SSHConnectionProfile>,
-    codux_ssh_command: Option<String>,
+    wecode_ssh_command: Option<String>,
 ) -> Option<String> {
     if profiles.is_empty() {
         return None;
     }
-    let codux_ssh_command = codux_ssh_command
+    let wecode_ssh_command = wecode_ssh_command
         .and_then(|value| normalized(&value))
-        .unwrap_or_else(|| "codux-ssh".to_string());
+        .unwrap_or_else(|| "wecode-ssh".to_string());
     let lines = vec![
-        "Codux saved SSH connections are available through terminal commands.".to_string(),
+        "WeCode saved SSH connections are available through terminal commands.".to_string(),
         format!(
-            "Always run `{codux_ssh_command} list` at the time of use to discover the current saved SSH profiles as JSON."
+            "Always run `{wecode_ssh_command} list` at the time of use to discover the current saved SSH profiles as JSON."
         ),
         format!(
-            "When a matching saved profile exists, run `{codux_ssh_command} <profile-id> -- '<remote-command>'` for one-off remote commands."
+            "When a matching saved profile exists, run `{wecode_ssh_command} <profile-id> -- '<remote-command>'` for one-off remote commands."
         ),
         format!(
-            "Transfer files with `{codux_ssh_command} scp <profile-id> <src> <dst>`, marking the remote side with a leading ':' (e.g. `:/etc/hosts`)."
+            "Transfer files with `{wecode_ssh_command} scp <profile-id> <src> <dst>`, marking the remote side with a leading ':' (e.g. `:/etc/hosts`)."
         ),
         format!(
-            "Use `{codux_ssh_command} <profile-id>` only when the user explicitly asks to open an interactive SSH session."
+            "Use `{wecode_ssh_command} <profile-id>` only when the user explicitly asks to open an interactive SSH session."
         ),
-        "Do not grep the repository or inspect Codux config files to discover saved SSH hosts; use the wrapper list command.".to_string(),
+        "Do not grep the repository or inspect WeCode config files to discover saved SSH hosts; use the wrapper list command.".to_string(),
         "If no saved profile matches, ask the user to add a saved SSH profile or provide explicit host details for the system ssh command.".to_string(),
         "Do not ask for, print, infer, or expose saved passwords, passphrases, or private key paths.".to_string(),
     ];
@@ -159,7 +159,7 @@ fn normalized(value: &str) -> Option<String> {
 #[cfg(windows)]
 fn platform_ssh_terminal_command(profile_id: &str) -> String {
     format!(
-        "codux-ssh {}; Write-Host ''; Write-Host '[SSH session ended]'",
+        "wecode-ssh {}; Write-Host ''; Write-Host '[SSH session ended]'",
         powershell_quote(profile_id)
     )
 }
@@ -167,7 +167,7 @@ fn platform_ssh_terminal_command(profile_id: &str) -> String {
 #[cfg(not(windows))]
 fn platform_ssh_terminal_command(profile_id: &str) -> String {
     format!(
-        "codux-ssh {}; printf '\\n[SSH session ended]\\n'; exec \"$SHELL\" -l",
+        "wecode-ssh {}; printf '\\n[SSH session ended]\\n'; exec \"$SHELL\" -l",
         shell_quote(profile_id)
     )
 }

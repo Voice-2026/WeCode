@@ -67,7 +67,7 @@ mod tests {
     #[test]
     fn file_commands_delegate_to_runtime_files_layer() {
         let support_dir =
-            std::env::temp_dir().join(format!("codux-app-command-files-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("wecode-app-command-files-{}", Uuid::new_v4()));
         let project_dir = support_dir.join("project");
         let external_dir = support_dir.join("external");
         std::fs::create_dir_all(&project_dir).expect("project dir");

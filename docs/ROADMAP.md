@@ -1,6 +1,6 @@
-# codux-gateway — Roadmap
+# wecode-gateway — Roadmap
 
-`crates/codux-gateway` is a Rust rewrite of the Python `kiro-gateway` (vendored
+`crates/wecode-gateway` is a Rust rewrite of the Python `kiro-gateway` (vendored
 read-only under `reference/kiro-gateway/` during the port). It exposes
 OpenAI- and Anthropic-compatible APIs backed by Kiro / AWS CodeWhisperer's
 `generateAssistantResponse` endpoint.
@@ -9,7 +9,7 @@ OpenAI- and Anthropic-compatible APIs backed by Kiro / AWS CodeWhisperer's
 
 - **Phase 1** — repo scaffold, AGPL relicense (`LICENSE` + `NOTICE`), crate
   skeleton, axum router, `GET /health`, API-key middleware, standalone
-  `codux-gateway` binary, graceful shutdown, workspace member.
+  `wecode-gateway` binary, graceful shutdown, workspace member.
 - **Phase 2** — auth: credential sources (JSON file / kiro-cli SQLite / raw
   refresh token), both refresh flows (Kiro Desktop + AWS SSO OIDC), proactive
   600s refresh, 403 force-refresh, write-back (`src/auth/`).
@@ -30,7 +30,7 @@ credentials and compare against `reference/kiro-gateway` on identical prompts
 
 ## Done — Phase 5 (multi-account + failover)
 
-`crates/codux-gateway/src/accounts.rs`:
+`crates/wecode-gateway/src/accounts.rs`:
 - `accounts` array in config → per-account `KiroAuth`; empty → single-account.
 - `state.json` persistence (atomic tmp+rename) with `current_account_index` and
   per-account failure/stat state.
@@ -68,7 +68,7 @@ credentials and compare against `reference/kiro-gateway` on identical prompts
 
 ## Done — Phase 6c backbone (embedded gateway service)
 
-- `apps/desktop/runtime/Cargo.toml` depends on `codux-gateway`.
+- `apps/desktop/runtime/Cargo.toml` depends on `wecode-gateway`.
 - `apps/desktop/runtime/src/gateway_service.rs` — `GatewayService` reads the
   `"gateway"` section of `settings.json` (`{ enabled, config }`), starts the
   server on the shared `async_runtime`, and stops it via a oneshot channel
@@ -82,14 +82,14 @@ credentials and compare against `reference/kiro-gateway` on identical prompts
   credential source controls.
 - `apps/desktop/src/app/settings/mod.rs` registers the Gateway tab
   (`settings.tab.gateway`) with `ServerStack` icon and render dispatch.
-- `CoduxApp` owns `GatewaySettings` and the main-window `GatewayService`; startup
+- `WeCodeApp` owns `GatewaySettings` and the main-window `GatewayService`; startup
   reads `settings.json.gateway`, setting changes save through `GatewaySettings`,
   and the main window reloads/restarts the service on settings updates.
 - `GatewayService` exposes process-wide runtime status so the settings window can
   show listening address or startup errors (for example, port already in use).
-- Verified with `cargo check -p codux` and a local dev-app visual smoke: the
+- Verified with `cargo check -p wecode` and a local dev-app visual smoke: the
   Settings window opens and the Gateway tab renders without crashing.
 
 ## Cleanup
 - Remove `reference/kiro-gateway/` once live parity is confirmed.
-- `justfile` gateway target (`cargo run -p codux-gateway`).
+- `justfile` gateway target (`cargo run -p wecode-gateway`).

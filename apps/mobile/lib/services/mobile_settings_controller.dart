@@ -3,7 +3,7 @@ import '../models/remote_models.dart';
 class MobileSettingsController {
   const MobileSettingsController();
 
-  static const fallbackDeviceName = 'Codux Mobile';
+  static const fallbackDeviceName = 'WeCode Mobile';
 
   String detectedNameFromDeviceInfo(Map<String, Object?> data) {
     for (final key in const ['name', 'model', 'product', 'localizedModel']) {

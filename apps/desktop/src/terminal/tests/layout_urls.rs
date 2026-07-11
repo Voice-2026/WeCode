@@ -83,13 +83,13 @@ fn plain_url_detection_matches_xterm_style_boundaries() {
 }
 #[test]
 fn plain_url_detection_supports_file_urls() {
-    let row_text: Vec<(usize, char)> = "open file:///tmp/codux-log.txt."
+    let row_text: Vec<(usize, char)> = "open file:///tmp/wecode-log.txt."
         .chars()
         .enumerate()
         .collect();
 
     let (url, range) = terminal_plain_url_at(&row_text, 12).expect("file url under cursor");
 
-    assert_eq!(url, "file:///tmp/codux-log.txt");
-    assert_eq!(range, 5..30);
+    assert_eq!(url, "file:///tmp/wecode-log.txt");
+    assert_eq!(range, 5..31);
 }

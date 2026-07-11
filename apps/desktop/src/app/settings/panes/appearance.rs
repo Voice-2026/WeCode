@@ -7,7 +7,7 @@ pub(super) fn theme_preview_grid(
     options: Vec<(&'static str, &'static str)>,
     selected: &str,
     language: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     div()
         .w_full()
@@ -42,7 +42,7 @@ pub(super) fn theme_preview_button(
     label: &'static str,
     selected: bool,
     language: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     let preview = terminal_theme_preview(value);
     let label = if value == "Auto" {
@@ -103,7 +103,7 @@ pub(super) fn theme_preview_button(
     )
 }
 
-pub(super) fn theme_color_grid(selected: &str, cx: &mut Context<CoduxApp>) -> AnyElement {
+pub(super) fn theme_color_grid(selected: &str, cx: &mut Context<WeCodeApp>) -> AnyElement {
     settings_selectable_tile_rows(
         theme_color_values()
             .into_iter()
@@ -141,7 +141,7 @@ pub(super) fn theme_color_grid(selected: &str, cx: &mut Context<CoduxApp>) -> An
 pub(super) fn app_icon_grid(
     selected: &str,
     language: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     settings_selectable_tile_rows(
         icon_style_values()
@@ -197,7 +197,7 @@ pub(super) fn settings_appearance_pane(
     settings: &SettingsSummary,
     vibrancy_slider: Option<gpui::Entity<gpui_component::slider::SliderState>>,
     _window: &mut Window,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     let language = settings.language.as_str();
     let mut cards = vec![
@@ -275,7 +275,7 @@ pub(super) fn settings_appearance_pane(
 pub(super) fn appearance_style_card(
     vibrancy_slider: Option<gpui::Entity<gpui_component::slider::SliderState>>,
     language: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     let mut children = Vec::new();
     if let Some(state) = vibrancy_slider {
@@ -315,7 +315,7 @@ pub(super) fn appearance_slider_row(
     label: String,
     help: String,
     state: gpui::Entity<gpui_component::slider::SliderState>,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let percent = (state.read(cx).value().start() * 100.0).round() as i64;
     div()

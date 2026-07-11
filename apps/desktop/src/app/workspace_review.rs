@@ -1,6 +1,6 @@
 use super::*;
-use codux_runtime::{i18n::translate, settings::locale_from_language_setting};
 use gpui_component::resizable::{h_resizable, resizable_panel};
+use wecode_runtime::{i18n::translate, settings::locale_from_language_setting};
 
 #[derive(Clone)]
 pub(in crate::app) struct ReviewWorkspaceSnapshot {
@@ -24,7 +24,7 @@ impl PartialEq for ReviewWorkspaceSnapshot {
     }
 }
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn review_workspace_snapshot(&mut self) -> ReviewWorkspaceSnapshot {
         let locale = locale_from_language_setting(&self.state.settings.language);
         let tr = |key: &str, fallback: &str| translate(&locale, key, fallback);
@@ -341,7 +341,7 @@ fn review_workspace_header(
 }
 
 pub(in crate::app) fn review_file_list(
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     snapshot: ReviewFileListSnapshot,
     cx: &mut Context<workspace_views::ReviewFileListView>,
 ) -> AnyElement {

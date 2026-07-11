@@ -1,7 +1,7 @@
 use super::*;
 use crate::app::quick_input::show_quick_input;
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn normalize_selected_git_file(&mut self) {
         let selected_still_exists = self
             .selected_git_file

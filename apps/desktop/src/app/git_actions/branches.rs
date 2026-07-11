@@ -1,6 +1,6 @@
 use super::*;
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn checkout_selected_git_branch(
         &mut self,
         _window: &mut Window,
@@ -291,7 +291,7 @@ impl CoduxApp {
         let timer = cx.background_executor().clone();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             timer.timer(Duration::from_millis(120)).await;
-            let result = codux_runtime::async_runtime::spawn_blocking(move || {
+            let result = wecode_runtime::async_runtime::spawn_blocking(move || {
                 service.localized_confirm_dialog(LocalizedConfirmDialogRequest {
                     title,
                     message,

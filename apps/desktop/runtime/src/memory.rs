@@ -1,12 +1,12 @@
-//! Desktop bridge to the shared `codux-memory` engine.
+//! Desktop bridge to the shared `wecode-memory` engine.
 //!
-//! The engine lives in `crates/codux-memory` so the headless host can run it
+//! The engine lives in `crates/wecode-memory` so the headless host can run it
 //! too. The desktop keeps its richer settings/project/session types; this module
 //! re-exports the engine and converts the desktop types into the engine's narrow
 //! config types at the call boundary (field shapes match, so the conversions are
 //! a serde round-trip).
 
-pub use codux_memory::*;
+pub use wecode_memory::*;
 
 use crate::ai_runtime::AISessionSnapshot;
 use crate::project_store::ProjectWorkspaceRecord;
@@ -114,5 +114,5 @@ pub fn memory_sessions(sessions: &[AISessionSnapshot]) -> Vec<MemorySessionSnaps
 /// 1-arg signature the GPUI launch path expects (shadows the engine's 2-arg
 /// `launch_artifact_paths`, which the desktop reaches via the explicit base).
 pub fn launch_artifact_paths(project_id: &str) -> MemoryLaunchArtifacts {
-    codux_memory::launch_artifact_paths(&crate::runtime_paths::runtime_root_dir(), project_id)
+    wecode_memory::launch_artifact_paths(&crate::runtime_paths::runtime_root_dir(), project_id)
 }

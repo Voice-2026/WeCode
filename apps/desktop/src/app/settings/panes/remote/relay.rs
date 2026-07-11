@@ -3,7 +3,7 @@ use super::*;
 pub(super) fn settings_remote_relay_url_editor(
     value: &str,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
     _language: &str,
 ) -> AnyElement {
     let value = value.to_string();
@@ -47,7 +47,7 @@ pub(super) fn settings_remote_relay_url_editor(
 pub(super) fn settings_remote_relay_authentication_editor(
     value: &str,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     let value = value.to_string();
     let state_key = SharedString::from(format!(
@@ -99,7 +99,7 @@ pub(super) fn settings_remote_relay_authentication_editor(
 pub(super) fn settings_remote_relay_custom_fields(
     settings: &SettingsSummary,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
     language: &str,
 ) -> AnyElement {
     if settings.remote_relay_preset != "custom" {

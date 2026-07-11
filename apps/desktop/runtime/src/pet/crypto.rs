@@ -49,7 +49,7 @@ fn encrypt_pet_state_data(data: &[u8], namespace: &str) -> Result<Vec<u8>, Strin
 }
 
 pub(super) fn pet_state_cipher_key(namespace: &str) -> Key<Aes256Gcm> {
-    let material = format!("dmux.pet.state.v2|{namespace}|codux");
+    let material = format!("dmux.pet.state.v2|{namespace}|wecode");
     let digest = Sha256::digest(material.as_bytes());
     *Key::<Aes256Gcm>::from_slice(&digest)
 }

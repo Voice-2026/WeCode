@@ -1,6 +1,6 @@
 use super::*;
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn pet_claim_workspace(
         &mut self,
         window: &mut Window,
@@ -219,7 +219,7 @@ impl CoduxApp {
 fn pet_claim_random_row(
     selected_species: &str,
     language: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let selected = selected_species == "bundled:random";
 
@@ -230,7 +230,7 @@ fn pet_claim_random_row(
         pet_catalog_text(
             language,
             "pet.claim.random.subtitle",
-            "Let Codux choose a companion",
+            "Let WeCode choose a companion",
         ),
         pet_claim_random_thumb(cx),
         cx,
@@ -250,7 +250,7 @@ fn pet_claim_option_row(
     custom_pets: &[PetCustomPet],
     language: &str,
     _window: &mut Window,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let selected = selected_species == item.species;
     let species = item.species.clone();
@@ -289,7 +289,7 @@ fn pet_claim_custom_row(
     pet: PetCustomPet,
     selected_species: &str,
     support_dir: &Path,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let selected = selected_species == format!("custom:{}", pet.id);
     let species = format!("custom:{}", pet.id);
@@ -318,7 +318,7 @@ fn pet_select_row(
     title: String,
     subtitle: String,
     leading: AnyElement,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> gpui::Stateful<gpui::Div> {
     div()
         .id(id)
@@ -385,7 +385,7 @@ fn pet_select_row(
 fn pet_claim_sprite_thumb(
     sprite_path: ImageSource,
     fallback_color: gpui::Hsla,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     div()
         .size(px(44.0))
@@ -399,7 +399,7 @@ fn pet_claim_sprite_thumb(
         .into_any_element()
 }
 
-fn pet_claim_random_thumb(cx: &mut Context<CoduxApp>) -> AnyElement {
+fn pet_claim_random_thumb(cx: &mut Context<WeCodeApp>) -> AnyElement {
     let accent = cx.theme().primary;
     div()
         .size(px(44.0))
@@ -426,7 +426,7 @@ fn pet_claim_preview(
     catalog_item: Option<&PetCatalogItem>,
     language: &str,
     sprite_frame: usize,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let sprite_path = pet_sprite_path(runtime_asset_root, support_dir, pet, custom_pets);
     let title = if random {
@@ -446,7 +446,7 @@ fn pet_claim_preview(
         pet_catalog_text(
             language,
             "pet.claim.random.description",
-            "Let Codux choose one companion for you.",
+            "Let WeCode choose one companion for you.",
         )
     } else {
         catalog_item

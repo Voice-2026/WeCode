@@ -5,7 +5,7 @@ part of '../home_page.dart';
 /// runtime reset, connect/reconnect, initial requests and envelope send.
 ///
 /// Split into a part + extension to keep the State class navigable; behaviour
-/// is unchanged. Rebuilds route through [_CoduxHomePageState._applyState]
+/// is unchanged. Rebuilds route through [_WeCodeHomePageState._applyState]
 /// (`setState` is `@protected` and cannot be called from an extension).
 extension _HomePageConnection on HomeController {
   void _startNetworkRouteRefresh() {
@@ -19,11 +19,11 @@ extension _HomePageConnection on HomeController {
     final lastRefresh = _lastTransportRefreshAt;
     if (lastRefresh != null &&
         now.difference(lastRefresh) < const Duration(seconds: 8)) {
-      CoduxLog.info('[codux-flutter-remote] refresh skipped reason=$reason');
+      WeCodeLog.info('[wecode-flutter-remote] refresh skipped reason=$reason');
       return;
     }
     _lastTransportRefreshAt = now;
-    CoduxLog.info('[codux-flutter-remote] refresh route reason=$reason');
+    WeCodeLog.info('[wecode-flutter-remote] refresh route reason=$reason');
     final transport = _activeTransport;
     if (!_transportConnected || transport == null) {
       _connect(device, true);
@@ -45,8 +45,8 @@ extension _HomePageConnection on HomeController {
     if (!_shouldReconnect || !_appInForeground) return;
     _connectionGraceTimer?.cancel();
     _connectionGraceUntil = DateTime.now().add(duration);
-    CoduxLog.info(
-      '[codux-flutter-remote] grace reason=$reason until=${_connectionGraceUntil!.toIso8601String()} transport=$_lastTransportState lastConnectedAt=${_lastConnectedAt?.toIso8601String() ?? 'null'}',
+    WeCodeLog.info(
+      '[wecode-flutter-remote] grace reason=$reason until=${_connectionGraceUntil!.toIso8601String()} transport=$_lastTransportState lastConnectedAt=${_lastConnectedAt?.toIso8601String() ?? 'null'}',
     );
     _connectionGraceTimer = Timer(duration, () {
       if (!mounted || _disposing) return;
@@ -55,7 +55,7 @@ extension _HomePageConnection on HomeController {
       _applyState(() {
         _connectionGraceUntil = null;
       });
-      CoduxLog.info('[codux-flutter-remote] grace expired reason=$reason');
+      WeCodeLog.info('[wecode-flutter-remote] grace expired reason=$reason');
     });
   }
 
@@ -81,8 +81,8 @@ extension _HomePageConnection on HomeController {
     if (!_transportConnected || device == null) return;
     if (!restart && _hostResponseTimer != null) return;
     _cancelHostResponseProbe();
-    CoduxLog.info(
-      '[codux-flutter-remote] host probe start reason=$reason timeoutMs=${duration.inMilliseconds}',
+    WeCodeLog.info(
+      '[wecode-flutter-remote] host probe start reason=$reason timeoutMs=${duration.inMilliseconds}',
     );
     _hostResponseTimer = Timer(duration, () {
       if (!mounted || _disposing || !_appInForeground) return;
@@ -149,7 +149,7 @@ extension _HomePageConnection on HomeController {
 
   void _markRemoteProtocolReady({bool force = false}) {
     if (!_remoteSyncController.markProtocolReady(force: force)) return;
-    CoduxLog.info('[codux-flutter-remote] protocol ready force=$force');
+    WeCodeLog.info('[wecode-flutter-remote] protocol ready force=$force');
     _sendInitialTransportRequests(force: force);
     _ensureTerminalForSelectedProject();
     _bindActiveTerminalAfterProtocolReady(reason: 'protocol-ready');
@@ -159,8 +159,8 @@ extension _HomePageConnection on HomeController {
 
   void _failRemoteProtocol(StoredDevice target, Object? payload) {
     final version = payload is Map ? '${payload['protocolVersion'] ?? ''}' : '';
-    CoduxLog.warn(
-      '[codux-flutter-remote] incompatible protocol expected=$_remoteProtocolVersion received=$version host=${target.hostId} device=${target.deviceId}',
+    WeCodeLog.warn(
+      '[wecode-flutter-remote] incompatible protocol expected=$_remoteProtocolVersion received=$version host=${target.hostId} device=${target.deviceId}',
     );
     _shouldReconnect = false;
     final shouldPrompt = _protocolBlockedHostIds.add(target.hostId);
@@ -220,7 +220,7 @@ extension _HomePageConnection on HomeController {
 
   void _requireRepairPairing(Object? payload) {
     final code = payload is Map ? '${payload['code'] ?? ''}' : '';
-    CoduxLog.warn('[codux-flutter-remote] authorization failed code=$code');
+    WeCodeLog.warn('[wecode-flutter-remote] authorization failed code=$code');
     _stopRemoteConnectionForAuthChange();
     _applyState(() {
       _transportReady = false;
@@ -256,7 +256,7 @@ extension _HomePageConnection on HomeController {
     _cancelHostResponseProbe();
     _markTransportConnected(transport ?? _deviceTransportKind(_activeDevice));
     if (!wasResponsive) {
-      CoduxLog.info('[codux-flutter-remote] host responsive source=$source');
+      WeCodeLog.info('[wecode-flutter-remote] host responsive source=$source');
     }
   }
 
@@ -331,8 +331,8 @@ extension _HomePageConnection on HomeController {
     final sentAt = _latencyProbeSentAt.remove(id);
     if (sentAt == null) return;
     final rtt = DateTime.now().difference(sentAt).inMilliseconds;
-    CoduxLog.debug(
-      '[codux-flutter-remote] app latency rtt=${rtt}ms path=$_connectionPath',
+    WeCodeLog.debug(
+      '[wecode-flutter-remote] app latency rtt=${rtt}ms path=$_connectionPath',
     );
     if (!mounted || _disposing || _latencyMs == rtt) return;
     _applyState(() => _latencyMs = rtt);
@@ -346,7 +346,7 @@ extension _HomePageConnection on HomeController {
     )) {
       return;
     }
-    CoduxLog.info('[codux-flutter-remote] request host.info');
+    WeCodeLog.info('[wecode-flutter-remote] request host.info');
     _send(
       RelayEnvelope(type: RemoteMessageType.hostInfo),
       onResult: (_, result) {
@@ -358,8 +358,8 @@ extension _HomePageConnection on HomeController {
   }
 
   void _failHostConnection(StoredDevice target, String reason) {
-    CoduxLog.warn(
-      '[codux-flutter-remote] host unavailable reason=$reason host=${target.hostId} device=${target.deviceId}',
+    WeCodeLog.warn(
+      '[wecode-flutter-remote] host unavailable reason=$reason host=${target.hostId} device=${target.deviceId}',
     );
     _remoteRuntimeEpoch += 1;
     _disconnectTransport(
@@ -368,8 +368,8 @@ extension _HomePageConnection on HomeController {
       notifyHost: false,
     );
     if (_appSuspended || !_appInForeground) {
-      CoduxLog.info(
-        '[codux-flutter-remote] reconnect deferred reason=$reason appSuspended=$_appSuspended',
+      WeCodeLog.info(
+        '[wecode-flutter-remote] reconnect deferred reason=$reason appSuspended=$_appSuspended',
       );
       return;
     }
@@ -409,7 +409,7 @@ extension _HomePageConnection on HomeController {
   }
 
   void _resetRemoteRuntimeAfterHostRestart(String reason) {
-    CoduxLog.info('[codux-flutter-remote] reset runtime reason=$reason');
+    WeCodeLog.info('[wecode-flutter-remote] reset runtime reason=$reason');
     _remoteRuntimeEpoch += 1;
     _cancelRemoteSyncTimers();
     _remoteSyncController.resetSyncForCurrentGeneration();
@@ -544,8 +544,8 @@ extension _HomePageConnection on HomeController {
         _activeDevice?.deviceId == target.deviceId &&
         _transportConnected &&
         _remoteProtocolReady) {
-      CoduxLog.info(
-        '[codux-flutter-remote] connect skipped reason=already-ready host=${target.hostId} device=${target.deviceId}',
+      WeCodeLog.info(
+        '[wecode-flutter-remote] connect skipped reason=already-ready host=${target.hostId} device=${target.deviceId}',
       );
       return;
     }
@@ -553,8 +553,8 @@ extension _HomePageConnection on HomeController {
         _connectInFlightKey == connectKey &&
         _transportConnected &&
         !_remoteProtocolReady) {
-      CoduxLog.info(
-        '[codux-flutter-remote] connect skipped reason=in-flight host=${target.hostId} device=${target.deviceId}',
+      WeCodeLog.info(
+        '[wecode-flutter-remote] connect skipped reason=in-flight host=${target.hostId} device=${target.deviceId}',
       );
       return;
     }
@@ -581,8 +581,8 @@ extension _HomePageConnection on HomeController {
       _terminalOutputController.resetAll();
       _terminalRepaint.tick();
     }
-    CoduxLog.info(
-      '[codux-flutter-remote] connect start gen=$generation background=$background host=${target.hostId} device=${target.deviceId} transport=${_deviceTransportKind(target)} relay=${_savedDeviceRelayEndpoint(target)}',
+    WeCodeLog.info(
+      '[wecode-flutter-remote] connect start gen=$generation background=$background host=${target.hostId} device=${target.deviceId} transport=${_deviceTransportKind(target)} relay=${_savedDeviceRelayEndpoint(target)}',
     );
     _cancelHostResponseProbe();
     _reconnectTimer?.cancel();
@@ -628,8 +628,8 @@ extension _HomePageConnection on HomeController {
       ..onState = (rawState) {
         if (generation != _transportGeneration ||
             !identical(_activeTransport, transport)) {
-          CoduxLog.debug(
-            '[codux-flutter-remote] drop stale transport state gen=$generation current=$_transportGeneration state=$rawState',
+          WeCodeLog.debug(
+            '[wecode-flutter-remote] drop stale transport state gen=$generation current=$_transportGeneration state=$rawState',
           );
           return;
         }
@@ -638,8 +638,8 @@ extension _HomePageConnection on HomeController {
       ..onEnvelope = (envelope, raw) {
         if (generation != _transportGeneration ||
             !identical(_activeTransport, transport)) {
-          CoduxLog.debug(
-            '[codux-flutter-remote] drop stale transport envelope gen=$generation current=$_transportGeneration type=${envelope['type'] ?? ''}',
+          WeCodeLog.debug(
+            '[wecode-flutter-remote] drop stale transport envelope gen=$generation current=$_transportGeneration type=${envelope['type'] ?? ''}',
           );
           return;
         }
@@ -651,8 +651,8 @@ extension _HomePageConnection on HomeController {
       };
     _activeTransport = transport;
     transport.connect(target).catchError((Object error) {
-      CoduxLog.warn(
-        '[codux-flutter-remote] connect failed gen=$generation error=$error',
+      WeCodeLog.warn(
+        '[wecode-flutter-remote] connect failed gen=$generation error=$error',
       );
       if (generation != _transportGeneration) return;
       _connectInFlight = false;
@@ -665,7 +665,7 @@ extension _HomePageConnection on HomeController {
     _healthTimer = Timer(const Duration(seconds: 16), () {
       if (generation != _transportGeneration) return;
       if (!_transportConnected) {
-        CoduxLog.warn('[codux-flutter-remote] connect timeout gen=$generation');
+        WeCodeLog.warn('[wecode-flutter-remote] connect timeout gen=$generation');
         _connectInFlight = false;
         _connectInFlightKey = null;
         if (!_backgroundConnect && mounted) {
@@ -686,8 +686,8 @@ extension _HomePageConnection on HomeController {
         30000,
       ),
     );
-    CoduxLog.info(
-      '[codux-flutter-remote] reconnect scheduled host=${target.hostId} device=${target.deviceId} attempt=$_reconnectAttempt delayMs=${delay.inMilliseconds}',
+    WeCodeLog.info(
+      '[wecode-flutter-remote] reconnect scheduled host=${target.hostId} device=${target.deviceId} attempt=$_reconnectAttempt delayMs=${delay.inMilliseconds}',
     );
     _reconnectTimer = Timer(delay, () => _connect(target, true));
   }
@@ -704,7 +704,7 @@ extension _HomePageConnection on HomeController {
     if (plan.resetTerminalBufferRetry) {
       _terminalBufferRetry.reset();
     }
-    CoduxLog.info('[codux-flutter-remote] request initial sync force=$force');
+    WeCodeLog.info('[wecode-flutter-remote] request initial sync force=$force');
     if (plan.sendDeviceInfo) {
       _sendDeviceInfo(force: force);
     }
@@ -743,20 +743,20 @@ extension _HomePageConnection on HomeController {
   }) {
     if (!_transportConnected) {
       _applyState(() => _status = _t('app.remoteNotConnected'));
-      CoduxLog.warn(
-        '[codux-flutter-remote] drop type=${message.type} reason=not_ready',
+      WeCodeLog.warn(
+        '[wecode-flutter-remote] drop type=${message.type} reason=not_ready',
       );
       return false;
     }
     final transport = _activeTransport;
     if (transport == null) {
-      CoduxLog.warn(
-        '[codux-flutter-remote] drop type=${message.type} reason=no_transport',
+      WeCodeLog.warn(
+        '[wecode-flutter-remote] drop type=${message.type} reason=no_transport',
       );
       return false;
     }
-    CoduxLog.debug(
-      '[codux-flutter-remote] send type=${message.type} session=${message.sessionId ?? ''}',
+    WeCodeLog.debug(
+      '[wecode-flutter-remote] send type=${message.type} session=${message.sessionId ?? ''}',
     );
     unawaited(
       _sendQueue.send(
@@ -769,8 +769,8 @@ extension _HomePageConnection on HomeController {
           if (sentMessage.type == RemoteMessageType.hostInfo ||
               sentMessage.type == RemoteMessageType.projectSelect ||
               result != RemoteEnvelopeSendResult.delivered) {
-            CoduxLog.info(
-              '[codux-flutter-remote] send result type=${sentMessage.type} session=${sentMessage.sessionId ?? ''} result=${result.name} connected=$_transportConnected ready=$_transportReady path=$_connectionPath',
+            WeCodeLog.info(
+              '[wecode-flutter-remote] send result type=${sentMessage.type} session=${sentMessage.sessionId ?? ''} result=${result.name} connected=$_transportConnected ready=$_transportReady path=$_connectionPath',
             );
           }
           if (result == RemoteEnvelopeSendResult.rejected) {
@@ -779,7 +779,7 @@ extension _HomePageConnection on HomeController {
           onResult?.call(sentMessage, result);
         },
         onError: (error) {
-          CoduxLog.error('[codux-flutter-remote] send failed: $error');
+          WeCodeLog.error('[wecode-flutter-remote] send failed: $error');
         },
       ),
     );
@@ -807,7 +807,7 @@ extension _HomePageConnection on HomeController {
   }
 
   bool _isTerminalStreamEnvelope(RelayEnvelope message) {
-    // The host classifies the terminal-stream lane through `codux-protocol`;
+    // The host classifies the terminal-stream lane through `wecode-protocol`;
     // route the controller through the same FFI predicate so neither end keeps
     // its own copy of the message-class list (and they can never disagree on
     // which frames take the low-latency stream path).

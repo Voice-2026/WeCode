@@ -6,14 +6,14 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-process.env.CODUX_PACKAGE_GPUI_TEST_MODE = "true";
+process.env.WECODE_PACKAGE_GPUI_TEST_MODE = "true";
 process.env.RELEASE_STAGE_DIR = "target/release-package-test";
 
 const { __testPackageWindows, __testStageRuntimeAssets, __testWindowsNsisScript } = await import("./package-gpui.mjs");
 
 const script = __testWindowsNsisScript(
-  path.join("C:", "tmp", "Codux"),
-  path.join("C:", "tmp", "codux-setup.exe"),
+  path.join("C:", "tmp", "WeCode"),
+  path.join("C:", "tmp", "wecode-setup.exe"),
 );
 
 assert.match(script, /!include MUI2\.nsh/);
@@ -25,17 +25,17 @@ assert.match(script, /!insertmacro MUI_LANGUAGE "SimpChinese"/);
 assert.match(script, /MUI_HEADERIMAGE_BITMAP/);
 assert.doesNotMatch(script, /MUI_PAGE_WELCOME/);
 assert.doesNotMatch(script, /Page custom/);
-assert.match(script, /Function EnsureCoduxCanBeUpdated/);
-assert.match(script, /Codux is still running or the executable is locked/);
-assert.match(script, /CreateShortcut "\$DESKTOP\\Codux\.lnk"/);
-assert.match(script, /CreateShortcut "\$SMPROGRAMS\\Codux\\Codux\.lnk"/);
-assert.match(script, /Uninstall\\Codux"$/m);
+assert.match(script, /Function EnsureWeCodeCanBeUpdated/);
+assert.match(script, /WeCode is still running or the executable is locked/);
+assert.match(script, /CreateShortcut "\$DESKTOP\\WeCode\.lnk"/);
+assert.match(script, /CreateShortcut "\$SMPROGRAMS\\WeCode\\WeCode\.lnk"/);
+assert.match(script, /Uninstall\\WeCode"$/m);
 assert.match(script, /"UninstallString"/);
-assert.match(script, /Exec '"\$INSTDIR\\Codux\.exe"'/);
+assert.match(script, /Exec '"\$INSTDIR\\WeCode\.exe"'/);
 assert.match(script, /RMDir \/r "\$INSTDIR\\Data"/);
 assert.match(script, /\/SD IDNO/);
 
-const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "codux-package-runtime-"));
+const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "wecode-package-runtime-"));
 try {
   const runtimeRoot = path.join(tempDir, "runtime-root");
   __testStageRuntimeAssets(runtimeRoot);
@@ -47,13 +47,13 @@ try {
     "scripts/shell-hooks/zsh/.zshrc",
     "scripts/wrappers/tool-wrapper.sh",
     "scripts/wrappers/dmux-ai-state.sh",
-    "scripts/wrappers/codux-ssh.ps1",
-    "scripts/wrappers/codux-db.ps1",
+    "scripts/wrappers/wecode-ssh.ps1",
+    "scripts/wrappers/wecode-db.ps1",
     "scripts/wrappers/bin/codex",
-    "scripts/wrappers/bin/codux-ssh",
-    "scripts/wrappers/bin/codux-ssh.ps1",
-    "scripts/wrappers/bin/codux-db",
-    "scripts/wrappers/bin/codux-db.ps1",
+    "scripts/wrappers/bin/wecode-ssh",
+    "scripts/wrappers/bin/wecode-ssh.ps1",
+    "scripts/wrappers/bin/wecode-db",
+    "scripts/wrappers/bin/wecode-db.ps1",
   ]) {
     assert.equal(fs.existsSync(path.join(runtimeRoot, relativePath)), true, `${relativePath} should be packaged`);
   }
@@ -65,24 +65,24 @@ try {
 console.log("package-gpui installer test passed");
 
 if (process.platform === "win32") {
-  const binaryDir = fs.mkdtempSync(path.join(os.tmpdir(), "codux-package-binaries-"));
-  const packageDir = fs.mkdtempSync(path.join(os.tmpdir(), "codux-package-output-"));
+  const binaryDir = fs.mkdtempSync(path.join(os.tmpdir(), "wecode-package-binaries-"));
+  const packageDir = fs.mkdtempSync(path.join(os.tmpdir(), "wecode-package-output-"));
   try {
-    fs.writeFileSync(path.join(binaryDir, "codux.exe"), "gui");
-    fs.writeFileSync(path.join(binaryDir, "codux-wrapper-helper.exe"), "console-helper");
-    const oldBinaryDir = process.env.CODUX_RELEASE_BINARY_DIR;
-    const oldTestPackageDir = process.env.CODUX_TEST_PACKAGE_DIR;
-    const oldSkipMakensis = process.env.CODUX_TEST_SKIP_MAKENSIS;
-    process.env.CODUX_RELEASE_BINARY_DIR = binaryDir;
-    process.env.CODUX_TEST_PACKAGE_DIR = packageDir;
-    process.env.CODUX_TEST_SKIP_MAKENSIS = "true";
+    fs.writeFileSync(path.join(binaryDir, "wecode.exe"), "gui");
+    fs.writeFileSync(path.join(binaryDir, "wecode-wrapper-helper.exe"), "console-helper");
+    const oldBinaryDir = process.env.WECODE_RELEASE_BINARY_DIR;
+    const oldTestPackageDir = process.env.WECODE_TEST_PACKAGE_DIR;
+    const oldSkipMakensis = process.env.WECODE_TEST_SKIP_MAKENSIS;
+    process.env.WECODE_RELEASE_BINARY_DIR = binaryDir;
+    process.env.WECODE_TEST_PACKAGE_DIR = packageDir;
+    process.env.WECODE_TEST_SKIP_MAKENSIS = "true";
     __testPackageWindows();
-    process.env.CODUX_RELEASE_BINARY_DIR = oldBinaryDir;
-    process.env.CODUX_TEST_PACKAGE_DIR = oldTestPackageDir;
-    process.env.CODUX_TEST_SKIP_MAKENSIS = oldSkipMakensis;
+    process.env.WECODE_RELEASE_BINARY_DIR = oldBinaryDir;
+    process.env.WECODE_TEST_PACKAGE_DIR = oldTestPackageDir;
+    process.env.WECODE_TEST_SKIP_MAKENSIS = oldSkipMakensis;
 
     assert.equal(
-      fs.readFileSync(path.join(packageDir, "runtime-root", "scripts", "wrappers", "codux-wrapper-helper.exe"), "utf8"),
+      fs.readFileSync(path.join(packageDir, "runtime-root", "scripts", "wrappers", "wecode-wrapper-helper.exe"), "utf8"),
       "console-helper",
       "Windows package should include the console wrapper helper",
     );

@@ -1,6 +1,6 @@
 use super::*;
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(super) fn set_terminal_font_family(
         &mut self,
         family: String,
@@ -213,7 +213,7 @@ impl CoduxApp {
         self.normalize_selected_ai_provider();
         self.normalize_selected_notification_channel();
         self.normalize_selected_remote_device();
-        cx.set_menus(native_menu::codux_menus(&self.state.settings.language));
+        cx.set_menus(native_menu::wecode_menus(&self.state.settings.language));
         theme::apply_component_theme(
             &self.state.settings.theme,
             &self.state.settings.theme_color,
@@ -266,14 +266,14 @@ impl CoduxApp {
         action: &'static str,
         status: &'static str,
         save: impl FnOnce(RuntimeService) -> Result<SettingsSummary, String> + Send + 'static,
-        apply: impl FnOnce(&mut CoduxApp, SettingsSummary, &mut Context<CoduxApp>) + 'static,
+        apply: impl FnOnce(&mut WeCodeApp, SettingsSummary, &mut Context<WeCodeApp>) + 'static,
         cx: &mut Context<Self>,
     ) {
         let service = self.runtime_service.clone();
         self.runtime_trace("settings", &format!("{action} queued"));
         self.status_message = status.to_string();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let result = codux_runtime::async_runtime::run_limited_blocking(move || {
+            let result = wecode_runtime::async_runtime::run_limited_blocking(move || {
                 service.runtime_trace_frontend("settings", &format!("{action} start"));
                 let result = save(service.clone());
                 match &result {
@@ -304,14 +304,14 @@ impl CoduxApp {
         action: &'static str,
         status: &'static str,
         task: impl FnOnce(RuntimeService) -> Result<T, String> + Send + 'static,
-        apply: impl FnOnce(&mut CoduxApp, T, &mut Context<CoduxApp>) + 'static,
+        apply: impl FnOnce(&mut WeCodeApp, T, &mut Context<WeCodeApp>) + 'static,
         cx: &mut Context<Self>,
     ) {
         let service = self.runtime_service.clone();
         self.runtime_trace("settings", &format!("{action} queued"));
         self.status_message = status.to_string();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let result = codux_runtime::async_runtime::run_limited_blocking(move || {
+            let result = wecode_runtime::async_runtime::run_limited_blocking(move || {
                 service.runtime_trace_frontend("settings", &format!("{action} start"));
                 let result = task(service.clone());
                 match &result {
@@ -592,7 +592,7 @@ impl CoduxApp {
         self.runtime_trace("settings", &format!("set_theme queued value={theme}"));
         self.status_message = "saving theme".to_string();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let result = codux_runtime::async_runtime::run_limited_blocking(move || {
+            let result = wecode_runtime::async_runtime::run_limited_blocking(move || {
                 service
                     .runtime_trace_frontend("settings", &format!("set_theme start value={theme}"));
                 let result = service.set_theme(&theme);
@@ -654,7 +654,7 @@ impl CoduxApp {
         );
         self.status_message = "saving theme color".to_string();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let result = codux_runtime::async_runtime::run_limited_blocking(move || {
+            let result = wecode_runtime::async_runtime::run_limited_blocking(move || {
                 service.runtime_trace_frontend(
                     "settings",
                     &format!("set_theme_color start value={theme_color}"),
@@ -717,7 +717,7 @@ impl CoduxApp {
             move |service| service.set_icon_style(&icon_style),
             |app, settings, cx| {
                 app.apply_async_settings_summary(settings);
-                let _ = codux_runtime::app_icon::apply_app_icon(&app.state.settings.icon_style);
+                let _ = wecode_runtime::app_icon::apply_app_icon(&app.state.settings.icon_style);
                 app.status_message = format!("icon style saved: {}", app.state.settings.icon_style);
                 app.invalidate_ui_region(cx, UiRegion::Root);
             },
@@ -844,7 +844,7 @@ impl CoduxApp {
                 let settings = service.toggle_developer_hud()?;
                 let performance = settings
                     .developer_hud
-                    .then(codux_runtime::performance::PerformanceService::summary);
+                    .then(wecode_runtime::performance::PerformanceService::summary);
                 Ok((settings, performance))
             },
             |app, (settings, performance), cx| {
@@ -1476,7 +1476,7 @@ impl CoduxApp {
         self.status_message = "notification test started".to_string();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             let worker_channel_id = channel_id.clone();
-            let result = codux_runtime::async_runtime::spawn_blocking(move || {
+            let result = wecode_runtime::async_runtime::spawn_blocking(move || {
                 service.test_notification_channel(&worker_channel_id)
             })
             .await
@@ -1494,7 +1494,7 @@ impl CoduxApp {
     pub(super) fn apply_notification_test_result(
         &mut self,
         channel_id: String,
-        result: Result<codux_runtime::notification::NotificationDispatchResult, String>,
+        result: Result<wecode_runtime::notification::NotificationDispatchResult, String>,
         cx: &mut Context<Self>,
     ) {
         if self.notification_testing_channel_id.as_deref() == Some(channel_id.as_str()) {
@@ -1774,7 +1774,7 @@ impl CoduxApp {
         self.status_message = "AI provider test started".to_string();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             let worker_provider_id = provider_id.clone();
-            let result = codux_runtime::async_runtime::spawn_blocking(move || {
+            let result = wecode_runtime::async_runtime::spawn_blocking(move || {
                 service.test_ai_provider(&worker_provider_id)
             })
             .await
@@ -1792,7 +1792,7 @@ impl CoduxApp {
     pub(super) fn apply_ai_provider_test_result(
         &mut self,
         provider_id: String,
-        result: Result<codux_runtime::llm::LLMProviderTestResult, String>,
+        result: Result<wecode_runtime::llm::LLMProviderTestResult, String>,
         cx: &mut Context<Self>,
     ) {
         if self.ai_provider_testing_id.as_deref() == Some(provider_id.as_str()) {

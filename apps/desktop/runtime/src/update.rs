@@ -430,14 +430,14 @@ mod tests {
     #[test]
     fn status_from_settings_reads_local_manifest_endpoint() {
         let dir = std::env::temp_dir().join(format!(
-            "codux-runtime-update-test-{}",
+            "wecode-runtime-update-test-{}",
             uuid::Uuid::new_v4()
         ));
         fs::create_dir_all(&dir).unwrap();
         let manifest_path = dir.join("latest.json");
         fs::write(
             &manifest_path,
-            r#"{"version":"1.2.0","downloadUrl":"https://example.com/codux","notes":"new build"}"#,
+            r#"{"version":"1.2.0","downloadUrl":"https://example.com/wecode","notes":"new build"}"#,
         )
         .unwrap();
 
@@ -453,7 +453,7 @@ mod tests {
         assert_eq!(status.latest_version.as_deref(), Some("1.2.0"));
         assert_eq!(
             status.download_url.as_deref(),
-            Some("https://example.com/codux")
+            Some("https://example.com/wecode")
         );
         assert_eq!(status.download_checksum, None);
         assert_eq!(status.installation_mode, "manualManifest");
@@ -464,7 +464,7 @@ mod tests {
     #[test]
     fn settings_summary_does_not_load_manifest() {
         let dir = std::env::temp_dir().join(format!(
-            "codux-runtime-update-settings-test-{}",
+            "wecode-runtime-update-settings-test-{}",
             uuid::Uuid::new_v4()
         ));
         fs::create_dir_all(&dir).unwrap();
@@ -504,7 +504,7 @@ mod tests {
                 "version": "1.2.0",
                 "platforms": {
                     platform_keys_for_current_target().first().copied().unwrap_or("unknown"): {
-                        "url": "https://example.com/codux-platform",
+                        "url": "https://example.com/wecode-platform",
                         "checksum": "abc"
                     }
                 }
@@ -515,7 +515,7 @@ mod tests {
         if !platform_keys_for_current_target().is_empty() {
             assert_eq!(
                 status.download_url.as_deref(),
-                Some("https://example.com/codux-platform")
+                Some("https://example.com/wecode-platform")
             );
             assert_eq!(status.download_checksum.as_deref(), Some("abc"));
         }
@@ -533,11 +533,11 @@ mod tests {
             "stable".to_string(),
             serde_json::json!({
                 "version": "1.2.0",
-                "downloadUrl": "https://example.com/codux-manual.dmg",
+                "downloadUrl": "https://example.com/wecode-manual.dmg",
                 "checksum": "manual-checksum",
                 "platforms": {
                     platform_key: {
-                        "url": "https://example.com/codux-platform.app.zip",
+                        "url": "https://example.com/wecode-platform.app.zip",
                         "checksum": "platform-checksum"
                     }
                 }
@@ -547,7 +547,7 @@ mod tests {
         if !platform_keys_for_current_target().is_empty() {
             assert_eq!(
                 status.download_url.as_deref(),
-                Some("https://example.com/codux-platform.app.zip")
+                Some("https://example.com/wecode-platform.app.zip")
             );
             assert_eq!(
                 status.download_checksum.as_deref(),
@@ -563,9 +563,9 @@ mod tests {
             .copied()
             .unwrap_or("unknown");
         let download_url = if cfg!(target_os = "windows") {
-            "https://example.com/Codux-setup.exe"
+            "https://example.com/WeCode-setup.exe"
         } else {
-            "https://example.com/Codux.app.tar.gz"
+            "https://example.com/WeCode.app.tar.gz"
         };
         let status = update_status_from_manifest(
             "1.0.0",
@@ -595,9 +595,9 @@ mod tests {
             .copied()
             .unwrap_or("unknown");
         let download_url = if cfg!(target_os = "windows") {
-            "https://example.com/Codux-setup.exe"
+            "https://example.com/WeCode-setup.exe"
         } else {
-            "https://example.com/Codux.app.tar.gz"
+            "https://example.com/WeCode.app.tar.gz"
         };
         let status = update_status_from_manifest(
             "1.0.0",

@@ -1,8 +1,8 @@
 ## Context
 
-Codux already decodes AI agent hook events into `RuntimeEventItem` (tool, kind, state ∈ {running, needs-input, completed}, project_name, terminal_id, session_title, updated_at, modified_at) via `RuntimeEventService` in `apps/desktop/runtime/src/runtime_event.rs`. The active `add-agent-lifecycle-fsm` change adds per-pane lifecycle state for overlay rendering. What is missing is an **aggregate, reviewable, jump-from** surface — a notification feed.
+WeCode already decodes AI agent hook events into `RuntimeEventItem` (tool, kind, state ∈ {running, needs-input, completed}, project_name, terminal_id, session_title, updated_at, modified_at) via `RuntimeEventService` in `apps/desktop/runtime/src/runtime_event.rs`. The active `add-agent-lifecycle-fsm` change adds per-pane lifecycle state for overlay rendering. What is missing is an **aggregate, reviewable, jump-from** surface — a notification feed.
 
-The sibling project cmux implements this as a Feed panel (`Sources/Feed/`). Its transferable architectural decisions (informed by their `FeedEventClassifier`, `WorkstreamStore`, `FeedRowActions`, and `FeedJumpResolver`) are adapted below to Codux's GPUI + Rust stack. The key simplification: cmux needs a sidecar JSON file to resolve a `workstreamId` to a workspace/surface because AppKit decouples the Feed from the TerminalController. Codux does not — GPUI has direct access to `set_active_terminal_runtime_id(terminal_id)`, so the jump is a single method call with no indirection.
+The sibling project cmux implements this as a Feed panel (`Sources/Feed/`). Its transferable architectural decisions (informed by their `FeedEventClassifier`, `WorkstreamStore`, `FeedRowActions`, and `FeedJumpResolver`) are adapted below to WeCode's GPUI + Rust stack. The key simplification: cmux needs a sidecar JSON file to resolve a `workstreamId` to a workspace/surface because AppKit decouples the Feed from the TerminalController. WeCode does not — GPUI has direct access to `set_active_terminal_runtime_id(terminal_id)`, so the jump is a single method call with no indirection.
 
 The user has specified the UX: a bell button in the toolbar (above/adjacent to the settings gear) that opens a popup, NOT a sidebar panel.
 
@@ -13,10 +13,10 @@ The user has specified the UX: a bell button in the toolbar (above/adjacent to t
   - Unread badge on a toolbar bell drawing attention to actionable items
   - One-click jump from a notification row to the owning terminal pane
   - Typed classifier as single source of truth (prevents "is this noise?" bugs)
-  - Follows existing Codux patterns: `app_events.rs` revision counters, `dropdown_menu` popup, snapshot-diff re-render
+  - Follows existing WeCode patterns: `app_events.rs` revision counters, `dropdown_menu` popup, snapshot-diff re-render
 - Non-Goals:
   - OS-level notification banners (the existing `notification/` module handles outbound push; native banners are out of scope)
-  - Blocking/interactive approval cards inside the popup (cmux's permission/plan/question cards) — Codux agents are non-blocking in this layer; the popup is review + jump only
+  - Blocking/interactive approval cards inside the popup (cmux's permission/plan/question cards) — WeCode agents are non-blocking in this layer; the popup is review + jump only
   - JSONL persistence / paged history (in-memory only for v1; the event dir already persists raw events and the store rebuilds on startup)
   - Custom rich popover panel (v1 uses `PopupMenu` / `dropdown_menu`; a bespoke panel is a future enhancement if the menu proves too constrained)
 
@@ -35,7 +35,7 @@ The store is a `VecDeque<NotificationItem>` with capacity 500. On startup it see
 - Alternatives considered: JSONL append log like cmux's `WorkstreamPersistence` (rejected for v1 — adds a file-format surface and paging UI that the popup doesn't need yet; the event dir is already the durable source).
 
 ### D3: Jump = direct method call, no sidecar indirection
-Each `NotificationItem` carries `terminal_id`. Row click calls `set_active_terminal_runtime_id(Some(item.terminal_id))` (existing method on `CoduxApp` at `terminal_worktree_actions.rs:2052`), then marks the item `Read`.
+Each `NotificationItem` carries `terminal_id`. Row click calls `set_active_terminal_runtime_id(Some(item.terminal_id))` (existing method on `WeCodeApp` at `terminal_worktree_actions.rs:2052`), then marks the item `Read`.
 
 - Decision: direct pane focus via existing primitive.
 - Alternatives considered: cmux's sidecar-JSON resolver pattern (rejected — that pattern exists to bridge AppKit/Controller isolation; GPUI has no such gap).
@@ -56,7 +56,7 @@ Add `NotificationFeedUpdateEvent { revision: u64 }` to `app_events.rs` using the
 When the polling loop decodes an event whose `state` has moved past `needs-input` or `completed` for a given `terminal_id` (i.e., a later event shows `running` again, or the session disappears from the summary), existing `Actionable`/`Completed` items for that terminal are marked `Resolved`. Resolved items stay in the popup list (for review) but drop out of the unread badge.
 
 - Decision: derive resolve from subsequent events, no timers.
-- Alternatives considered: timer-based expiry like cmux's kqueue PID watcher (rejected — Codux doesn't fork agent processes the same way; the event stream itself signals state changes).
+- Alternatives considered: timer-based expiry like cmux's kqueue PID watcher (rejected — WeCode doesn't fork agent processes the same way; the event stream itself signals state changes).
 
 ## Risks / Trade-offs
 

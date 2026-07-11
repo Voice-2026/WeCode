@@ -7,7 +7,7 @@ tool_name="$1"
 shift
 wrapper_dir="$(cd "$(dirname "$0")" && pwd)"
 wrapper_bin_dir="${wrapper_dir}/bin"
-wrapper_helper="${wrapper_dir}/codux-wrapper-helper"
+wrapper_helper="${wrapper_dir}/wecode-wrapper-helper"
 current_path="${PATH:-}"
 orig_path="${DMUX_ORIGINAL_PATH:-}"
 search_path=""
@@ -180,7 +180,7 @@ wrapper_helper_available() {
 
 run_wrapper_helper() {
   wrapper_helper_available || return 1
-  "${wrapper_helper}" --codux-wrapper-helper "$@" 2>/dev/null
+  "${wrapper_helper}" --wecode-wrapper-helper "$@" 2>/dev/null
 }
 
 json_string_key_fallback() {
@@ -601,7 +601,7 @@ run_wrapped_command() {
     if [[ -f "${opencode_state_path}" ]]; then
       local resolved_state
       if wrapper_helper_available; then
-        resolved_state="$(OPENCODE_STATE_PATH="${opencode_state_path}" "${wrapper_helper}" --codux-wrapper-helper opencode-session-state)"
+        resolved_state="$(OPENCODE_STATE_PATH="${opencode_state_path}" "${wrapper_helper}" --wecode-wrapper-helper opencode-session-state)"
       else
         resolved_state=""
       fi

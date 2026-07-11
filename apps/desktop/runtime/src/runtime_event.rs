@@ -237,7 +237,7 @@ mod tests {
     #[test]
     fn summary_decodes_ai_hook_and_opencode_runtime_events() {
         let dir =
-            std::env::temp_dir().join(format!("codux-gpui-runtime-events-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("wecode-gpui-runtime-events-{}", Uuid::new_v4()));
         fs::create_dir_all(&dir).unwrap();
         fs::write(
             dir.join("hook.json"),
@@ -247,7 +247,7 @@ mod tests {
                 "kind": "promptSubmitted",
                 "terminalID": "term-1",
                 "projectID": "project-1",
-                "projectName": "Codux",
+                "projectName": "WeCode",
                 "sessionTitle": "Build",
                 "tool": "codex",
                 "updatedAt": 10
@@ -262,7 +262,7 @@ mod tests {
               "payload": {
                 "sessionId": "term-2",
                 "projectId": "project-1",
-                "projectName": "Codux",
+                "projectName": "WeCode",
                 "sessionTitle": "Review",
                 "tool": "opencode",
                 "status": "completed",

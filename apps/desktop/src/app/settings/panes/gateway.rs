@@ -1,6 +1,6 @@
 use super::widgets::*;
 use super::*;
-use codux_runtime::gateway_service::{
+use wecode_runtime::gateway_service::{
     CredentialSource, GatewayRuntimeStatus, GatewayService, GatewaySettings,
 };
 
@@ -9,7 +9,7 @@ pub(super) fn settings_gateway_pane(
     _gateway_service: &GatewayService,
     language: &str,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     let config = &settings.config;
     let status = gateway_status(settings.enabled, GatewayService::global_status(), language);
@@ -18,7 +18,7 @@ pub(super) fn settings_gateway_pane(
             Some(settings_text(
                 language,
                 "settings.gateway.section.service",
-                "Codux Gateway",
+                "WeCode Gateway",
             )),
             Some(settings_text(
                 language,
@@ -207,7 +207,7 @@ fn credential_rows(
     settings: &GatewaySettings,
     language: &str,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> Vec<AnyElement> {
     let source_value = credential_source_value(&settings.config.credentials);
     let mut rows = vec![

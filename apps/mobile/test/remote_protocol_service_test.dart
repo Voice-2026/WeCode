@@ -1,6 +1,6 @@
 import 'dart:convert';
-import 'package:codux_flutter/models/remote_models.dart';
-import 'package:codux_flutter/services/remote_protocol_service.dart';
+import 'package:wecode_flutter/models/remote_models.dart';
+import 'package:wecode_flutter/services/remote_protocol_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -303,7 +303,7 @@ Map<String, dynamic> irohCandidate({
 String embeddedPairingQr(Map<String, dynamic> payload) {
   final encoded = base64Url.encode(utf8.encode(jsonEncode(payload)));
   return Uri(
-    scheme: 'codux',
+    scheme: 'wecode',
     host: 'pair',
     queryParameters: {'payload': encoded},
   ).toString();

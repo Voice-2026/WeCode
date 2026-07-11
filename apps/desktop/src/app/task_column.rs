@@ -6,8 +6,8 @@ use gpui_component::{
 
 use super::agent_display::{agent_lifecycle_color, agent_lifecycle_status_dot, spin_icon};
 use super::ai_runtime_status::AgentLifecycleState;
-use super::scroll_compat::codux_uniform_list_with_sizing;
-use super::ui_helpers::{codux_tooltip_container, titlebar_drag_area};
+use super::scroll_compat::wecode_uniform_list_with_sizing;
+use super::ui_helpers::{titlebar_drag_area, wecode_tooltip_container};
 use super::{
     formatting::{relative_time_label_for_language, usage_amount_label},
     *,
@@ -15,7 +15,7 @@ use super::{
 use gpui::ListSizingBehavior;
 
 pub(in crate::app) struct TaskColumnView {
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     header_view: gpui::Entity<TaskColumnHeaderView>,
     worktree_list_view: gpui::Entity<TaskWorktreeListView>,
     branch_list_view: gpui::Entity<TaskBranchListView>,
@@ -77,7 +77,7 @@ struct TaskSessionRow {
     last_model: Option<String>,
     last_seen_at: f64,
     total_tokens: i64,
-    usage_amounts: Vec<codux_runtime::ai_history::AIUsageAmount>,
+    usage_amounts: Vec<wecode_runtime::ai_history::AIUsageAmount>,
     active: bool,
     pinned: bool,
 }
@@ -104,7 +104,7 @@ impl Render for TaskColumnView {
     }
 }
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn task_column_view(
         &mut self,
         cx: &mut Context<Self>,
@@ -202,6 +202,7 @@ struct TaskColumnLabels {
     cancel: String,
     close_terminal_title: String,
     close_terminal_message_format: String,
+    new_terminal: String,
     new_session: String,
     open_folder: String,
     merge: String,
@@ -243,6 +244,7 @@ fn task_column_labels(language: &str) -> TaskColumnLabels {
         cancel: tr("common.cancel", "Cancel"),
         close_terminal_title: tr("terminal.close.title", "Close Terminal"),
         close_terminal_message_format: tr("terminal.close.message_format", "Close %@?"),
+        new_terminal: tr("terminal.new", "New Terminal"),
         new_session: tr("ai.sessions.new_session", "New Session"),
         open_folder: tr("worktree.menu.open_folder", "Open Folder"),
         merge: tr("worktree.menu.merge", "Merge to Mainline"),
@@ -261,7 +263,7 @@ fn task_column_labels(language: &str) -> TaskColumnLabels {
 fn task_session_row(
     session: &AISessionSummary,
     active_ai_session_id: Option<&str>,
-    metadata: Option<&codux_runtime::ai_session_metadata::AISessionMetadata>,
+    metadata: Option<&wecode_runtime::ai_session_metadata::AISessionMetadata>,
 ) -> TaskSessionRow {
     TaskSessionRow {
         id: session.id.clone(),
@@ -312,7 +314,7 @@ pub(in crate::app) struct TaskColumnHeaderSnapshot {
 }
 
 pub(in crate::app) struct TaskColumnHeaderView {
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     snapshot: TaskColumnHeaderSnapshot,
 }
 
@@ -349,7 +351,7 @@ pub(in crate::app) struct TaskWorktreeListSnapshot {
 }
 
 pub(in crate::app) struct TaskWorktreeListView {
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     snapshot: TaskWorktreeListSnapshot,
     scroll_handle: UniformListScrollHandle,
 }
@@ -390,7 +392,7 @@ pub(in crate::app) struct TaskBranchListSnapshot {
 }
 
 pub(in crate::app) struct TaskBranchListView {
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     snapshot: TaskBranchListSnapshot,
     scroll_handle: UniformListScrollHandle,
 }
@@ -433,6 +435,12 @@ struct TaskTerminalRow {
     collapsed_index: Option<usize>,
 }
 
+#[derive(Clone)]
+enum TaskTerminalListItem {
+    Terminal(TaskTerminalRow),
+    Create,
+}
+
 #[derive(Clone, PartialEq)]
 pub(in crate::app) struct TaskTerminalListSnapshot {
     labels: TaskColumnLabels,
@@ -440,7 +448,7 @@ pub(in crate::app) struct TaskTerminalListSnapshot {
 }
 
 pub(in crate::app) struct TaskTerminalListView {
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     snapshot: TaskTerminalListSnapshot,
     scroll_handle: UniformListScrollHandle,
 }
@@ -451,7 +459,7 @@ impl TaskTerminalListView {
             return;
         }
         if self.snapshot.terminals.len() != snapshot.terminals.len() {
-            codux_runtime::runtime_trace::runtime_trace(
+            wecode_runtime::runtime_trace::runtime_trace(
                 "task-terminal-list",
                 &format!("rows={}", snapshot.terminals.len()),
             );
@@ -483,7 +491,7 @@ pub(in crate::app) struct TaskSessionListSnapshot {
 }
 
 pub(in crate::app) struct TaskSessionListView {
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     snapshot: TaskSessionListSnapshot,
     scroll_handle: UniformListScrollHandle,
 }
@@ -513,7 +521,7 @@ impl Render for TaskSessionListView {
     }
 }
 
-impl CoduxApp {
+impl WeCodeApp {
     fn task_column_header_view(
         &mut self,
         cx: &mut Context<Self>,
@@ -675,7 +683,7 @@ impl CoduxApp {
         let ai_titles = terminal_ai_titles_by_terminal_id(&self.state.ai_runtime_state.sessions);
         let active_terminal_id = self.active_terminal_runtime_id();
         let wechat_bound_session_ids =
-            codux_runtime::wechat_bridge_service::wechat_bridge_bound_session_ids();
+            wecode_runtime::wechat_bridge_service::wechat_bridge_bound_session_ids();
         let mut terminals = self
             .main_terminal()
             .map(|tab| {
@@ -848,7 +856,7 @@ impl CoduxApp {
 }
 
 fn task_column_content(
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     header_view: gpui::Entity<TaskColumnHeaderView>,
     worktree_list_view: gpui::Entity<TaskWorktreeListView>,
     branch_list_view: gpui::Entity<TaskBranchListView>,
@@ -915,7 +923,7 @@ fn task_column_content(
 }
 
 fn task_git_area(
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     active_tab: TaskGitTab,
     worktree_count: usize,
     branch_count: usize,
@@ -1032,7 +1040,7 @@ fn task_git_tab_button(
 }
 
 fn task_primary_tabs(
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     active_tab: TaskColumnPrimaryTab,
     terminal_count: usize,
     session_count: usize,
@@ -1142,7 +1150,7 @@ fn task_column_header(
     branch_name_label: String,
     create_branch: bool,
     refresh_label: String,
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     cx: &mut Context<TaskColumnHeaderView>,
 ) -> impl IntoElement {
     let create_entity = app_entity.clone();
@@ -1184,7 +1192,7 @@ fn task_column_header(
                         .items_center()
                         .gap(px(4.0))
                         .child(
-                            codux_tooltip_container(
+                            wecode_tooltip_container(
                                 app_entity.clone(),
                                 "task-create-tooltip",
                                 create_label.clone(),
@@ -1218,7 +1226,7 @@ fn task_column_header(
                                         } else {
                                             cx.update_entity(
                                                 &create_entity,
-                                                |app: &mut CoduxApp, cx| {
+                                                |app: &mut WeCodeApp, cx| {
                                                     app.open_worktree_creator_window(window, cx);
                                                 },
                                             );
@@ -1227,7 +1235,7 @@ fn task_column_header(
                             ),
                         )
                         .child(
-                            codux_tooltip_container(
+                            wecode_tooltip_container(
                                 app_entity,
                                 "task-refresh-tooltip",
                                 refresh_label,
@@ -1247,7 +1255,7 @@ fn task_column_header(
                                     .on_click(move |_, _window, cx| {
                                         cx.update_entity(
                                             &refresh_entity,
-                                            |app: &mut CoduxApp, cx| {
+                                            |app: &mut WeCodeApp, cx| {
                                                 app.refresh_task_column_async(cx);
                                                 app.refresh_git_panel_state_async_quiet(cx);
                                             },
@@ -1263,7 +1271,7 @@ fn task_list_area(
     rows: Vec<TaskWorktreeRow>,
     labels: TaskColumnLabels,
     scroll_handle: UniformListScrollHandle,
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     cx: &mut Context<TaskWorktreeListView>,
 ) -> impl IntoElement {
     if rows.is_empty() {
@@ -1295,7 +1303,7 @@ fn task_list_area(
                 .min_h_0()
                 .p_3()
                 .overflow_hidden()
-                .child(codux_uniform_list(
+                .child(wecode_uniform_list(
                     "task-column-worktrees",
                     rows,
                     scroll_handle,
@@ -1322,7 +1330,7 @@ fn branch_list_area(
     rows: Vec<TaskBranchRow>,
     labels: TaskColumnLabels,
     scroll_handle: UniformListScrollHandle,
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     cx: &mut Context<TaskBranchListView>,
 ) -> impl IntoElement {
     if rows.is_empty() {
@@ -1345,7 +1353,7 @@ fn branch_list_area(
         .min_h_0()
         .p_3()
         .overflow_hidden()
-        .child(codux_uniform_list(
+        .child(wecode_uniform_list(
             "task-column-branches",
             rows,
             scroll_handle,
@@ -1370,7 +1378,7 @@ fn branch_list_area(
 fn branch_compact_row(
     branch: TaskBranchRow,
     labels: TaskColumnLabels,
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     _cx: &mut Context<TaskBranchListView>,
 ) -> impl IntoElement {
     let branch_name = branch.name.clone();
@@ -1494,7 +1502,7 @@ fn recent_session_area(
     filter: TaskSessionFilter,
     source_filter: TaskSessionSourceFilter,
     scroll_handle: UniformListScrollHandle,
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     cx: &mut Context<TaskSessionListView>,
 ) -> impl IntoElement {
     let session_count = sessions.len();
@@ -1527,7 +1535,7 @@ fn recent_session_area(
                 .child(if session_count == 0 {
                     task_empty_state(labels.no_sessions_title, HeroIconName::CommandLine, cx)
                 } else {
-                    codux_uniform_list_with_sizing(
+                    wecode_uniform_list_with_sizing(
                         "task-column-recent-sessions",
                         sessions,
                         scroll_handle,
@@ -1555,7 +1563,7 @@ fn recent_session_area(
 }
 
 fn session_filter_tabs(
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     filter: TaskSessionFilter,
     source_filter: TaskSessionSourceFilter,
     labels: TaskColumnLabels,
@@ -1639,7 +1647,7 @@ fn session_filter_tabs(
 }
 
 fn session_source_filter_button(
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     source_filter: TaskSessionSourceFilter,
     labels: TaskColumnLabels,
     _cx: &mut Context<TaskSessionListView>,
@@ -1699,14 +1707,16 @@ fn terminal_list_area(
     terminals: Vec<TaskTerminalRow>,
     labels: TaskColumnLabels,
     scroll_handle: UniformListScrollHandle,
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     cx: &mut Context<TaskTerminalListView>,
 ) -> impl IntoElement {
-    let count = terminals.len();
-    if count == 0 {
-        return task_empty_state(labels.terminals, HeroIconName::CommandLine, cx);
-    }
-    let terminals = Rc::new(terminals);
+    let mut items = terminals
+        .into_iter()
+        .map(TaskTerminalListItem::Terminal)
+        .collect::<Vec<_>>();
+    items.push(TaskTerminalListItem::Create);
+    let list_height = TERMINAL_LIST_ROW_HEIGHT * items.len() as f32 + 16.0;
+    let items = Rc::new(items);
     div()
         .flex()
         .flex_col()
@@ -1716,28 +1726,38 @@ fn terminal_list_area(
             div()
                 .w_full()
                 .min_w_0()
-                .flex_1()
+                .h(px(list_height))
+                .flex_shrink()
                 .min_h_0()
                 .p_2()
                 .overflow_hidden()
-                .child(codux_uniform_list(
+                .child(wecode_uniform_list(
                     "task-column-terminals",
-                    terminals,
+                    items,
                     scroll_handle,
                     None,
                     cx,
-                    move |terminal, _index, _window, cx| {
+                    move |item, _index, _window, cx| {
                         div()
                             .w_full()
                             .min_w_0()
                             .h(px(TERMINAL_LIST_ROW_HEIGHT))
                             .pb(px(4.0))
-                            .child(terminal_compact_row(
-                                terminal,
-                                labels.clone(),
-                                app_entity.clone(),
-                                cx,
-                            ))
+                            .child(match item {
+                                TaskTerminalListItem::Terminal(terminal) => terminal_compact_row(
+                                    terminal,
+                                    labels.clone(),
+                                    app_entity.clone(),
+                                    cx,
+                                )
+                                .into_any_element(),
+                                TaskTerminalListItem::Create => terminal_create_card(
+                                    labels.new_terminal.clone(),
+                                    app_entity.clone(),
+                                    cx,
+                                )
+                                .into_any_element(),
+                            })
                             .into_any_element()
                     },
                 )),
@@ -1745,10 +1765,42 @@ fn terminal_list_area(
         .into_any_element()
 }
 
+fn terminal_create_card(
+    label: String,
+    app_entity: gpui::Entity<WeCodeApp>,
+    cx: &mut Context<TaskTerminalListView>,
+) -> impl IntoElement {
+    div()
+        .id("task-terminal-create")
+        .w_full()
+        .min_w_0()
+        .h(px(36.0))
+        .rounded(px(8.0))
+        .px_2()
+        .flex()
+        .items_center()
+        .justify_center()
+        .bg(theme::elevate(color(theme::BG_COLUMN), 0.035))
+        .cursor_pointer()
+        .hover(|style| style.bg(theme::elevate(color(theme::BG_COLUMN), 0.07)))
+        .child(
+            div()
+                .text_center()
+                .text_xs()
+                .text_color(cx.theme().muted_foreground)
+                .child(format!("＋ {label}")),
+        )
+        .on_click(move |_, window, cx| {
+            cx.update_entity(&app_entity, |app, cx| {
+                app.split_terminal(window, cx);
+            });
+        })
+}
+
 fn terminal_compact_row(
     terminal: TaskTerminalRow,
     labels: TaskColumnLabels,
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     cx: &mut Context<TaskTerminalListView>,
 ) -> impl IntoElement {
     let collapsed = terminal.collapsed;
@@ -1758,6 +1810,7 @@ fn terminal_compact_row(
     let terminal_id_for_click = terminal_id.clone();
     let terminal_id_for_wechat = terminal_id.clone();
     let terminal_id_for_rename = terminal_id.clone();
+    let terminal_id_for_close = terminal_id.clone();
     let lifecycle = terminal.lifecycle;
     let running = terminal.running;
     let title_for_rename = terminal.title.clone();
@@ -1917,7 +1970,7 @@ fn terminal_compact_row(
                         color(theme::TEXT_DIM)
                     };
                     this.child(
-                        codux_tooltip_container(
+                        wecode_tooltip_container(
                             app_entity_for_tooltip,
                             format!("task-terminal-wechat-{terminal_id}"),
                             tooltip,
@@ -1953,6 +2006,7 @@ fn terminal_compact_row(
             let close_entity = app_entity.clone();
             let close_title = title_for_menu.clone();
             let close_labels = menu_labels.clone();
+            let close_terminal_id = terminal_id_for_close.clone();
             menu.item(
                 PopupMenuItem::new(rename_label.clone())
                     .icon(HeroIconName::PencilSquare)
@@ -1987,6 +2041,7 @@ fn terminal_compact_row(
                     .on_click(move |_, window, cx| {
                         request_close_task_terminal(
                             close_entity.clone(),
+                            close_terminal_id.clone(),
                             pane_index,
                             collapsed_index,
                             close_title.clone(),
@@ -2012,7 +2067,8 @@ fn terminal_created_at_text(created_at: f64) -> Option<String> {
 
 #[allow(clippy::too_many_arguments)]
 fn request_close_task_terminal(
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
+    terminal_id: Option<String>,
     pane_index: usize,
     collapsed_index: Option<usize>,
     title: String,
@@ -2022,13 +2078,21 @@ fn request_close_task_terminal(
     cx: &mut App,
 ) {
     if !running {
-        close_task_terminal_now(&app_entity, pane_index, collapsed_index, window, cx);
+        close_task_terminal_now(
+            &app_entity,
+            terminal_id,
+            pane_index,
+            collapsed_index,
+            window,
+            cx,
+        );
         return;
     }
 
     let message = labels.close_terminal_message_format.replace("%@", &title);
     window.open_dialog(cx, move |dialog, _window, _cx| {
         let close_entity = app_entity.clone();
+        let close_terminal_id = terminal_id.clone();
         dialog
             .title(labels.close_terminal_title.clone())
             .button_props(
@@ -2039,7 +2103,14 @@ fn request_close_task_terminal(
                     .show_cancel(true),
             )
             .on_ok(move |_, window, cx| {
-                close_task_terminal_now(&close_entity, pane_index, collapsed_index, window, cx);
+                close_task_terminal_now(
+                    &close_entity,
+                    close_terminal_id.clone(),
+                    pane_index,
+                    collapsed_index,
+                    window,
+                    cx,
+                );
                 true
             })
             .child(
@@ -2054,7 +2125,8 @@ fn request_close_task_terminal(
 }
 
 fn close_task_terminal_now(
-    app_entity: &gpui::Entity<CoduxApp>,
+    app_entity: &gpui::Entity<WeCodeApp>,
+    terminal_id: Option<String>,
     pane_index: usize,
     collapsed_index: Option<usize>,
     window: &mut Window,
@@ -2064,7 +2136,7 @@ fn close_task_terminal_now(
         if let Some(collapsed_index) = collapsed_index {
             app.close_collapsed_terminal_pane(collapsed_index, cx);
         } else {
-            app.close_terminal_pane(pane_index, window, cx);
+            app.close_terminal_target(terminal_id.as_deref(), pane_index, window, cx);
         }
     });
 }
@@ -2072,7 +2144,7 @@ fn close_task_terminal_now(
 fn worktree_compact_row(
     worktree: TaskWorktreeRow,
     labels: TaskColumnLabels,
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     cx: &mut Context<TaskWorktreeListView>,
 ) -> impl IntoElement {
     let worktree_id = worktree.id.clone();
@@ -2354,7 +2426,7 @@ fn ai_session_source_display_name(source: &str) -> String {
 fn ai_session_compact_row(
     session: TaskSessionRow,
     labels: TaskColumnLabels,
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     cx: &mut Context<TaskSessionListView>,
 ) -> impl IntoElement {
     let restore_session_id = session.id.clone();

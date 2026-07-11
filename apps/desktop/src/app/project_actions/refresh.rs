@@ -1,6 +1,6 @@
 use super::*;
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn refresh_task_column_async(&mut self, cx: &mut Context<Self>) {
         let Some(project) = self.state.selected_project.clone() else {
             self.status_message = "no selected project to refresh".to_string();
@@ -31,7 +31,7 @@ impl CoduxApp {
         let generation = self.project_switch_generation;
         let include_cached = self.state.settings.statistics_mode == "includingCache";
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let result = codux_runtime::async_runtime::run_limited_blocking(move || {
+            let result = wecode_runtime::async_runtime::run_limited_blocking(move || {
                 let worktrees =
                     runtime_service.reload_worktrees(Some(&project_id), Some(&project_path));
                 let request = ai_history_worktree_request(&project, worktree.as_ref());
@@ -119,8 +119,8 @@ impl CoduxApp {
         self.git_review_refreshing = true;
         self.invalidate_git_panel(cx);
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let result = codux_runtime::async_runtime::run_limited_blocking_with_priority(
-                codux_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND + generation,
+            let result = wecode_runtime::async_runtime::run_limited_blocking_with_priority(
+                wecode_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND + generation,
                 move || {
                     let git = runtime_service.reload_project_git(&project_path);
                     let mut git_review = runtime_service

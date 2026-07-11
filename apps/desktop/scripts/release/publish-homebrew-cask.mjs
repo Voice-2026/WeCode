@@ -16,12 +16,12 @@ const armDmgPath = findFormalDmg(artifactsDir, "aarch64");
 const intelDmgPath = findFormalDmg(artifactsDir, "x86_64");
 const armSha256 = sha256File(armDmgPath);
 const intelSha256 = sha256File(intelDmgPath);
-const tapDir = fs.mkdtempSync(path.join(os.tmpdir(), "codux-homebrew-tap-"));
+const tapDir = fs.mkdtempSync(path.join(os.tmpdir(), "wecode-homebrew-tap-"));
 
 try {
   const tapRepoUrl = `https://x-access-token:${token}@github.com/${tapRepo}.git`;
   run("git", ["clone", tapRepoUrl, tapDir], { mask: token });
-  const caskPath = path.join(tapDir, "Casks", "codux.rb");
+  const caskPath = path.join(tapDir, "Casks", "wecode.rb");
   run("node", [
     "apps/desktop/scripts/release/render-homebrew-cask.mjs",
     version,
@@ -30,7 +30,7 @@ try {
     caskPath,
   ]);
 
-  if (git(["diff", "--quiet", "--", "Casks/codux.rb"], { cwd: tapDir }).status === 0) {
+  if (git(["diff", "--quiet", "--", "Casks/wecode.rb"], { cwd: tapDir }).status === 0) {
     console.log("[tap] cask already up to date");
     writeSummary("- Skipped: cask is already up to date.");
     process.exit(0);
@@ -38,8 +38,8 @@ try {
 
   run("git", ["config", "user.name", "github-actions[bot]"], { cwd: tapDir });
   run("git", ["config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com"], { cwd: tapDir });
-  run("git", ["add", "Casks/codux.rb"], { cwd: tapDir });
-  run("git", ["commit", "-m", `Update codux cask to v${version}`], { cwd: tapDir });
+  run("git", ["add", "Casks/wecode.rb"], { cwd: tapDir });
+  run("git", ["commit", "-m", `Update wecode cask to v${version}`], { cwd: tapDir });
   run("git", ["push", "origin", "HEAD:main"], { cwd: tapDir, mask: token });
   writeSummary(`- Published: \`${tapRepo}\` updated to \`v${version}\`.`);
 } finally {
@@ -56,7 +56,7 @@ function requiredEnv(name) {
 
 function findFormalDmg(dir, arch) {
   const files = walk(dir).filter((file) => file.endsWith(".dmg"));
-  const formal = files.find((file) => path.basename(file) === `codux-${version}-macos-${arch}.dmg`);
+  const formal = files.find((file) => path.basename(file) === `wecode-${version}-macos-${arch}.dmg`);
   if (formal) return formal;
   throw new Error(`Unable to find formal macOS ${arch} DMG in ${dir}`);
 }

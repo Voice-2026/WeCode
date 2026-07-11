@@ -10,11 +10,11 @@
 
 use super::controller::{RemoteController, new_device_id, parse_pairing_ticket};
 use super::controller_store::{RemoteControllerStore, SavedRemoteHost};
-use codux_remote_transport::RemoteTransportStateHandler;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+use wecode_remote_transport::RemoteTransportStateHandler;
 
 const RECONNECT_MAX_DELAY: Duration = Duration::from_secs(60);
 

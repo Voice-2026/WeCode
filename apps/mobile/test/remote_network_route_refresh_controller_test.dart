@@ -1,5 +1,5 @@
 import 'package:connectivity_plus/connectivity_plus.dart';
-import 'package:codux_flutter/services/remote_network_route_refresh_controller.dart';
+import 'package:wecode_flutter/services/remote_network_route_refresh_controller.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

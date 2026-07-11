@@ -1,6 +1,6 @@
 use super::*;
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn sync_terminal_state_after_layout_change(
         &mut self,
         _cx: &mut Context<Self>,
@@ -49,9 +49,23 @@ impl CoduxApp {
             .to_string();
         let layout_snapshot = self.terminal_layout_snapshot();
         if layout_snapshot.tabs.is_empty() && layout_snapshot.top_panes.is_empty() {
+            self.state.terminal_layout = TerminalLayoutSummary {
+                bottom_ratio: self.state.terminal_layout.bottom_ratio,
+                ..TerminalLayoutSummary::default()
+            };
+            self.state.terminal_runtime = runtime;
+            if let Some(key) = current_worktree_scope_key(&self.state) {
+                self.active_terminal_runtime_ids.remove(&key);
+                self.terminal_layout_cache.remove(&key);
+            }
+            self.spawn_persist_terminal_layout_snapshot(
+                storage_key,
+                layout_snapshot,
+                self.state.terminal_runtime.clone(),
+            );
             self.runtime_trace(
                 "terminal-layout",
-                &format!("skip {reason} layout sync because snapshot is empty"),
+                &format!("cleared {reason} terminal layout because snapshot is empty"),
             );
             return;
         }
@@ -162,7 +176,7 @@ impl CoduxApp {
         let spawn_scope_key =
             super::ai_runtime_status::current_terminal_layout_storage_key(&self.state);
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let results = codux_runtime::async_runtime::spawn_blocking({
+            let results = wecode_runtime::async_runtime::spawn_blocking({
                 let terminal_manager = terminal_manager.clone();
                 let terminal_config = terminal_config.clone();
                 let runtime_service = runtime_service.clone();

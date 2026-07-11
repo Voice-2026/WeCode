@@ -1,5 +1,5 @@
 use super::*;
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn confirm_or_close_active_terminal_target(
         &mut self,
         window: &mut Window,
@@ -250,6 +250,10 @@ impl CoduxApp {
     }
 
     pub(in crate::app) fn split_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.main_terminal().is_none_or(|tab| tab.panes.is_empty()) {
+            self.create_terminal_in_empty_layout(window, cx);
+            return;
+        }
         let source_index = self
             .focused_terminal_runtime_id(window, cx)
             .or_else(|| {
@@ -273,6 +277,70 @@ impl CoduxApp {
         );
     }
 
+    fn create_terminal_in_empty_layout(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        prepare_memory_launch_artifacts(&self.runtime_service, &self.state);
+        let Some(launch_context) = self.current_terminal_launch_context() else {
+            self.status_message = "no selected workspace for terminal".to_string();
+            self.invalidate_terminal_workspace(cx);
+            return;
+        };
+        let title = self
+            .text("terminal.default_format", "Terminal %d")
+            .replace("%d", "1");
+        let terminal_id = top_terminal_id(&launch_context.project_id, 0);
+        let pane_plan = TerminalPanePlan {
+            terminal_id: Some(terminal_id.clone()),
+            title: title.clone(),
+            restored_output_bytes: 0,
+            restored_output_tail: String::new(),
+            restore_command: None,
+            restore_env: None,
+        };
+        let pty_config = terminal_pty_config_for_terminal_id(
+            &launch_context.to_config(),
+            Some(&terminal_id),
+            &title,
+        );
+        let (terminal, attach) = TerminalPane::pending_with_pty_config(
+            cx,
+            pty_config.clone(),
+            self.terminal_config_from_settings(),
+        );
+        self.register_terminal_pane(Some(&terminal_id), &terminal, cx);
+        terminal.view.read(cx).focus_handle().focus(window, cx);
+        let slot = TerminalPaneSlot {
+            title: pane_plan.title,
+            terminal_id: pane_plan.terminal_id,
+            pane: Some(terminal),
+            restored_output_bytes: 0,
+            restored_output_tail: String::new(),
+            restore_command: None,
+            restore_env: None,
+        };
+        if let Some(tab) = self.terminals.first_mut() {
+            tab.terminal_id = None;
+            tab.panes.clear();
+            tab.panes.push(slot);
+        } else {
+            let tab_id = self.next_terminal_index.max(1);
+            self.next_terminal_index = tab_id.saturating_add(1);
+            self.active_terminal_id = tab_id;
+            self.terminals.push(TerminalTab {
+                id: tab_id,
+                label: self.text("terminal.main", "Main Terminal"),
+                terminal_id: None,
+                panes: vec![slot],
+            });
+        }
+        self.set_terminal_split_tree(Some(TerminalSplitNode::Leaf { pane: 0 }));
+        self.select_active_terminal_runtime_id(Some(&terminal_id));
+        self.focus_active_terminal(window, cx);
+        self.status_message = self.text("terminal.created", "Created terminal.");
+        self.sync_terminal_state_after_layout_change(cx);
+        self.spawn_attach_pending_terminals(None, vec![(pty_config, attach)], cx);
+        self.invalidate_terminal_workspace(cx);
+    }
+
     /// Single sync point after any split-tree mutation: the tree is the source
     /// of truth; `top_grid`/`top_ratios` are derived mirrors kept only so older
     /// app versions can still read the persisted layout.
@@ -280,9 +348,9 @@ impl CoduxApp {
         self.state.terminal_layout.top_grid = tree
             .as_ref()
             .map(|tree| {
-                codux_runtime::terminal_layout::top_grid_from_split_tree(
+                wecode_runtime::terminal_layout::top_grid_from_split_tree(
                     tree,
-                    codux_runtime::terminal_layout::split_tree_leaf_count(tree),
+                    wecode_runtime::terminal_layout::split_tree_leaf_count(tree),
                 )
             })
             .unwrap_or_default();
@@ -309,7 +377,7 @@ impl CoduxApp {
             return;
         };
         let pane_count = active_tab.panes.len();
-        if pane_count >= codux_runtime::terminal_layout::TERMINAL_SPLIT_CAP {
+        if pane_count >= wecode_runtime::terminal_layout::TERMINAL_SPLIT_CAP {
             self.status_message = "main split limit reached".to_string();
             self.invalidate_terminal_workspace(cx);
             return;
@@ -779,7 +847,7 @@ impl CoduxApp {
         let window_title = format!("Terminal - {title}");
         let result = cx.open_window(
             WindowOptions {
-                titlebar: Some(theme::codux_child_titlebar(window_title.clone())),
+                titlebar: Some(theme::wecode_child_titlebar(window_title.clone())),
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 window_min_size: Some(size(px(640.0), px(360.0))),
                 is_minimizable: false,
@@ -874,6 +942,25 @@ impl CoduxApp {
         self.invalidate_terminal_workspace(cx);
     }
 
+    pub(in crate::app) fn close_terminal_target(
+        &mut self,
+        terminal_id: Option<&str>,
+        pane_index_hint: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(tab) = self.main_terminal() else {
+            return;
+        };
+        let Some(pane_index) = terminal_pane_index_for_close(tab, terminal_id, pane_index_hint)
+        else {
+            self.status_message = "terminal to close was not found".to_string();
+            self.invalidate_terminal_workspace(cx);
+            return;
+        };
+        self.close_terminal_pane(pane_index, window, cx);
+    }
+
     pub(in crate::app) fn close_terminal_pane(
         &mut self,
         pane_index: usize,
@@ -883,10 +970,6 @@ impl CoduxApp {
         let Some(tab_index) = (!self.terminals.is_empty()).then_some(0) else {
             return;
         };
-        if self.terminals[tab_index].panes.len() <= 1 {
-            self.reset_terminal_pane(pane_index, window, cx);
-            return;
-        }
         if pane_index >= self.terminals[tab_index].panes.len() {
             return;
         }
@@ -907,7 +990,11 @@ impl CoduxApp {
             pane_count,
         )
         .unwrap_or(TerminalSplitNode::Leaf { pane: 0 });
-        let split_tree = terminal_split_tree_remove_pane(&tree, pane_index);
+        let split_tree = if pane_count <= 1 {
+            None
+        } else {
+            terminal_split_tree_remove_pane(&tree, pane_index)
+        };
         self.refresh_terminal_slot_snapshots();
         let removed = self.terminals[tab_index].panes.remove(pane_index);
         let terminal_id = removed
@@ -920,6 +1007,9 @@ impl CoduxApp {
             self.status_message = "terminal split has no terminal id".to_string();
             self.invalidate_terminal_workspace(cx);
             return;
+        }
+        if self.terminals[tab_index].terminal_id.as_deref() == Some(terminal_id.as_str()) {
+            self.terminals[tab_index].terminal_id = None;
         }
         self.set_terminal_split_tree(split_tree);
         let still_referenced = self.terminals.iter().any(|tab| {
@@ -937,12 +1027,21 @@ impl CoduxApp {
             .panes
             .get(pane_index.saturating_sub(1))
             .or_else(|| self.terminals[tab_index].panes.first())
-            .and_then(|slot| slot.terminal_id.clone());
-        self.select_active_terminal_runtime_id(next_active_terminal_id.as_deref());
-        self.focus_active_terminal(window, cx);
+            .and_then(|slot| Self::terminal_slot_terminal_id(&self.terminals[tab_index], 0, slot));
+        if let Some(next_active_terminal_id) = next_active_terminal_id.as_deref() {
+            self.select_active_terminal_runtime_id(Some(next_active_terminal_id));
+            self.focus_active_terminal(window, cx);
+        } else {
+            self.state.terminal_layout.active_terminal_id.clear();
+            if let Some(key) = current_worktree_scope_key(&self.state) {
+                self.active_terminal_runtime_ids.remove(&key);
+            }
+        }
         self.sync_terminal_state_after_layout_change(cx);
         if let Err(error) = kill_result {
             self.status_message = format!("terminal split closed; PTY cleanup failed: {error}");
+        } else {
+            self.status_message = self.text("terminal.closed", "Closed terminal.");
         }
         self.invalidate_terminal_workspace(cx);
     }
@@ -970,50 +1069,6 @@ impl CoduxApp {
             self.status_message = "terminal closed".to_string();
         }
         self.invalidate_task_column(cx);
-        self.invalidate_terminal_workspace(cx);
-    }
-
-    fn reset_terminal_pane(
-        &mut self,
-        pane_index: usize,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(tab_index) = (!self.terminals.is_empty()).then_some(0) else {
-            return;
-        };
-        if pane_index >= self.terminals[tab_index].panes.len() {
-            return;
-        }
-        self.refresh_terminal_slot_snapshots();
-        let terminal_id = self.terminals[tab_index].panes[pane_index]
-            .terminal_id
-            .clone()
-            .or_else(|| self.terminals[tab_index].terminal_id.clone())
-            .unwrap_or_default();
-        if terminal_id.trim().is_empty() {
-            self.status_message = "terminal split has no terminal id".to_string();
-            self.invalidate_terminal_workspace(cx);
-            return;
-        }
-        self.terminals[tab_index].panes[pane_index].pane = None;
-        self.terminals[tab_index].panes[pane_index].restored_output_bytes = 0;
-        self.terminals[tab_index].panes[pane_index]
-            .restored_output_tail
-            .clear();
-        let kill_result = self.kill_terminal_session_if_present(&terminal_id);
-        self.select_active_terminal_runtime_id(Some(&terminal_id));
-        let mount_result = self.ensure_active_terminal_mounted(cx);
-        self.refresh_terminal_slot_snapshots();
-        self.focus_active_terminal(window, cx);
-        self.sync_terminal_state_after_layout_change(cx);
-        if let Err(error) = kill_result {
-            self.status_message = format!("terminal reset; PTY cleanup failed: {error}");
-        } else if let Err(error) = mount_result {
-            self.status_message = format!("terminal reset; mount failed: {error}");
-        } else {
-            self.status_message = "terminal reset".to_string();
-        }
         self.invalidate_terminal_workspace(cx);
     }
 
@@ -1199,7 +1254,7 @@ impl CoduxApp {
             return;
         };
         let pane_count = active_tab.panes.len();
-        if pane_count >= codux_runtime::terminal_layout::TERMINAL_SPLIT_CAP {
+        if pane_count >= wecode_runtime::terminal_layout::TERMINAL_SPLIT_CAP {
             self.status_message = self.text(
                 "terminal.ai_restore.split_limit",
                 "Main split limit reached.",
@@ -1312,6 +1367,94 @@ impl CoduxApp {
         self.invalidate_terminal_workspace(cx);
     }
 
+    fn launch_command_in_current_terminal_internal(
+        &mut self,
+        title: String,
+        command: String,
+        env: Option<HashMap<String, String>>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        prepare_memory_launch_artifacts(&self.runtime_service, &self.state);
+        let Some(launch_context) = self.current_terminal_launch_context() else {
+            self.status_message = self.text(
+                "terminal.ai_restore.no_workspace",
+                "No selected workspace for the terminal.",
+            );
+            self.invalidate_terminal_workspace(cx);
+            return;
+        };
+        let preferred_terminal_id = self.focused_terminal_runtime_id(window, cx).or_else(|| {
+            let terminal_id = self.active_terminal_runtime_id();
+            (!terminal_id.trim().is_empty()).then_some(terminal_id)
+        });
+        let Some(tab) = self.main_terminal() else {
+            return;
+        };
+        let Some(pane_index) =
+            terminal_pane_index_for_close(tab, preferred_terminal_id.as_deref(), 0)
+        else {
+            self.status_message = self.text("terminal.none_selected", "No terminal selected.");
+            self.invalidate_terminal_workspace(cx);
+            return;
+        };
+        let Some(terminal_id) = tab
+            .panes
+            .get(pane_index)
+            .and_then(|slot| Self::terminal_slot_terminal_id(tab, pane_index, slot))
+        else {
+            self.status_message = "terminal has no stable id".to_string();
+            self.invalidate_terminal_workspace(cx);
+            return;
+        };
+
+        self.refresh_terminal_slot_snapshots();
+        let kill_result = self.kill_terminal_session_if_present(&terminal_id);
+        let mut pty_config = terminal_pty_config_for_terminal_id(
+            &launch_context.to_config(),
+            Some(&terminal_id),
+            &title,
+        );
+        if let Some(env) = env {
+            pty_config.env.get_or_insert_with(HashMap::new).extend(env);
+        }
+        let (terminal, attach) = TerminalPane::pending_with_pty_config(
+            cx,
+            pty_config.clone(),
+            self.terminal_config_from_settings(),
+        );
+        self.register_terminal_pane(Some(&terminal_id), &terminal, cx);
+        let send_result = terminal.send_text(&terminal_command_text(&command));
+        terminal.view.read(cx).focus_handle().focus(window, cx);
+        if let Some(slot) = self
+            .main_terminal_mut()
+            .and_then(|tab| tab.panes.get_mut(pane_index))
+        {
+            slot.title = title;
+            slot.terminal_id = Some(terminal_id.clone());
+            slot.pane = Some(terminal);
+            slot.restored_output_bytes = 0;
+            slot.restored_output_tail.clear();
+            slot.restore_command = None;
+            slot.restore_env = None;
+        }
+        self.select_active_terminal_runtime_id(Some(&terminal_id));
+        self.focus_active_terminal(window, cx);
+        self.sync_terminal_state_after_layout_change(cx);
+        self.spawn_attach_pending_terminals(None, vec![(pty_config, attach)], cx);
+        self.status_message = if let Err(error) = kill_result {
+            format!("AI tool switched; previous PTY cleanup failed: {error}")
+        } else if let Err(error) = send_result {
+            format!("AI tool switched; launch command failed: {error}")
+        } else {
+            self.text(
+                "terminal.agent.switched_current",
+                "Switched AI tool in current terminal.",
+            )
+        };
+        self.invalidate_terminal_workspace(cx);
+    }
+
     pub(in crate::app) fn launch_quick_agent(
         &mut self,
         target: &'static str,
@@ -1360,7 +1503,7 @@ impl CoduxApp {
             self.invalidate_terminal_workspace(cx);
             return;
         };
-        self.launch_command_in_main_split_internal(title, command, env, Some(window), cx);
+        self.launch_command_in_current_terminal_internal(title, command, env, window, cx);
     }
 
     fn kiro_gateway_quick_launch(
@@ -1412,8 +1555,11 @@ impl CoduxApp {
         };
         let claude_model = quick_gateway_claude_model(model);
         let mut env = HashMap::new();
-        env.insert("CODUX_KIRO_GATEWAY".to_string(), "1".to_string());
-        env.insert("CODUX_KIRO_GATEWAY_MODEL".to_string(), claude_model.clone());
+        env.insert("WECODE_KIRO_GATEWAY".to_string(), "1".to_string());
+        env.insert(
+            "WECODE_KIRO_GATEWAY_MODEL".to_string(),
+            claude_model.clone(),
+        );
         env.insert(
             "ANTHROPIC_API_KEY".to_string(),
             self.gateway_settings.config.api_key.clone(),

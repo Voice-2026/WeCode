@@ -1,4 +1,4 @@
-import 'package:codux_flutter/services/terminal_upload_metadata.dart';
+import 'package:wecode_flutter/services/terminal_upload_metadata.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

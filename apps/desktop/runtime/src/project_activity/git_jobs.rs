@@ -21,7 +21,7 @@ impl GitJobQueue {
         events: Arc<Mutex<VecDeque<ProjectActivityEvent>>>,
     ) -> Self {
         Self {
-            queue: SerialJobQueue::new("codux-git-job-worker", move |job| {
+            queue: SerialJobQueue::new("wecode-git-job-worker", move |job| {
                 run_git_job(job, &support_dir, Arc::clone(&events))
             }),
         }

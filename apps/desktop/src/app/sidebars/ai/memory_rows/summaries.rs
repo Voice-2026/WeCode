@@ -1,11 +1,11 @@
 use super::*;
 
 pub(in crate::app::sidebars::ai) fn ai_memory_manager_summary_row(
-    summary: &codux_runtime::memory::MemorySummaryRow,
+    summary: &wecode_runtime::memory::MemorySummaryRow,
     selected_memory_summary_id: Option<&str>,
     language: &str,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let summary_placeholder =
         ai_sidebar_text(language, "memory.manager.edit_summary.title", "Summary");
@@ -137,7 +137,7 @@ pub(in crate::app::sidebars::ai) fn ai_memory_manager_entry_groups(
     selected_memory_entry_id: Option<&str>,
     active_tab: MemoryManagerTab,
     language: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> Vec<AnyElement> {
     let mut groups: BTreeMap<String, Vec<MemoryEntrySummary>> = BTreeMap::new();
     for entry in entries {
@@ -198,7 +198,7 @@ pub(in crate::app::sidebars::ai) fn ai_memory_manager_entry_row(
     active: bool,
     active_tab: MemoryManagerTab,
     language: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let select_id = entry.id.clone();
     let archive_id = entry.id.clone();

@@ -4,19 +4,19 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'dart:io';
-import 'package:codux_flutter/main.dart';
-import 'package:codux_flutter/i18n.dart';
-import 'package:codux_flutter/models/remote_models.dart';
-import 'package:codux_flutter/services/log_service.dart';
-import 'package:codux_flutter/services/remote_protocol.dart';
-import 'package:codux_flutter/services/remote_protocol_service.dart';
-import 'package:codux_flutter/services/remote_transport.dart';
-import 'package:codux_flutter/theme/app_theme.dart';
-import 'package:codux_flutter/widgets/components/device_home_screen.dart';
+import 'package:wecode_flutter/main.dart';
+import 'package:wecode_flutter/i18n.dart';
+import 'package:wecode_flutter/models/remote_models.dart';
+import 'package:wecode_flutter/services/log_service.dart';
+import 'package:wecode_flutter/services/remote_protocol.dart';
+import 'package:wecode_flutter/services/remote_protocol_service.dart';
+import 'package:wecode_flutter/services/remote_transport.dart';
+import 'package:wecode_flutter/theme/app_theme.dart';
+import 'package:wecode_flutter/widgets/components/device_home_screen.dart';
 
 void main() {
-  testWidgets('Codux app boots', (WidgetTester tester) async {
-    await tester.pumpWidget(const CoduxFlutterApp());
+  testWidgets('WeCode app boots', (WidgetTester tester) async {
+    await tester.pumpWidget(const WeCodeFlutterApp());
     await tester.pump();
     expect(find.byType(MaterialApp), findsOneWidget);
   });
@@ -140,7 +140,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      CoduxFlutterApp(initialDevices: [device], transportFactory: (_) => fake),
+      WeCodeFlutterApp(initialDevices: [device], transportFactory: (_) => fake),
     );
     await tester.pumpAndSettle();
     await tester.tap(find.text('Mac'));
@@ -150,7 +150,7 @@ void main() {
     await tester.pump();
 
     expect(find.textContaining('10.0.0.2:51515'), findsOneWidget);
-    expect(find.text('Codux'), findsOneWidget);
+    expect(find.text('WeCode'), findsOneWidget);
   });
 
   testWidgets('device row follows current relay url from Iroh path state', (
@@ -173,7 +173,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      CoduxFlutterApp(initialDevices: [device], transportFactory: (_) => fake),
+      WeCodeFlutterApp(initialDevices: [device], transportFactory: (_) => fake),
     );
     await tester.pumpAndSettle();
     await tester.tap(find.text('Mac'));
@@ -186,7 +186,7 @@ void main() {
 
     expect(find.text('China (Tencent Cloud)'), findsOneWidget);
     expect(find.textContaining('$tencentRelayUrl'), findsNothing);
-    expect(find.text('Codux'), findsOneWidget);
+    expect(find.text('WeCode'), findsOneWidget);
   });
 
   testWidgets('device row maps Alibaba relay url to preset name', (
@@ -209,7 +209,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      CoduxFlutterApp(initialDevices: [device], transportFactory: (_) => fake),
+      WeCodeFlutterApp(initialDevices: [device], transportFactory: (_) => fake),
     );
     await tester.pumpAndSettle();
     await tester.tap(find.text('Mac'));
@@ -227,8 +227,8 @@ void main() {
   testWidgets(
     'opening terminal after list sync asks host to bind missing project terminal',
     (WidgetTester tester) async {
-      CoduxLog.setLevelName('debug');
-      CoduxLog.clear();
+      WeCodeLog.setLevelName('debug');
+      WeCodeLog.clear();
       final sent = <Map<String, dynamic>>[];
       final device = await _fakeDevice();
       final fake = _FakeRemoteTransport(
@@ -297,7 +297,7 @@ void main() {
       );
 
       await tester.pumpWidget(
-        CoduxFlutterApp(
+        WeCodeFlutterApp(
           initialDevices: [device],
           transportFactory: (_) => fake,
         ),
@@ -306,12 +306,12 @@ void main() {
       await tester.pump(const Duration(milliseconds: 200));
       await tester.pumpAndSettle();
 
-      expect(CoduxLog.snapshotText(), contains('terminal.list count=0'));
+      expect(WeCodeLog.snapshotText(), contains('terminal.list count=0'));
       await tester.tap(find.text('Mac'));
       await tester.pumpAndSettle(const Duration(milliseconds: 300));
       await tester.pump(const Duration(milliseconds: 300));
 
-      final log = CoduxLog.snapshotText();
+      final log = WeCodeLog.snapshotText();
       expect(
         log,
         contains(
@@ -338,8 +338,8 @@ void main() {
   testWidgets(
     'opening terminal binds the host selected project terminal immediately',
     (WidgetTester tester) async {
-      CoduxLog.setLevelName('debug');
-      CoduxLog.clear();
+      WeCodeLog.setLevelName('debug');
+      WeCodeLog.clear();
       final sentTypes = <String>[];
       final sent = <Map<String, dynamic>>[];
       final device = await _fakeDevice();
@@ -403,7 +403,7 @@ void main() {
       );
 
       await tester.pumpWidget(
-        CoduxFlutterApp(
+        WeCodeFlutterApp(
           initialDevices: [device],
           transportFactory: (_) => fake,
         ),
@@ -414,7 +414,7 @@ void main() {
       await tester.pumpAndSettle(const Duration(milliseconds: 300));
       await tester.pump(const Duration(milliseconds: 300));
 
-      final log = CoduxLog.snapshotText();
+      final log = WeCodeLog.snapshotText();
       expect(log, contains('project.list count=2 selected=project-2'));
       expect(log, contains('bind session=session-2 project=project-2'));
       expect(log, isNot(contains('request terminal.buffer session=session-2')));
@@ -443,8 +443,8 @@ void main() {
   testWidgets(
     'switching projects remounts cached terminal from the local pty pool',
     (WidgetTester tester) async {
-      CoduxLog.setLevelName('debug');
-      CoduxLog.clear();
+      WeCodeLog.setLevelName('debug');
+      WeCodeLog.clear();
       final sentTypes = <String>[];
       final sent = <Map<String, dynamic>>[];
       final device = await _fakeDevice();
@@ -549,7 +549,7 @@ void main() {
       );
 
       await tester.pumpWidget(
-        CoduxFlutterApp(
+        WeCodeFlutterApp(
           initialDevices: [device],
           transportFactory: (_) => fake,
         ),
@@ -580,7 +580,7 @@ void main() {
       final projectSelectCount = sentTypes
           .where((type) => type == 'project.select')
           .length;
-      final log = CoduxLog.snapshotText();
+      final log = WeCodeLog.snapshotText();
       expect(projectSelectCount, 1);
       expect(
         log,
@@ -612,8 +612,8 @@ void main() {
   testWidgets(
     'project tab switch sends host select and immediately binds known terminal',
     (WidgetTester tester) async {
-      CoduxLog.setLevelName('debug');
-      CoduxLog.clear();
+      WeCodeLog.setLevelName('debug');
+      WeCodeLog.clear();
       final sent = <Map<String, dynamic>>[];
       final device = await _fakeDevice();
       final fake = _FakeRemoteTransport(
@@ -691,7 +691,7 @@ void main() {
       );
 
       await tester.pumpWidget(
-        CoduxFlutterApp(
+        WeCodeFlutterApp(
           initialDevices: [device],
           transportFactory: (_) => fake,
         ),
@@ -705,7 +705,7 @@ void main() {
       await _tapProjectTab(tester, 'Project 2');
       await tester.pump(const Duration(milliseconds: 300));
 
-      final log = CoduxLog.snapshotText();
+      final log = WeCodeLog.snapshotText();
       expect(log, contains('user select project=project-2 previous=project-1'));
       expect(
         log,
@@ -734,8 +734,8 @@ void main() {
   testWidgets(
     'stale project selected ack is ignored during fast project switching',
     (WidgetTester tester) async {
-      CoduxLog.setLevelName('debug');
-      CoduxLog.clear();
+      WeCodeLog.setLevelName('debug');
+      WeCodeLog.clear();
       final sent = <Map<String, dynamic>>[];
       final device = await _fakeDevice();
       final fake = _FakeRemoteTransport(
@@ -789,7 +789,7 @@ void main() {
       );
 
       await tester.pumpWidget(
-        CoduxFlutterApp(
+        WeCodeFlutterApp(
           initialDevices: [device],
           transportFactory: (_) => fake,
         ),
@@ -824,7 +824,7 @@ void main() {
       );
       await tester.pumpAndSettle(const Duration(milliseconds: 300));
 
-      final log = CoduxLog.snapshotText();
+      final log = WeCodeLog.snapshotText();
       expect(log, contains('user select project=project-3 previous=project-2'));
       expect(
         log,
@@ -851,8 +851,8 @@ void main() {
   testWidgets(
     'accepts out of order encrypted project and terminal list messages',
     (WidgetTester tester) async {
-      CoduxLog.setLevelName('debug');
-      CoduxLog.clear();
+      WeCodeLog.setLevelName('debug');
+      WeCodeLog.clear();
       final device = await _fakeDevice();
       final fake = _FakeRemoteTransport(
         device: device,
@@ -915,7 +915,7 @@ void main() {
       );
 
       await tester.pumpWidget(
-        CoduxFlutterApp(
+        WeCodeFlutterApp(
           initialDevices: [device],
           transportFactory: (_) => fake,
         ),
@@ -926,7 +926,7 @@ void main() {
       await tester.pumpAndSettle(const Duration(milliseconds: 300));
       await tester.pump(const Duration(milliseconds: 300));
 
-      final log = CoduxLog.snapshotText();
+      final log = WeCodeLog.snapshotText();
       expect(log, contains('project.list count=1 selected=project-1'));
       expect(log, contains('terminal.list count=1'));
       expect(log, contains('bind session=session-1 project=project-1'));
@@ -936,8 +936,8 @@ void main() {
   testWidgets('foreground recovery resumes cached remote pty incrementally', (
     WidgetTester tester,
   ) async {
-    CoduxLog.setLevelName('debug');
-    CoduxLog.clear();
+    WeCodeLog.setLevelName('debug');
+    WeCodeLog.clear();
     final sent = <Map<String, dynamic>>[];
     final device = await _fakeDevice();
     var terminalBufferCharacters = 5;
@@ -1011,7 +1011,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      CoduxFlutterApp(initialDevices: [device], transportFactory: (_) => fake),
+      WeCodeFlutterApp(initialDevices: [device], transportFactory: (_) => fake),
     );
     await tester.pumpAndSettle();
 
@@ -1039,8 +1039,8 @@ void main() {
   testWidgets('cached terminal remount does not request a ui buffer', (
     WidgetTester tester,
   ) async {
-    CoduxLog.setLevelName('debug');
-    CoduxLog.clear();
+    WeCodeLog.setLevelName('debug');
+    WeCodeLog.clear();
     final sent = <Map<String, dynamic>>[];
     final device = await _fakeDevice();
     final fake = _FakeRemoteTransport(
@@ -1105,7 +1105,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      CoduxFlutterApp(initialDevices: [device], transportFactory: (_) => fake),
+      WeCodeFlutterApp(initialDevices: [device], transportFactory: (_) => fake),
     );
     await tester.pumpAndSettle();
 
@@ -1128,7 +1128,7 @@ void main() {
     expect(subscribePayload?['resource'], RemoteResourceType.terminals);
     expect(subscribePayload?['baseline'], isTrue);
     expect(
-      CoduxLog.snapshotText(),
+      WeCodeLog.snapshotText(),
       isNot(
         contains(
           'request terminal.buffer session=session-1 full=true tail=true',
@@ -1141,8 +1141,8 @@ void main() {
   testWidgets(
     'opening terminal with an empty pool refreshes subscription baseline instead of ui buffer',
     (WidgetTester tester) async {
-      CoduxLog.setLevelName('debug');
-      CoduxLog.clear();
+      WeCodeLog.setLevelName('debug');
+      WeCodeLog.clear();
       final sent = <Map<String, dynamic>>[];
       final device = await _fakeDevice();
       final fake = _FakeRemoteTransport(
@@ -1184,7 +1184,7 @@ void main() {
       );
 
       await tester.pumpWidget(
-        CoduxFlutterApp(
+        WeCodeFlutterApp(
           initialDevices: [device],
           transportFactory: (_) => fake,
         ),
@@ -1208,7 +1208,7 @@ void main() {
       expect(subscribePayload?['projectId'], 'project-1');
       expect(subscribePayload?['baseline'], isTrue);
       expect(
-        CoduxLog.snapshotText(),
+        WeCodeLog.snapshotText(),
         contains('bind session=session-1 project=project-1 cached=false'),
       );
     },
@@ -1217,8 +1217,8 @@ void main() {
   testWidgets(
     'transport health events degrade direct to relay without clearing runtime',
     (WidgetTester tester) async {
-      CoduxLog.setLevelName('debug');
-      CoduxLog.clear();
+      WeCodeLog.setLevelName('debug');
+      WeCodeLog.clear();
       final device = await _fakeDevice();
       final sent = <Map<String, dynamic>>[];
       final fake = _FakeRemoteTransport(
@@ -1261,7 +1261,7 @@ void main() {
       );
 
       await tester.pumpWidget(
-        CoduxFlutterApp(
+        WeCodeFlutterApp(
           initialDevices: [device],
           transportFactory: (_) => fake,
         ),
@@ -1307,7 +1307,7 @@ void main() {
             .length,
         terminalListRequestsBeforeTimeout,
       );
-      final log = CoduxLog.snapshotText();
+      final log = WeCodeLog.snapshotText();
       expect(log, contains('latency timeout=1;path=direct'));
       expect(log, contains('state=connected detail=path=relay'));
       expect(
@@ -1320,8 +1320,8 @@ void main() {
   testWidgets('latency timeout and background keep last visible rtt', (
     WidgetTester tester,
   ) async {
-    CoduxLog.setLevelName('debug');
-    CoduxLog.clear();
+    WeCodeLog.setLevelName('debug');
+    WeCodeLog.clear();
     final device = await _fakeDevice();
     String? latencyPingId;
     final fake = _FakeRemoteTransport(
@@ -1368,7 +1368,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      CoduxFlutterApp(initialDevices: [device], transportFactory: (_) => fake),
+      WeCodeFlutterApp(initialDevices: [device], transportFactory: (_) => fake),
     );
     await tester.pumpAndSettle();
     await tester.tap(find.text('Mac'));
@@ -1406,8 +1406,8 @@ void main() {
   testWidgets(
     'pending project select is not resent after direct path degrades',
     (WidgetTester tester) async {
-      CoduxLog.setLevelName('debug');
-      CoduxLog.clear();
+      WeCodeLog.setLevelName('debug');
+      WeCodeLog.clear();
       final sent = <Map<String, dynamic>>[];
       final device = await _fakeDevice();
       var selectedProjectId = 'project-1';
@@ -1478,7 +1478,7 @@ void main() {
       );
 
       await tester.pumpWidget(
-        CoduxFlutterApp(
+        WeCodeFlutterApp(
           initialDevices: [device],
           transportFactory: (_) => fake,
         ),
@@ -1499,7 +1499,7 @@ void main() {
         sent.where((envelope) => envelope['type'] == 'project.select').length,
         1,
       );
-      final log = CoduxLog.snapshotText();
+      final log = WeCodeLog.snapshotText();
       expect(
         log,
         contains('send project.select reason=user-select project=project-2'),
@@ -1519,8 +1519,8 @@ void main() {
   testWidgets('transport failure leaves terminal page for device list', (
     WidgetTester tester,
   ) async {
-    CoduxLog.setLevelName('debug');
-    CoduxLog.clear();
+    WeCodeLog.setLevelName('debug');
+    WeCodeLog.clear();
     final device = await _fakeDevice();
     final fake = _FakeRemoteTransport(
       device: device,
@@ -1560,7 +1560,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      CoduxFlutterApp(initialDevices: [device], transportFactory: (_) => fake),
+      WeCodeFlutterApp(initialDevices: [device], transportFactory: (_) => fake),
     );
     await tester.pumpAndSettle();
     for (var attempt = 0; attempt < 2; attempt += 1) {
@@ -1625,7 +1625,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      CoduxFlutterApp(initialDevices: [device], transportFactory: (_) => fake),
+      WeCodeFlutterApp(initialDevices: [device], transportFactory: (_) => fake),
     );
     await tester.pumpAndSettle();
     for (var attempt = 0; attempt < 2; attempt += 1) {
@@ -1651,8 +1651,8 @@ void main() {
   testWidgets(
     'pending project select ack timeout retries project select and refreshes terminal list',
     (WidgetTester tester) async {
-      CoduxLog.setLevelName('debug');
-      CoduxLog.clear();
+      WeCodeLog.setLevelName('debug');
+      WeCodeLog.clear();
       final sent = <Map<String, dynamic>>[];
       final device = await _fakeDevice();
       var selectedProjectId = 'project-1';
@@ -1697,7 +1697,7 @@ void main() {
       );
 
       await tester.pumpWidget(
-        CoduxFlutterApp(
+        WeCodeFlutterApp(
           initialDevices: [device],
           transportFactory: (_) => fake,
         ),
@@ -1715,7 +1715,7 @@ void main() {
         sent.where((envelope) => envelope['type'] == 'project.select').length,
         2,
       );
-      final log = CoduxLog.snapshotText();
+      final log = WeCodeLog.snapshotText();
       expect(log, contains('project.select ack timeout project=project-2'));
       expect(
         log,
@@ -1731,8 +1731,8 @@ void main() {
   testWidgets(
     'rejected project select closes bad transport and keeps pending selection',
     (WidgetTester tester) async {
-      CoduxLog.setLevelName('debug');
-      CoduxLog.clear();
+      WeCodeLog.setLevelName('debug');
+      WeCodeLog.clear();
       final sent = <Map<String, dynamic>>[];
       final device = await _fakeDevice();
       var selectedProjectId = 'project-1';
@@ -1816,7 +1816,7 @@ void main() {
       );
 
       await tester.pumpWidget(
-        CoduxFlutterApp(
+        WeCodeFlutterApp(
           initialDevices: [device],
           transportFactory: (_) => fake,
         ),
@@ -1835,7 +1835,7 @@ void main() {
         sent.where((envelope) => envelope['type'] == 'project.select').length,
         2,
       );
-      final log = CoduxLog.snapshotText();
+      final log = WeCodeLog.snapshotText();
       expect(log, contains('send result type=project.select'));
       expect(log, contains('result=rejected'));
       expect(
@@ -1859,8 +1859,8 @@ void main() {
   testWidgets(
     'host runtime instance change clears stale terminal cache and resyncs',
     (WidgetTester tester) async {
-      CoduxLog.setLevelName('debug');
-      CoduxLog.clear();
+      WeCodeLog.setLevelName('debug');
+      WeCodeLog.clear();
       final sentTypes = <String>[];
       final device = await _fakeDevice();
       var hostInfoCount = 0;
@@ -1947,7 +1947,7 @@ void main() {
       );
 
       await tester.pumpWidget(
-        CoduxFlutterApp(
+        WeCodeFlutterApp(
           initialDevices: [device],
           transportFactory: (_) => fake,
         ),
@@ -1967,7 +1967,7 @@ void main() {
       await tester.pumpAndSettle(const Duration(milliseconds: 300));
       await tester.pump(const Duration(milliseconds: 300));
 
-      final log = CoduxLog.snapshotText();
+      final log = WeCodeLog.snapshotText();
       expect(
         log,
         contains(
@@ -1991,8 +1991,8 @@ void main() {
   testWidgets('unauthorized error stops reconnect loop and prompts repair', (
     WidgetTester tester,
   ) async {
-    CoduxLog.setLevelName('debug');
-    CoduxLog.clear();
+    WeCodeLog.setLevelName('debug');
+    WeCodeLog.clear();
     final sent = <Map<String, dynamic>>[];
     final device = await _fakeDevice();
     late final _FakeRemoteTransport fake;
@@ -2002,11 +2002,11 @@ void main() {
     );
 
     await tester.pumpWidget(
-      CoduxFlutterApp(initialDevices: [device], transportFactory: (_) => fake),
+      WeCodeFlutterApp(initialDevices: [device], transportFactory: (_) => fake),
     );
     await tester.pump(const Duration(milliseconds: 200));
     await tester.pumpAndSettle();
-    expect(CoduxLog.snapshotText(), contains('request host.info'));
+    expect(WeCodeLog.snapshotText(), contains('request host.info'));
 
     fake.emit(
       const RelayEnvelope(
@@ -2017,7 +2017,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
     await tester.pump(const Duration(seconds: 20));
 
-    final log = CoduxLog.snapshotText();
+    final log = WeCodeLog.snapshotText();
     expect(log, contains('authorization failed code=device_unauthorized'));
     expect(log, isNot(contains('reconnect scheduled')));
     expect(
@@ -2029,8 +2029,8 @@ void main() {
   testWidgets('startup auto connect waits until after first frame', (
     WidgetTester tester,
   ) async {
-    CoduxLog.setLevelName('debug');
-    CoduxLog.clear();
+    WeCodeLog.setLevelName('debug');
+    WeCodeLog.clear();
     final device = await _fakeDevice();
     var connectCount = 0;
     final fake = _FakeRemoteTransport(
@@ -2040,17 +2040,17 @@ void main() {
     );
 
     await tester.pumpWidget(
-      CoduxFlutterApp(initialDevices: [device], transportFactory: (_) => fake),
+      WeCodeFlutterApp(initialDevices: [device], transportFactory: (_) => fake),
     );
     await tester.pump();
 
     expect(connectCount, 0);
-    expect(CoduxLog.snapshotText(), isNot(contains('connect start')));
+    expect(WeCodeLog.snapshotText(), isNot(contains('connect start')));
 
     await tester.pump(const Duration(milliseconds: 200));
 
     expect(connectCount, 1);
-    expect(CoduxLog.snapshotText(), contains('connect start'));
+    expect(WeCodeLog.snapshotText(), contains('connect start'));
   });
 
   test('mobile languages match Mac language count', () {

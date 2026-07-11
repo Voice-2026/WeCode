@@ -1,6 +1,6 @@
 use super::*;
-use crate::app::ui_helpers::with_codux_tooltip;
-use codux_runtime::{i18n::translate, settings::locale_from_language_setting};
+use crate::app::ui_helpers::with_wecode_tooltip;
+use wecode_runtime::{i18n::translate, settings::locale_from_language_setting};
 
 pub(in crate::app) fn ssh_section(
     ssh: &SSHSummary,
@@ -8,7 +8,7 @@ pub(in crate::app) fn ssh_section(
     scroll_handle: UniformListScrollHandle,
     language: &str,
     _window: &mut Window,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let locale = locale_from_language_setting(language);
     let title = translate(&locale, "ssh.panel.title", "SSH");
@@ -81,7 +81,7 @@ pub(in crate::app) fn ssh_section(
         )
 }
 
-fn ssh_empty_state(label: String, cx: &mut Context<CoduxApp>) -> impl IntoElement {
+fn ssh_empty_state(label: String, cx: &mut Context<WeCodeApp>) -> impl IntoElement {
     div()
         .size_full()
         .flex()
@@ -120,7 +120,7 @@ fn ssh_profile_row(
     open_label: String,
     edit_label: String,
     remove_label: String,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let active = selected_profile_id
         .map(|id| id == profile.id)
@@ -195,7 +195,7 @@ fn ssh_profile_row(
                         .child(profile.endpoint),
                 ),
         )
-        .child(with_codux_tooltip(
+        .child(with_wecode_tooltip(
             cx.entity(),
             format!("ssh-connect-tooltip-{}", profile.id),
             Button::new(SharedString::from(format!("ssh-connect-{}", profile.id)))

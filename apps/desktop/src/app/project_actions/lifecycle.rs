@@ -1,6 +1,6 @@
 use super::*;
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn apply_project_list_state(
         &mut self,
         next: RuntimeState,
@@ -33,7 +33,7 @@ impl CoduxApp {
         let service = self.runtime_service.clone();
         self.runtime_trace("project-open", "applications_refresh queued");
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let result = codux_runtime::async_runtime::run_limited_blocking(move || {
+            let result = wecode_runtime::async_runtime::run_limited_blocking(move || {
                 service.runtime_trace_frontend("project-open", "applications_refresh start");
                 let applications = service.project_open_applications();
                 service.runtime_trace_frontend("project-open", "applications_refresh ok");
@@ -235,7 +235,7 @@ impl CoduxApp {
         self.invalidate_project_management(cx);
 
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let result = codux_runtime::async_runtime::spawn_blocking(move || {
+            let result = wecode_runtime::async_runtime::spawn_blocking(move || {
                 let paths = runtime_service.localized_open_dialog(request)?;
                 let Some(paths) = paths else {
                     return Ok(None);
@@ -344,7 +344,7 @@ impl CoduxApp {
         self.invalidate_status_bar(cx);
 
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let result = codux_runtime::async_runtime::spawn_blocking(move || {
+            let result = wecode_runtime::async_runtime::spawn_blocking(move || {
                 service.localized_confirm_dialog(LocalizedConfirmDialogRequest {
                     title,
                     message,
@@ -403,7 +403,7 @@ impl CoduxApp {
         self.invalidate_status_bar(cx);
 
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let result = codux_runtime::async_runtime::run_limited_blocking(move || {
+            let result = wecode_runtime::async_runtime::run_limited_blocking(move || {
                 runtime_service.runtime_trace_frontend(
                     "project",
                     &format!("remove_project start project_id={project_id}"),

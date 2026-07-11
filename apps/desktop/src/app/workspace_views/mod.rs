@@ -1,5 +1,5 @@
 use super::*;
-use crate::app::ui_helpers::codux_tooltip_container;
+use crate::app::ui_helpers::wecode_tooltip_container;
 use crate::app::workspace_shared::workspace_i18n;
 use gpui::Anchor;
 use gpui_component::popover::Popover;
@@ -175,7 +175,7 @@ pub(in crate::app) fn workspace_view_hash<T: std::hash::Hash + ?Sized>(value: &T
 }
 
 pub(in crate::app) fn terminal_ai_titles_by_terminal_id(
-    sessions: &[codux_runtime::ai_runtime_state::AIRuntimeSessionSummary],
+    sessions: &[wecode_runtime::ai_runtime_state::AIRuntimeSessionSummary],
 ) -> HashMap<String, (String, Option<String>)> {
     let mut titles = HashMap::new();
     let mut updated_at_by_terminal_id = HashMap::new();

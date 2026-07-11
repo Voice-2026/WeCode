@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn host_transport_disconnect_clears_stale_transport_and_enters_reconnect() {
-    let support_dir = temp_support_dir("codux-remote-host-reconnect");
+    let support_dir = temp_support_dir("wecode-remote-host-reconnect");
     write_paired_remote_settings(&support_dir);
     let runtime = RemoteHostRuntime::new(support_dir.clone());
     runtime.connection_generation.store(7, Ordering::SeqCst);
@@ -29,7 +29,7 @@ fn host_transport_disconnect_clears_stale_transport_and_enters_reconnect() {
 
 #[test]
 fn stale_host_transport_disconnect_does_not_clear_current_transport() {
-    let support_dir = temp_support_dir("codux-remote-host-reconnect-stale");
+    let support_dir = temp_support_dir("wecode-remote-host-reconnect-stale");
     write_paired_remote_settings(&support_dir);
     let runtime = RemoteHostRuntime::new(support_dir.clone());
     runtime.connection_generation.store(8, Ordering::SeqCst);
@@ -48,7 +48,7 @@ fn stale_host_transport_disconnect_does_not_clear_current_transport() {
 
 #[test]
 fn pairing_preparation_restarts_host_transport() {
-    let support_dir = temp_support_dir("codux-remote-host-pairing-restart");
+    let support_dir = temp_support_dir("wecode-remote-host-pairing-restart");
     write_paired_remote_settings(&support_dir);
     let runtime = RemoteHostRuntime::new(support_dir.clone());
     runtime.connection_generation.store(11, Ordering::SeqCst);
@@ -74,7 +74,7 @@ fn pairing_preparation_restarts_host_transport() {
 
 #[test]
 fn unauthorized_remote_message_gets_repair_response() {
-    let support_dir = temp_support_dir("codux-remote-unauthorized-repair");
+    let support_dir = temp_support_dir("wecode-remote-unauthorized-repair");
     write_paired_remote_settings(&support_dir);
     let runtime = Arc::new(RemoteHostRuntime::new(support_dir.clone()));
     let transport = Arc::new(CapturingTransport::default());
@@ -108,7 +108,7 @@ fn unauthorized_remote_message_gets_repair_response() {
 
 #[test]
 fn unauthorized_message_without_envelope_device_uses_transport_device_for_repair() {
-    let support_dir = temp_support_dir("codux-remote-unauthorized-transport-device-repair");
+    let support_dir = temp_support_dir("wecode-remote-unauthorized-transport-device-repair");
     write_paired_remote_settings(&support_dir);
     let runtime = Arc::new(RemoteHostRuntime::new(support_dir.clone()));
     let transport = Arc::new(CapturingTransport::default());
@@ -142,7 +142,7 @@ fn unauthorized_message_without_envelope_device_uses_transport_device_for_repair
 
 #[test]
 fn host_metrics_request_replies_with_metrics_payload() {
-    let support_dir = temp_support_dir("codux-remote-host-metrics");
+    let support_dir = temp_support_dir("wecode-remote-host-metrics");
     write_paired_remote_settings(&support_dir);
     let runtime = Arc::new(RemoteHostRuntime::new(support_dir.clone()));
     let transport = Arc::new(CapturingTransport::default());
@@ -169,7 +169,7 @@ fn host_metrics_request_replies_with_metrics_payload() {
     let envelope: RemoteEnvelope = serde_json::from_slice(&bytes).expect("metrics envelope");
     assert_eq!(envelope.kind, REMOTE_HOST_METRICS);
     assert_eq!(envelope.device_id.as_deref(), Some("device-1"));
-    let metrics: codux_protocol::RemoteHostMetrics =
+    let metrics: wecode_protocol::RemoteHostMetrics =
         serde_json::from_value(envelope.payload).expect("metrics payload");
     assert!(metrics.sampled_at_millis > 0);
     assert!(metrics.processes.len() <= 30);
@@ -179,7 +179,7 @@ fn host_metrics_request_replies_with_metrics_payload() {
 
 #[test]
 fn web_tunnel_requires_paired_device_token() {
-    let support_dir = temp_support_dir("codux-remote-web-tunnel-token");
+    let support_dir = temp_support_dir("wecode-remote-web-tunnel-token");
     write_paired_remote_settings(&support_dir);
     let runtime = RemoteHostRuntime::new(support_dir.clone());
 
@@ -219,7 +219,7 @@ fn web_tunnel_requires_paired_device_token() {
 
 #[test]
 fn transport_ping_runtime_fallback_replies_plain_pong() {
-    let support_dir = temp_support_dir("codux-remote-transport-ping-pong");
+    let support_dir = temp_support_dir("wecode-remote-transport-ping-pong");
     write_paired_remote_settings(&support_dir);
     let runtime = Arc::new(RemoteHostRuntime::new(support_dir.clone()));
     let transport = Arc::new(CapturingTransport::default());
@@ -257,7 +257,7 @@ fn transport_ping_runtime_fallback_replies_plain_pong() {
 
 #[test]
 fn viewport_events_do_not_broadcast_terminal_list() {
-    let support_dir = temp_support_dir("codux-remote-viewport-no-terminal-list");
+    let support_dir = temp_support_dir("wecode-remote-viewport-no-terminal-list");
     write_paired_remote_settings(&support_dir);
     let terminals = Arc::new(TerminalManager::new());
     let runtime = Arc::new(RemoteHostRuntime::new_with_ai_history_and_terminals(

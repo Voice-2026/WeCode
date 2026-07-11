@@ -80,7 +80,7 @@ impl TerminalPane {
         let attach_started_at = Instant::now();
         let (session, output_rx) =
             terminal_manager.attach_or_create_with_context(config, None, emit)?;
-        codux_runtime::runtime_trace::runtime_trace(
+        wecode_runtime::runtime_trace::runtime_trace(
             "terminal-restore",
             &format!(
                 "pty_attach elapsed_ms={} terminal_id={}",
@@ -111,7 +111,7 @@ impl TerminalPane {
                 cx,
             )
         });
-        codux_runtime::runtime_trace::runtime_trace(
+        wecode_runtime::runtime_trace::runtime_trace(
             "terminal-restore",
             &format!(
                 "view_create elapsed_ms={} terminal_id={} restored_bytes={} restored_tail_bytes={}",
@@ -173,7 +173,7 @@ impl TerminalPane {
                 cx,
             )
         });
-        codux_runtime::runtime_trace::runtime_trace(
+        wecode_runtime::runtime_trace::runtime_trace(
             "terminal-restore",
             &format!(
                 "pending_view elapsed_ms={} terminal_id={} restored_bytes={} restored_tail_bytes={}",
@@ -217,7 +217,7 @@ impl TerminalPane {
         let attach_started_at = Instant::now();
         let (session, output_rx) =
             terminal_manager.attach_or_create_with_context(config, None, emit)?;
-        codux_runtime::runtime_trace::runtime_trace(
+        wecode_runtime::runtime_trace::runtime_trace(
             "terminal-restore",
             &format!(
                 "pty_attach elapsed_ms={} terminal_id={}",
@@ -228,7 +228,7 @@ impl TerminalPane {
         let attached_id = session.id().to_string();
         pending.session.attach(session)?;
         match initial_layout {
-            Some((cols, rows)) => codux_runtime::runtime_trace::runtime_trace(
+            Some((cols, rows)) => wecode_runtime::runtime_trace::runtime_trace(
                 "terminal-restore",
                 &format!(
                     "initial_layout_ready terminal_id={} cols={} rows={} wait_ms={}",
@@ -238,7 +238,7 @@ impl TerminalPane {
                     layout_wait_ms
                 ),
             ),
-            None => codux_runtime::runtime_trace::runtime_trace(
+            None => wecode_runtime::runtime_trace::runtime_trace(
                 "terminal-restore",
                 &format!(
                     "initial_layout_timeout terminal_id={} wait_ms={}",
@@ -249,12 +249,12 @@ impl TerminalPane {
         }
         let output_tx = pending.output_tx;
         let output_terminal_id = terminal_id.clone().unwrap_or_else(|| attached_id.clone());
-        codux_runtime::async_runtime::spawn(async move {
+        wecode_runtime::async_runtime::spawn(async move {
             let mut first_output = true;
             while let Ok(bytes) = output_rx.recv_async().await {
                 if first_output {
                     first_output = false;
-                    codux_runtime::runtime_trace::runtime_trace(
+                    wecode_runtime::runtime_trace::runtime_trace(
                         "terminal-restore",
                         &format!(
                             "first_output terminal_id={} bytes={} attach_total_ms={}",
@@ -322,7 +322,7 @@ impl TerminalPane {
         {
             controller.unregister_terminal_output(terminal_id);
         }
-        codux_runtime::runtime_trace::runtime_trace(
+        wecode_runtime::runtime_trace::runtime_trace(
             "terminal-restore",
             &format!(
                 "remote_attach terminal_id={} session_id={session_id} layout={}",

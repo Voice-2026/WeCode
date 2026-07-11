@@ -208,7 +208,7 @@ fn parse_process_line(line: &str) -> Option<RuntimeProcessSummary> {
 }
 
 fn is_ai_runtime_process(command: &str) -> bool {
-    command_ai_tool_name(command).is_some() && !is_codux_process(command)
+    command_ai_tool_name(command).is_some() && !is_wecode_process(command)
 }
 
 fn command_ai_tool_name(command: &str) -> Option<&'static str> {
@@ -281,11 +281,11 @@ fn executable_name(word: &str) -> Option<String> {
     (!name.is_empty()).then_some(name)
 }
 
-fn is_codux_process(command: &str) -> bool {
+fn is_wecode_process(command: &str) -> bool {
     command_words(command)
         .into_iter()
         .filter_map(|word| executable_name(&word))
-        .any(|name| name == "codux")
+        .any(|name| name == "wecode")
 }
 
 #[cfg(test)]
@@ -297,7 +297,7 @@ mod tests {
     #[test]
     fn summary_reads_runtime_logs_and_support_files() {
         let support_dir =
-            std::env::temp_dir().join(format!("codux-gpui-runtime-test-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("wecode-gpui-runtime-test-{}", Uuid::new_v4()));
         let hook_dir = support_dir
             .join(crate::runtime_paths::RUNTIME_SUPPORT_DIR_NAME)
             .join("runtime-hooks");
@@ -343,9 +343,9 @@ mod tests {
         let process = parse_process_line(" 1234 /usr/bin/codex --foo").unwrap();
         assert_eq!(process.pid, 1234);
         assert!(is_ai_runtime_process(&process.command));
-        assert!(!is_ai_runtime_process("target/debug/codux"));
+        assert!(!is_ai_runtime_process("target/debug/wecode"));
         assert!(is_ai_runtime_process(
-            "/usr/bin/codex --project /Volumes/Web/codux-gpui"
+            "/usr/bin/codex --project /Volumes/Web/wecode-gpui"
         ));
         assert!(is_ai_runtime_process("/usr/bin/codewhale resume session-1"));
         assert!(is_ai_runtime_process("/usr/bin/kimi-code"));

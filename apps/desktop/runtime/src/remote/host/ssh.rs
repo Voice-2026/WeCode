@@ -11,11 +11,11 @@ impl RemoteHostRuntime {
     pub(super) fn send_ssh_list(&self, device_id: Option<&str>) {
         let service =
             crate::ssh::SSHService::new(self.support_dir.clone(), std::path::PathBuf::new());
-        let profiles: Vec<codux_protocol::RemoteSshProfileSummary> = service
+        let profiles: Vec<wecode_protocol::RemoteSshProfileSummary> = service
             .summary()
             .profiles
             .into_iter()
-            .map(|profile| codux_protocol::RemoteSshProfileSummary {
+            .map(|profile| wecode_protocol::RemoteSshProfileSummary {
                 id: profile.id,
                 name: profile.name,
                 endpoint: profile.endpoint,

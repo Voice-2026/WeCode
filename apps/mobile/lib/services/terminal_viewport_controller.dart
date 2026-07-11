@@ -107,8 +107,8 @@ class TerminalViewportController {
         rows > 0) {
       _sentBySession[sessionId] = _ViewportSize(cols, rows);
     }
-    CoduxLog.debug(
-      '[codux-flutter-terminal] viewport owner=${owner ?? ''} size=${cols ?? 0}x${rows ?? 0} generation=$_generation session=${message.sessionId ?? ''}',
+    WeCodeLog.debug(
+      '[wecode-flutter-terminal] viewport owner=${owner ?? ''} size=${cols ?? 0}x${rows ?? 0} generation=$_generation session=${message.sessionId ?? ''}',
     );
     return true;
   }

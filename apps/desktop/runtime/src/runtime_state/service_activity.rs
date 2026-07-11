@@ -49,7 +49,7 @@ impl RuntimeService {
         }
         let ai_history = self.ai_history_indexer.clone();
         let _ = std::thread::Builder::new()
-            .name("codux-ai-history-activation".to_string())
+            .name("wecode-ai-history-activation".to_string())
             .spawn(move || {
                 let _ = ai_history.refresh_project(request);
             });
@@ -90,7 +90,7 @@ impl RuntimeService {
     pub fn watch_project_background(&self, file_watch_path: String, git_watch_path: String) {
         let service = self.clone();
         let _ = std::thread::Builder::new()
-            .name("codux-project-watch-switch".to_string())
+            .name("wecode-project-watch-switch".to_string())
             .spawn(move || {
                 let _ = service.watch_active_project_files(file_watch_path);
                 let _ = service.git_watch(git_watch_path);

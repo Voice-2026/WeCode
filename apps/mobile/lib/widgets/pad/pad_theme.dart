@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../theme/app_theme.dart';
 
 /// Pad workspace surface palette. Follows the app theme (dark/light) via
-/// [CoduxTheme]; the accent is NOT here — widgets read it from
+/// [WeCodeTheme]; the accent is NOT here — widgets read it from
 /// `Theme.of(context).colorScheme.secondary`. Text / border / status tokens
 /// delegate to [AppColors] so the two palettes share one source of truth; only
 /// the pad's own surface layers live here.
@@ -11,7 +11,7 @@ class PadColors {
   PadColors._();
 
   static Color _pick(Color dark, Color light) =>
-      CoduxTheme.isLight ? light : dark;
+      WeCodeTheme.isLight ? light : dark;
 
   // Surfaces. Dark mode uses neutral grays (no blue tint) on a deep near-black
   // canvas; light canvas is a clear gray so the white panels read as raised.

@@ -1,5 +1,5 @@
-import 'package:codux_flutter/services/remote_terminal_subscription_controller.dart';
-import 'package:codux_flutter/services/remote_protocol_service.dart';
+import 'package:wecode_flutter/services/remote_terminal_subscription_controller.dart';
+import 'package:wecode_flutter/services/remote_protocol_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

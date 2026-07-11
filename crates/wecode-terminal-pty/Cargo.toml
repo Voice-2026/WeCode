@@ -1,0 +1,13 @@
+[package]
+name = "wecode-terminal-pty"
+version = "1.8.1"
+edition = "2024"
+
+[dependencies]
+wecode-terminal-core = { path = "../wecode-terminal-core" }
+portable-pty = "0.9"
+parking_lot = "0.12"
+uuid = { version = "1", features = ["v4"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

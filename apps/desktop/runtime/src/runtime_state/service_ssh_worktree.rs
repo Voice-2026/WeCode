@@ -30,8 +30,8 @@ impl RuntimeService {
         SSHStore::from_support_dir(self.support_dir.clone()).launch_command(profile_id)
     }
 
-    pub fn ssh_launch_context(&self, codux_ssh_command: Option<String>) -> Option<String> {
-        render_ssh_launch_context_from_support_dir(self.support_dir.clone(), codux_ssh_command)
+    pub fn ssh_launch_context(&self, wecode_ssh_command: Option<String>) -> Option<String> {
+        render_ssh_launch_context_from_support_dir(self.support_dir.clone(), wecode_ssh_command)
     }
 
     pub fn reload_db(&self, runtime_assets: PathBuf, project_id: Option<&str>) -> DBSummary {
@@ -288,6 +288,10 @@ impl RuntimeService {
             bottom_ratio,
             collapsed_panes,
         )
+    }
+
+    pub fn delete_terminal_layout(&self, project_id: &str) -> Result<bool, String> {
+        TerminalLayoutService::new(self.support_dir.clone()).delete(project_id)
     }
 
     pub fn save_terminal_runtime(

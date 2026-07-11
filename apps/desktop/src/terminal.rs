@@ -1,16 +1,5 @@
 use crate::heroicons::HeroIconName;
 use anyhow::Result;
-use codux_runtime::remote::RemoteController;
-use codux_runtime::terminal_pty::{
-    EventSink, TerminalEvent, TerminalInputSnapshot, TerminalManager, TerminalOutputSnapshot,
-    TerminalPtyConfig, TerminalPtySession, terminal_viewport_local_owner,
-};
-use codux_terminal_core::{
-    HeadlessTerminalScreen, HeadlessTerminalSnapshotRequest, TerminalInputMode,
-    TerminalScreenCellSnapshot, TerminalScreenColor, TerminalScreenCursorShape,
-    TerminalScreenCursorSnapshot, TerminalScreenImage, TerminalScreenSnapshot,
-    TerminalScreenUnderline, TerminalSelectionSpanKind,
-};
 use gpui::{
     App, AppContext, Bounds, ClipboardEntry, ClipboardItem, ContentMask, Context, Corners,
     CursorStyle, Edges, Element, ElementId, Entity, ExternalPaths, FocusHandle, Focusable, Font,
@@ -40,8 +29,19 @@ use std::{
     sync::{Arc, LazyLock, OnceLock, mpsc},
     time::{Duration, Instant},
 };
+use wecode_runtime::remote::RemoteController;
+use wecode_runtime::terminal_pty::{
+    EventSink, TerminalEvent, TerminalInputSnapshot, TerminalManager, TerminalOutputSnapshot,
+    TerminalPtyConfig, TerminalPtySession, terminal_viewport_local_owner,
+};
+use wecode_terminal_core::{
+    HeadlessTerminalScreen, HeadlessTerminalSnapshotRequest, TerminalInputMode,
+    TerminalScreenCellSnapshot, TerminalScreenColor, TerminalScreenCursorShape,
+    TerminalScreenCursorSnapshot, TerminalScreenImage, TerminalScreenSnapshot,
+    TerminalScreenUnderline, TerminalSelectionSpanKind,
+};
 
-pub use codux_runtime::terminal_pty::TerminalLaunchContext;
+pub use wecode_runtime::terminal_pty::TerminalLaunchContext;
 
 include!("terminal/pane.rs");
 include!("terminal/config.rs");

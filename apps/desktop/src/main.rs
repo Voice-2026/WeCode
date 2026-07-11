@@ -12,10 +12,10 @@ mod theme;
 
 use anyhow::Result;
 use app::{
-    CoduxApp, MAIN_WINDOW_DEFAULT_HEIGHT, MAIN_WINDOW_DEFAULT_WIDTH, MAIN_WINDOW_MIN_HEIGHT,
-    MAIN_WINDOW_MIN_WIDTH,
+    MAIN_WINDOW_DEFAULT_HEIGHT, MAIN_WINDOW_DEFAULT_WIDTH, MAIN_WINDOW_MIN_HEIGHT,
+    MAIN_WINDOW_MIN_WIDTH, WeCodeApp,
 };
-use assets::CoduxAssets;
+use assets::WeCodeAssets;
 use gpui::{
     AnyWindowHandle, App, AppContext, Bounds, KeyBinding, Styled, Unbind,
     WindowBackgroundAppearance, WindowBounds, WindowOptions, px, size, transparent_black,
@@ -33,12 +33,12 @@ fn main() -> Result<()> {
     }
 
     install_panic_logger();
-    codux_runtime::system_limits::raise_open_file_limit();
+    wecode_runtime::system_limits::raise_open_file_limit();
 
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
     disable_macos_autofill_heuristics();
 
-    let app = gpui_platform::application().with_assets(CoduxAssets);
+    let app = gpui_platform::application().with_assets(WeCodeAssets);
     let main_window_handle: Rc<Cell<Option<AnyWindowHandle>>> = Rc::new(Cell::new(None));
     let reopen_main_window = main_window_handle.clone();
     app.on_reopen(move |cx| {
@@ -64,19 +64,19 @@ fn main() -> Result<()> {
         gpui_component::init(cx);
         load_embedded_fonts(cx);
         disable_root_tab_focus_bindings(cx);
-        let initial_state = codux_runtime::runtime_state::RuntimeState::load();
+        let initial_state = wecode_runtime::runtime_state::RuntimeState::load();
         // Always leave a boot line so the runtime log is never confusingly empty
         // when opened from the Help menu (and so its resolved path is verifiable
         // on every platform, including Windows).
-        codux_runtime::runtime_trace::runtime_trace(
+        wecode_runtime::runtime_trace::runtime_trace(
             "startup",
             &format!(
-                "codux {} launched os={}",
+                "wecode {} launched os={}",
                 env!("CARGO_PKG_VERSION"),
                 std::env::consts::OS
             ),
         );
-        let _ = codux_runtime::app_icon::apply_app_icon(&initial_state.settings.icon_style);
+        let _ = wecode_runtime::app_icon::apply_app_icon(&initial_state.settings.icon_style);
         app::set_active_settings_snapshot(initial_state.settings.clone());
         theme::apply_component_theme(
             &initial_state.settings.theme,
@@ -84,7 +84,7 @@ fn main() -> Result<()> {
             None,
             cx,
         );
-        cx.set_menus(crate::app::native_menu::codux_menus(
+        cx.set_menus(crate::app::native_menu::wecode_menus(
             &initial_state.settings.language,
         ));
         if !open_main_window(cx, &main_window_handle, &initial_state.settings) {
@@ -119,7 +119,7 @@ fn install_panic_logger() {
             })
             .unwrap_or_else(|| "unknown location".to_string());
         let backtrace = std::backtrace::Backtrace::force_capture();
-        codux_runtime::runtime_trace::runtime_trace(
+        wecode_runtime::runtime_trace::runtime_trace(
             "panic",
             &format!("{payload} at {location}\n{backtrace}"),
         );
@@ -129,7 +129,7 @@ fn install_panic_logger() {
 
 fn handle_cli_args() -> bool {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
-    match codux_runtime::wrapper_helper::handle_args(&args) {
+    match wecode_runtime::wrapper_helper::handle_args(&args) {
         Ok(true) => return true,
         Ok(false) => {}
         Err(error) => {
@@ -140,12 +140,12 @@ fn handle_cli_args() -> bool {
 
     match args.first().map(String::as_str) {
         Some("--version") | Some("-V") => {
-            println!("codux {}", env!("CARGO_PKG_VERSION"));
+            println!("wecode {}", env!("CARGO_PKG_VERSION"));
             true
         }
         Some("--help") | Some("-h") => {
-            println!("Codux {}", env!("CARGO_PKG_VERSION"));
-            println!("Usage: codux [--version]");
+            println!("WeCode {}", env!("CARGO_PKG_VERSION"));
+            println!("Usage: wecode [--version]");
             true
         }
         _ => false,
@@ -182,7 +182,7 @@ fn load_embedded_fonts(cx: &App) {
 fn open_main_window(
     cx: &mut App,
     main_window_handle: &Rc<Cell<Option<AnyWindowHandle>>>,
-    settings: &codux_runtime::settings::SettingsSummary,
+    settings: &wecode_runtime::settings::SettingsSummary,
 ) -> bool {
     let bounds = Bounds::centered(
         None,
@@ -194,8 +194,8 @@ fn open_main_window(
     );
     let result = cx.open_window(
         WindowOptions {
-            titlebar: Some(theme::codux_main_titlebar(
-                codux_runtime::runtime_paths::app_display_name(),
+            titlebar: Some(theme::wecode_main_titlebar(
+                wecode_runtime::runtime_paths::app_display_name(),
             )),
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             window_min_size: Some(size(px(MAIN_WINDOW_MIN_WIDTH), px(MAIN_WINDOW_MIN_HEIGHT))),
@@ -209,7 +209,7 @@ fn open_main_window(
         },
         |window, cx| {
             app::macos_window::configure_main_window_controls(window);
-            let app = CoduxApp::new(window, cx).expect("failed to create Codux app");
+            let app = WeCodeApp::new(window, cx).expect("failed to create WeCode app");
             let view = cx.new(|_| app);
             view.update(cx, |app, _| {
                 app.observe_main_window_appearance(view.clone(), window);
@@ -239,22 +239,22 @@ fn open_main_window(
             true
         }
         Err(error) => {
-            eprintln!("failed to open Codux window: {error}");
+            eprintln!("failed to open WeCode window: {error}");
             false
         }
     }
 }
 
-fn window_icon_image(settings: &codux_runtime::settings::SettingsSummary) -> image::RgbaImage {
+fn window_icon_image(settings: &wecode_runtime::settings::SettingsSummary) -> image::RgbaImage {
     #[cfg(target_os = "windows")]
-    let icon = codux_runtime::app_icon::render_windows_app_icon(
+    let icon = wecode_runtime::app_icon::render_windows_app_icon(
         &settings.icon_style,
-        codux_runtime::app_icon::ICON_SIZE,
+        wecode_runtime::app_icon::ICON_SIZE,
     );
     #[cfg(not(target_os = "windows"))]
-    let icon = codux_runtime::app_icon::render_app_icon(
+    let icon = wecode_runtime::app_icon::render_app_icon(
         &settings.icon_style,
-        codux_runtime::app_icon::ICON_SIZE,
+        wecode_runtime::app_icon::ICON_SIZE,
     );
     image::RgbaImage::from_raw(icon.width, icon.height, icon.pixels)
         .unwrap_or_else(|| image::RgbaImage::new(icon.width, icon.height))
@@ -300,7 +300,7 @@ fn disable_root_tab_focus_bindings(cx: &mut App) {
         KeyBinding::new(
             "cmd-w",
             crate::app::native_menu::CloseActive,
-            Some("CoduxMainWindow"),
+            Some("WeCodeMainWindow"),
         ),
         KeyBinding::new("cmd-n", crate::app::native_menu::NewProject, None),
         KeyBinding::new("cmd-o", crate::app::native_menu::OpenProjectFolder, None),
@@ -319,10 +319,10 @@ fn disable_root_tab_focus_bindings(cx: &mut App) {
         KeyBinding::new("cmd-shift-n", crate::app::native_menu::CreateTask, None),
         KeyBinding::new("cmd-s", crate::app::native_menu::EditorSave, None),
         KeyBinding::new("cmd-f", crate::app::native_menu::EditorSearch, None),
-        KeyBinding::new("cmd-q", crate::app::native_menu::QuitCodux, None),
+        KeyBinding::new("cmd-q", crate::app::native_menu::QuitWeCode, None),
         KeyBinding::new("cmd-m", crate::app::native_menu::MinimizeWindow, None),
         KeyBinding::new("cmd-alt-m", crate::app::native_menu::MinimizeWindow, None),
-        KeyBinding::new("cmd-h", crate::app::native_menu::HideCodux, None),
+        KeyBinding::new("cmd-h", crate::app::native_menu::HideWeCode, None),
         KeyBinding::new("cmd-alt-h", crate::app::native_menu::HideOthers, None),
         KeyBinding::new(
             "cmd-ctrl-f",
@@ -341,7 +341,7 @@ fn add_non_macos_control_shortcuts(bindings: &mut Vec<KeyBinding>) {
         KeyBinding::new(
             "ctrl-w",
             crate::app::native_menu::CloseActive,
-            Some("CoduxMainWindow"),
+            Some("WeCodeMainWindow"),
         ),
         KeyBinding::new("ctrl-n", crate::app::native_menu::NewProject, None),
         KeyBinding::new("ctrl-o", crate::app::native_menu::OpenProjectFolder, None),

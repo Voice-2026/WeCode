@@ -39,7 +39,7 @@ All notable changes to this project will be documented in this file.
 - Improved Git action reliability for worktrees and remote projects, including amend-last-message, existing-repo init, branch switching, Quick Pick/Input interactions, and visible failure dialogs.
 - Improved terminal stability on Windows and Linux, including paste shortcuts, PowerShell wrapper path handling, hidden console windows, conhost light-theme detection, and Windows file-preview close behavior.
 - Fixed terminal rendering for non-ASCII combining marks, Nerd Font icons, powerline separators, and IME cursor bounds during reflow.
-- Improved saved SSH auto-connect/reconnect behavior, `codux-ssh` non-interactive execution, SCP support, and agent relay configuration flags.
+- Improved saved SSH auto-connect/reconnect behavior, `wecode-ssh` non-interactive execution, SCP support, and agent relay configuration flags.
 
 ## [2.0.0-rc.3] - 2026-07-05
 
@@ -85,7 +85,7 @@ All notable changes to this project will be documented in this file.
 
 - Reduced Server panel host metrics polling and cached disk metrics between refreshes to avoid noisy macOS volume-space queries.
 - Preserved rotated desktop runtime logs across restarts, included recent rotations in runtime log previews, and wrote Rust panic payloads, source locations, and backtraces to `runtime-rust.log`.
-- Changed the default Codex reasoning effort to Default/none so Codux follows Codex's own configuration unless the user selects an explicit effort.
+- Changed the default Codex reasoning effort to Default/none so WeCode follows Codex's own configuration unless the user selects an explicit effort.
 - Made Codex wrappers reload tool permission settings on each launch and avoid passing `model_reasoning_effort` when the effort is Default.
 - Fixed PowerShell wrapper reasoning-effort validation and config-key detection to match the shell wrapper.
 
@@ -158,12 +158,12 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- Added a project-scoped database connection manager and `codux-db` runtime command so AI sessions can discover saved databases without seeing credentials.
+- Added a project-scoped database connection manager and `wecode-db` runtime command so AI sessions can discover saved databases without seeing credentials.
 - Added a README AI CLI support matrix that documents live status, token usage, settings support, and which tools receive non-invasive environment directives.
 
 ### Fixed
 
-- Fixed Codux environment directive delivery so `codux-ssh` and `codux-db` instructions are injected independently of memory settings for supported AI CLIs.
+- Fixed WeCode environment directive delivery so `wecode-ssh` and `wecode-db` instructions are injected independently of memory settings for supported AI CLIs.
 - Fixed Kimi Code environment directive injection through a managed `--agent-file` and kept CodeWhale marked as non-injected for interactive sessions because it has no confirmed non-invasive prompt channel.
 - Fixed memory extraction preflight gating, memory relevance ranking, secret redaction, completion-state races, and launch-artifact test isolation.
 - Fixed mobile takeover of active remote terminal history by closing empty baseline loading states and moving host baseline generation out of the synchronous receive path.
@@ -171,7 +171,7 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - Clarified unsupported AI CLI injection behavior for Kiro CLI, CodeWhale, and Agy instead of forcing project or user-level prompt configuration.
-- Refined database and SSH launch guidance so agents discover current profiles at runtime with `codux-db list` and `codux-ssh list`.
+- Refined database and SSH launch guidance so agents discover current profiles at runtime with `wecode-db list` and `wecode-ssh list`.
 
 ## [2.0.0-beta.6] - 2026-07-01
 
@@ -200,7 +200,7 @@ All notable changes to this project will be documented in this file.
 
 - Restored terminal layouts immediately during project switches so moving between local and remote projects no longer waits on the asynchronous terminal-load worker.
 - Centralized the remote terminal create lifecycle into shared runtime helpers used by both the desktop host and headless agent, removing duplicate host-specific wrapper paths.
-- Improved `codux-ssh` one-off command performance with safer SSH connection reuse and stdin forwarding while keeping credentials inside the saved profile/helper path.
+- Improved `wecode-ssh` one-off command performance with safer SSH connection reuse and stdin forwarding while keeping credentials inside the saved profile/helper path.
 
 ## [2.0.0-beta.4] - 2026-06-30
 
@@ -224,7 +224,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- Direct LAN (peer-to-peer) remote connections: the desktop or phone discovers a Codux host on the same network via iroh mDNS and links directly instead of through a relay, with a direct-vs-relay indicator on the connection badge.
+- Direct LAN (peer-to-peer) remote connections: the desktop or phone discovers a WeCode host on the same network via iroh mDNS and links directly instead of through a relay, with a direct-vs-relay indicator on the connection badge.
 - Persistent, multi-client remote terminals: switching projects or devices re-attaches the same host shell, several clients can share one agent terminal with viewport hand-off (click the phone badge to reclaim the viewport), and the headless host now forwards Ctrl-C and viewport scroll.
 - Git sidebar folders now have a right-click menu — stage, unstage, discard, or add a whole directory to .gitignore — matching the per-file actions.
 - Slimmer pairing QR (node id + relay url only) with device-role badges, plus a mobile fallback to import a pairing QR from a photo or screenshot when the live camera scan struggles.
@@ -232,7 +232,7 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - Faster remote reconnects: a pooled controller endpoint and warm re-dial skip the cold start, and the now-unused per-output screen keyframe is no longer sent on the desktop or agent live path.
-- Unified the cross-device internals: one shared remote-terminal dispatch router, a shared terminal-stream lane classifier, shared pairing-QR parsing over FFI, and worktree create/merge/remove sunk into the shared codux-git engine.
+- Unified the cross-device internals: one shared remote-terminal dispatch router, a shared terminal-stream lane classifier, shared pairing-QR parsing over FFI, and worktree create/merge/remove sunk into the shared wecode-git engine.
 - Simplified desktop pairing into a match-then-confirm flow and dropped the separate operator dialog.
 
 ### Fixed
@@ -264,8 +264,8 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- Cross-device interconnect: connect the desktop (or phone) to a headless **Codux host** (`codux-agent`) running on a server, spare Mac, or Linux box, and drive its terminals, Git, AI sessions, and memory remotely over the end-to-end encrypted Iroh transport. (Beta)
-- Headless Codux host app (`codux-agent`) for macOS, Linux, and Windows (x86_64 and arm64), installable as a startup service with QR-code or ticket pairing; dropped clients reconnect to the same sessions.
+- Cross-device interconnect: connect the desktop (or phone) to a headless **WeCode host** (`wecode-agent`) running on a server, spare Mac, or Linux box, and drive its terminals, Git, AI sessions, and memory remotely over the end-to-end encrypted Iroh transport. (Beta)
+- Headless WeCode host app (`wecode-agent`) for macOS, Linux, and Windows (x86_64 and arm64), installable as a startup service with QR-code or ticket pairing; dropped clients reconnect to the same sessions.
 - Direct, always-latest per-platform download links for both the desktop app and the headless host.
 
 ### Changed
@@ -295,7 +295,7 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 
 - Fixed remote terminal viewport ownership across desktop and mobile so remote viewers drive columns while the host preserves normal-screen rows, with alt-screen sessions restored from keyframes instead of stale host rows.
-- Fixed terminal input handling that could deliver escape-notation text through the IME commit path, and kept diagnostic tracing behind `CODUX_TERMINAL_TRACE`.
+- Fixed terminal input handling that could deliver escape-notation text through the IME commit path, and kept diagnostic tracing behind `WECODE_TERMINAL_TRACE`.
 - Fixed memory extraction queue lock contention by broadening retry classification, reducing hot-path database work, and applying extracted memory in one connection/transaction.
 - Fixed AI usage accounting bugs that undercounted Claude cache tokens or inflated Codex totals, then re-indexed usage history after the parser fixes.
 - Fixed desktop pet LLM response races and JSON-shaped bubble text so pet messages show the intended plain text.
@@ -425,9 +425,9 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- Added the official v3 remote stack for Codux Desktop and Codux Mobile, with WebRTC DataChannel as the preferred direct path and WebSocket relay as the fallback path.
+- Added the official v3 remote stack for WeCode Desktop and WeCode Mobile, with WebRTC DataChannel as the preferred direct path and WebSocket relay as the fallback path.
 - Added stateless relay ticket pairing so QR codes stay small while the relay only exchanges short-lived pairing payloads.
-- Added global, China, and custom relay presets backed by `https://codux-node.dux.plus` and `https://codux-service.dux.plus`.
+- Added global, China, and custom relay presets backed by `https://wecode-node.dux.plus` and `https://wecode-service.dux.plus`.
 - Added CodeWhale to the unified AI runtime driver architecture, including runtime status, hooks, history indexing, model/session probes, and memory injection.
 - Added child-window file editing and preview flows, Markdown source/preview layout, media preview, clipboard image paste, terminal URL interactions, project/tab drag ordering, and terminal tab rename dialogs.
 
@@ -474,7 +474,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
-- Fixed Codux child windows being forced back above the main window during normal in-app focus changes, while still restoring them when returning from another app.
+- Fixed WeCode child windows being forced back above the main window during normal in-app focus changes, while still restoring them when returning from another app.
 
 ## [1.6.5] - 2026-06-07
 
@@ -482,7 +482,7 @@ All notable changes to this project will be documented in this file.
 
 - Added child-window file editing and preview flows for non-file views, including Markdown source/preview layout and media previews.
 - Added clipboard image paste support for the file sidebar and optional terminal clipboard image path insertion.
-- Added foreground restoration for Codux child windows when the app is reactivated.
+- Added foreground restoration for WeCode child windows when the app is reactivated.
 
 ### Changed
 
@@ -495,7 +495,7 @@ All notable changes to this project will be documented in this file.
 - Fixed Markdown preview visibility, scrolling, and selectable text behavior in preview windows.
 - Fixed Git review file opening for added files and simplified Git diff preview actions.
 - Fixed file sidebar clipboard paste crashes and added runtime coverage for copied image payloads.
-- Fixed child file windows staying behind the main window after switching away from Codux and back.
+- Fixed child file windows staying behind the main window after switching away from WeCode and back.
 
 ## [1.6.4] - 2026-06-06
 
@@ -510,7 +510,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
-- Fixed AI history titles so injected Codux memory, global prompts, and launch context are not used as session titles.
+- Fixed AI history titles so injected WeCode memory, global prompts, and launch context are not used as session titles.
 - Fixed pet state compatibility for older custom pet progress fields.
 - Fixed terminal tab rename copy so it uses the shared 10-language localization bundle.
 
@@ -536,7 +536,7 @@ All notable changes to this project will be documented in this file.
 
 - Added CodeWhale support across AI runtime detection, hook ingestion, history indexing, model/session probing, wrapper scripts, and permission settings.
 - Added per-tool AI runtime drivers for Codex, Claude, Gemini, Kiro, Agy, OpenCode, and CodeWhale so hooks, probes, history sources, and memory injection share one extension path.
-- Added SSH launch context injection for AI tools so `codux-ssh` is available in managed CLI sessions without exposing saved credentials.
+- Added SSH launch context injection for AI tools so `wecode-ssh` is available in managed CLI sessions without exposing saved credentials.
 
 ### Changed
 
@@ -551,7 +551,7 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 
 - Fixed programmatic terminal commands on Windows by sending the platform enter sequence instead of `\n`.
-- Fixed `codux-ssh` non-interactive commands so long-running or password-based commands exit cleanly.
+- Fixed `wecode-ssh` non-interactive commands so long-running or password-based commands exit cleanly.
 - Fixed SSH profile context menus to use the shared localized Edit label instead of the longer SSH-specific label.
 - Fixed SSH profile testing feedback so the editor footer shows an inline status indicator with the connection test result.
 - Fixed unsupported async hook config warnings by keeping runtime hooks on supported synchronous paths.
@@ -633,28 +633,28 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
-- Rebuilt Codux Desktop as a Rust-native GPUI application, replacing the previous Tauri/WebView desktop shell while keeping the existing product scope and user-facing workflows as the release baseline.
+- Rebuilt WeCode Desktop as a Rust-native GPUI application, replacing the previous Tauri/WebView desktop shell while keeping the existing product scope and user-facing workflows as the release baseline.
 - Moved the main window, terminal workspace, project and worktree navigation, file browser, Git review, AI runtime status, settings, update dialogs, and desktop pet surfaces onto the native GPUI rendering path.
 - Consolidated runtime state, project/worktree UI state, terminal layout, file editor layout, Git review state, and desktop pet baseline handling around the Rust runtime and local cache stores.
 - Updated the release and updater pipeline for the Rust-native desktop build, including GitHub Releases metadata, Windows installer packaging, macOS app packaging, and the separate notarized macOS formal package.
 
 ### Notes
 
-- This is the first stable 1.5.0 GPUI baseline for Codux. It focuses on the desktop architecture migration from Tauri to Rust + GPUI and does not introduce a separate feature expansion over the existing Codux workflows.
+- This is the first stable 1.5.0 GPUI baseline for WeCode. It focuses on the desktop architecture migration from Tauri to Rust + GPUI and does not introduce a separate feature expansion over the existing WeCode workflows.
 - Includes the 1.5.0-beta.1 validation cycle and fixes for GPUI terminal restore, project/worktree state recovery, AI runtime status, desktop pet behavior, remote mobile terminal compatibility, and the Tauri-compatible updater artifact format.
 
 ## [1.5.0-beta.1] - 2026-06-03
 
 ### Changed
 
-- Rebuilt Codux Desktop as a Rust-native GPUI application, replacing the previous Tauri/WebView desktop shell while keeping the existing product scope and user-facing workflows as the release baseline.
+- Rebuilt WeCode Desktop as a Rust-native GPUI application, replacing the previous Tauri/WebView desktop shell while keeping the existing product scope and user-facing workflows as the release baseline.
 - Moved the main window, terminal workspace, project and worktree navigation, file browser, Git review, AI runtime status, settings, update dialogs, and desktop pet surfaces onto the native GPUI rendering path.
 - Consolidated runtime state, project/worktree UI state, terminal layout, file editor layout, Git review state, and desktop pet baseline handling around the Rust runtime and local cache stores.
 - Updated the release and updater pipeline for the Rust-native desktop build, including GitHub Releases metadata, Windows installer packaging, macOS app packaging, and the separate notarized macOS formal package.
 
 ### Notes
 
-- This is the first 1.5.0 GPUI baseline beta for Codux. It focuses on the desktop architecture migration from Tauri to Rust + GPUI and does not introduce a separate feature expansion over the existing Codux workflows.
+- This is the first 1.5.0 GPUI baseline beta for WeCode. It focuses on the desktop architecture migration from Tauri to Rust + GPUI and does not introduce a separate feature expansion over the existing WeCode workflows.
 
 ## [1.0.8] - 2026-05-27
 
@@ -702,7 +702,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
-- Moved the terminal stack back to the stable xterm.js 5.5 line used by comparable Tauri terminal apps, keeping the existing Codux input and selection compatibility patches.
+- Moved the terminal stack back to the stable xterm.js 5.5 line used by comparable Tauri terminal apps, keeping the existing WeCode input and selection compatibility patches.
 
 ### Fixed
 
@@ -760,7 +760,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- Added the first stable cross-platform Codux release for macOS and Windows.
+- Added the first stable cross-platform WeCode release for macOS and Windows.
 - Added Git commit message provider selection with Automatic, Off, and explicit AI provider modes.
 - Added runtime telemetry and log rotation to make CPU, memory, GPU, AI runtime, Git, and memory extraction issues easier to diagnose.
 
@@ -793,7 +793,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- Added a saved SSH profile modal with credential testing, double-click connect, context-menu actions, and a `codux-ssh` runtime command that AI tools can discover through the shared injected context.
+- Added a saved SSH profile modal with credential testing, double-click connect, context-menu actions, and a `wecode-ssh` runtime command that AI tools can discover through the shared injected context.
 - Added a dedicated update download/install progress flow after the update notes confirmation dialog.
 
 ### Changed
@@ -825,7 +825,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- Added the first cross-platform Tauri beta of Codux, covering macOS and Windows builds from the `tauri` branch.
+- Added the first cross-platform Tauri beta of WeCode, covering macOS and Windows builds from the `tauri` branch.
 - Added Tauri updater support backed by GitHub Release channels, with separate stable and beta `latest.json` endpoints.
 - Added Windows desktop support with self-drawn chrome, Mica-compatible window effects, WebView2 terminal rendering, and PowerShell terminal defaults.
 
@@ -833,7 +833,7 @@ All notable changes to this project will be documented in this file.
 
 - Ported the main workspace shell, project/worktree sidebars, Git panel, file editor, AI statistics, memory status, desktop pet, settings, and remote pairing surfaces to the Tauri application.
 - Reworked project, Git, worktree, AI runtime, remote, and pet state so Rust owns durable/runtime state while the React UI subscribes to snapshots and events.
-- Aligned the Tauri app identity, visible product name, updater channel naming, and release assets with the Codux replacement path.
+- Aligned the Tauri app identity, visible product name, updater channel naming, and release assets with the WeCode replacement path.
 
 ### Fixed
 
@@ -878,8 +878,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
-- Updated Codex hook feature flag handling to prefer `--enable hooks`, falling back to `codex_hooks` only when older CLIs still expose the legacy flag, migrate startup-managed Codex config to `[features].hooks = true`, and trust only the Codux-managed hook hashes written by the app.
-- Removed Codux-managed legacy Codex tool-use and unsupported session-end hooks, plus duplicate cross-owner managed hooks, to reduce redundant entries in the new Codex `/hooks` review flow.
+- Updated Codex hook feature flag handling to prefer `--enable hooks`, falling back to `codex_hooks` only when older CLIs still expose the legacy flag, migrate startup-managed Codex config to `[features].hooks = true`, and trust only the WeCode-managed hook hashes written by the app.
+- Removed WeCode-managed legacy Codex tool-use and unsupported session-end hooks, plus duplicate cross-owner managed hooks, to reduce redundant entries in the new Codex `/hooks` review flow.
 
 ## [0.9.9] - 2026-05-07
 
@@ -983,7 +983,7 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - Switched the Ghostty package dependency back to the official `Lakr233/libghostty-spm` main branch.
-- Simplified saved SSH launches so Codux sends a single `codux-ssh <profile>` command instead of pasting an expect script into the terminal.
+- Simplified saved SSH launches so WeCode sends a single `wecode-ssh <profile>` command instead of pasting an expect script into the terminal.
 - Further reduced terminal resize work by deferring Ghostty frame and viewport refreshes during live window resizing.
 
 ### Fixed
@@ -1050,7 +1050,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- Added shared remote terminal splits for Codux Mobile, so mobile clients can browse, create, switch, resize, and close the same split sessions shown on macOS.
+- Added shared remote terminal splits for WeCode Mobile, so mobile clients can browse, create, switch, resize, and close the same split sessions shown on macOS.
 - Added WebRTC DataChannel P2P transport for remote terminal traffic, using STUN direct connection first with encrypted WebSocket relay fallback.
 - Added host-side support for mobile file-manager paste, drag/drop moves, inline rename, external opening for media and office files, and terminal file-drop insertion.
 
@@ -1132,7 +1132,7 @@ All notable changes to this project will be documented in this file.
 
 - Added remote connection status in the title bar with an online/offline indicator and a device popover for paired mobile clients.
 - Added one-time QR pairing with mobile confirmation details, matching codes, rejection flow, and cached paired-device restoration after restart.
-- Added end-to-end encrypted remote payload transport between Codux macOS and Codux Mobile, including host/device key management and secure message forwarding.
+- Added end-to-end encrypted remote payload transport between WeCode macOS and WeCode Mobile, including host/device key management and secure message forwarding.
 - Added mobile-side remote file rename/delete handling from the macOS host.
 
 ### Changed
@@ -1151,7 +1151,7 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - Simplified project activity tracking to rely on live runtime sessions plus UI completion presentation, removing stale cached status fallbacks from sidebar loading and completion handling.
-- Removed legacy dmux state auto-merge compatibility and old memory extraction response schema compatibility that are no longer used by current Codux releases.
+- Removed legacy dmux state auto-merge compatibility and old memory extraction response schema compatibility that are no longer used by current WeCode releases.
 
 ### Fixed
 
@@ -1168,7 +1168,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
-- Restored legacy dmux project/workspace configuration by merging old project state into the new Codux app support storage without overwriting current settings.
+- Restored legacy dmux project/workspace configuration by merging old project state into the new WeCode app support storage without overwriting current settings.
 - Fixed terminal launch model overrides so Codex receives `--model=...`, Claude/Gemini/OpenCode receive `--model ...`, and blank model fields leave each CLI default untouched.
 
 ## [0.5.9] - 2026-04-24
@@ -1207,13 +1207,13 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 
 - Replaced global floating tooltip windows with local SwiftUI overlays so sidebar and title-bar hover labels stay anchored to their controls in release builds.
-- Fixed Codex memory extraction so Codux no longer forces the built-in default model over the user's local Codex provider configuration.
+- Fixed Codex memory extraction so WeCode no longer forces the built-in default model over the user's local Codex provider configuration.
 
 ## [0.5.3] - 2026-04-24
 
 ### Fixed
 
-- Fixed release-build AI memory extraction by resolving CLI paths from the user's login shell environment, so background Codex, Claude, Gemini, and OpenCode workers can find user-installed binaries even when Codux is launched from Finder.
+- Fixed release-build AI memory extraction by resolving CLI paths from the user's login shell environment, so background Codex, Claude, Gemini, and OpenCode workers can find user-installed binaries even when WeCode is launched from Finder.
 - Fixed title-bar floating tooltips in release builds by resolving the anchor from the control's real AppKit frame, keeping hover labels attached to the correct button after packaging.
 
 ## [0.5.2] - 2026-04-24
@@ -1225,7 +1225,7 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 
 - Fixed release-build floating tooltips by anchoring them to the real control overlay and presenting them with stable screen coordinates.
-- Fixed AI memory extraction workers so Claude, Codex, Gemini, and OpenCode provider runs skip Codux terminal wrappers and resolve the real user-installed CLI instead.
+- Fixed AI memory extraction workers so Claude, Codex, Gemini, and OpenCode provider runs skip WeCode terminal wrappers and resolve the real user-installed CLI instead.
 
 ## [0.5.1] - 2026-04-24
 
@@ -1249,18 +1249,18 @@ All notable changes to this project will be documented in this file.
 - Added the first AI memory system with SQLite-backed user memory, project memory, extraction queueing, compact merged project summaries, and limited working-memory injection for supported AI tools.
 - Added AI settings for built-in and custom providers, including Claude, Codex, Gemini, OpenCode, and OpenAI-compatible extraction providers with model, base URL, API key, and memory-extraction controls.
 - Added a lightweight memory status indicator in the title bar so extraction activity and queue state are visible without opening settings.
-- Added terminal environment loading for project `.env` files when present, making configured AI CLI credentials and proxy variables available consistently inside Codux-managed terminals.
+- Added terminal environment loading for project `.env` files when present, making configured AI CLI credentials and proxy variables available consistently inside WeCode-managed terminals.
 
 ### Changed
 
 - Renamed the settings Tools section to AI and moved runtime permissions, provider setup, and memory controls into one AI-focused settings surface.
 - Kept appearance theme/background changes on the stable restart-required path instead of live-applying them to existing terminal surfaces.
-- Updated README troubleshooting paths to the current Codux support directory and runtime log filenames.
+- Updated README troubleshooting paths to the current WeCode support directory and runtime log filenames.
 
 ### Fixed
 
 - Fixed project terminal focus drift after long sessions by ignoring stale focused terminals from other projects and clearing hidden terminal responders when switching projects.
-- Fixed closing the last visible terminal split so Codux now terminates the old session and starts a fresh project terminal instead of leaving the workspace blocked or refusing the action.
+- Fixed closing the last visible terminal split so WeCode now terminates the old session and starts a fresh project terminal instead of leaving the workspace blocked or refusing the action.
 - Fixed long-running AI activity state renewal so hook-driven loading indicators stay tied to the active runtime session instead of expiring or reviving from stale state.
 - Fixed Gemini/OpenCode/Codex runtime environment handling across managed terminals and memory extraction workers, including compatibility with custom API base URLs and credentials.
 
@@ -1268,7 +1268,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
-- Updated the bundled Ghostty package to the latest AppKit input-fix revision so Codux inherits the upstream terminal input handling fixes without carrying local compatibility shims.
+- Updated the bundled Ghostty package to the latest AppKit input-fix revision so WeCode inherits the upstream terminal input handling fixes without carrying local compatibility shims.
 - Reduced runtime log noise by suppressing repetitive activity-resolution, unchanged history-index, socket receive, and no-op hook ingress entries while keeping state transitions, failures, and actionable notification diagnostics visible.
 
 ### Fixed
@@ -1351,7 +1351,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- Added the desktop pet system to Codux, including egg claim flow, hatching, level and evolution progression, inheritance, per-stage dex, and dedicated sprite/effect resources.
+- Added the desktop pet system to WeCode, including egg claim flow, hatching, level and evolution progression, inheritance, per-stage dex, and dedicated sprite/effect resources.
 - Added a dedicated `Settings > Pet` tab with pet enable/static mode controls plus configurable hydration, sedentary, and late-night reminder intervals.
 - Added localized user-facing pet documentation to both READMEs and integrated feature screenshots for split workspace, Git, AI stats, daily level, and pet views.
 
@@ -1374,7 +1374,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
-- Hardened wrapped Claude launches so Codux now resolves the real Claude binary more reliably and prefers system tool paths when starting managed Claude sessions.
+- Hardened wrapped Claude launches so WeCode now resolves the real Claude binary more reliably and prefers system tool paths when starting managed Claude sessions.
 
 ### Fixed
 
@@ -1385,7 +1385,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - Added terminal font-size controls in Settings > Appearance so terminal text size can be adjusted with direct numeric input.
-- Added a dedicated Tools settings tab for configuring default permission mode for Codex, Claude Code, Gemini, and OpenCode launches inside Codux terminals.
+- Added a dedicated Tools settings tab for configuring default permission mode for Codex, Claude Code, Gemini, and OpenCode launches inside WeCode terminals.
 - Added a Notifications settings tab with per-channel enable switches plus address/token fields for Bark, ntfy, WxPusher, Feishu, DingTalk, WeCom, Telegram, Discord, Slack, and generic webhooks.
 - Added background external notification delivery for the configured notification channels so completion events can fan out without blocking the UI, with silent failure handling recorded in debug logs.
 - Simplified the WxPusher notification channel to the SPT quick-send flow, removing the unused token field and aligning the setup UI with the one-parameter mode.
@@ -1393,7 +1393,7 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - Hardened the Codex, Claude, Gemini, and OpenCode runtime drivers so loading, interrupt, resume, and per-turn live token display now follow tool-driven session events instead of unstable cross-session carryover.
-- Tightened tool binary resolution inside Codux terminals so Claude now follows the exact executable path resolved by the user's current shell environment rather than guessing install locations.
+- Tightened tool binary resolution inside WeCode terminals so Claude now follows the exact executable path resolved by the user's current shell environment rather than guessing install locations.
 - Refined the AI stats status bar so the refresh action is hidden while a stats refresh is actively running, keeping the update state focused on progress and stop controls.
 - Updated the app menu's About and Updates actions to use icons and appear as one grouped app-info section.
 - Refined the Notifications settings cards with channel-specific labels, localized setup copy, cleaner field alignment, and direct links to each provider's documentation.
@@ -1595,5 +1595,5 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- First public Codux release.
+- First public WeCode release.
 - Native macOS terminal workspace for AI coding tools with project workspaces, split terminals, integrated Git panel, AI usage tracking, localization, update checks, and universal macOS release packaging.

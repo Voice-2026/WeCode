@@ -5,7 +5,7 @@ zmodload zsh/datetime 2>/dev/null || true
 
 action="${1:-}"
 script_dir="$(cd "$(dirname "$0")" && pwd)"
-wrapper_helper="${script_dir}/codux-wrapper-helper"
+wrapper_helper="${script_dir}/wecode-wrapper-helper"
 hook_owner=""
 if [[ "$#" -ge 3 ]]; then
   hook_owner="${2:-}"
@@ -48,7 +48,7 @@ fi
 case "${action}" in
   notification)
     if wrapper_helper_available; then
-      notification_type="$(HOOK_PAYLOAD="${hook_payload}" "${wrapper_helper}" --codux-wrapper-helper hook-notification-type)"
+      notification_type="$(HOOK_PAYLOAD="${hook_payload}" "${wrapper_helper}" --wecode-wrapper-helper hook-notification-type)"
     fi
     ;;
   session-start|prompt-submit|before-agent|permission-request|permission-denied|elicitation|elicitation-result|pre-compact|post-compact|stop|stop-failure|session-end|idle|after-agent|codex-session-start|codex-prompt-submit|codex-pre-tool-use|codex-post-tool-use|codex-permission-request|codex-stop|codex-session-end|codewhale-session-start|codewhale-message-submit|codewhale-tool-call-before|codewhale-tool-call-after|codewhale-error|codewhale-turn-end|codewhale-session-end)
@@ -104,38 +104,38 @@ event_file_timestamp_millis() {
 claude_memory_additional_context() {
   [[ -n "${DMUX_AI_MEMORY_INDEX_FILE:-}" && -f "${DMUX_AI_MEMORY_INDEX_FILE}" ]] || return 0
   wrapper_helper_available || return 0
-  MEMORY_INDEX_FILE="${DMUX_AI_MEMORY_INDEX_FILE}" CLAUDE_HOOK_EVENT_NAME="${CLAUDE_HOOK_EVENT_NAME:-UserPromptSubmit}" "${wrapper_helper}" --codux-wrapper-helper claude-memory-context
+  MEMORY_INDEX_FILE="${DMUX_AI_MEMORY_INDEX_FILE}" CLAUDE_HOOK_EVENT_NAME="${CLAUDE_HOOK_EVENT_NAME:-UserPromptSubmit}" "${wrapper_helper}" --wecode-wrapper-helper claude-memory-context
 }
 
 extract_hook_session_id() {
   [[ -n "${hook_payload}" ]] || return 0
   wrapper_helper_available || return 0
-  HOOK_PAYLOAD="${hook_payload}" "${wrapper_helper}" --codux-wrapper-helper hook-session-id
+  HOOK_PAYLOAD="${hook_payload}" "${wrapper_helper}" --wecode-wrapper-helper hook-session-id
 }
 
 extract_hook_field() {
   local field_name="$1"
   [[ -n "${hook_payload}" && -n "${field_name}" ]] || return 0
   wrapper_helper_available || return 0
-  HOOK_PAYLOAD="${hook_payload}" HOOK_FIELD_NAME="${field_name}" "${wrapper_helper}" --codux-wrapper-helper hook-field
+  HOOK_PAYLOAD="${hook_payload}" HOOK_FIELD_NAME="${field_name}" "${wrapper_helper}" --wecode-wrapper-helper hook-field
 }
 
 extract_first_hook_field() {
   [[ -n "${hook_payload}" && "$#" -gt 0 ]] || return 0
   wrapper_helper_available || return 0
-  HOOK_PAYLOAD="${hook_payload}" HOOK_FIELD_NAMES="$*" "${wrapper_helper}" --codux-wrapper-helper hook-first-field
+  HOOK_PAYLOAD="${hook_payload}" HOOK_FIELD_NAMES="$*" "${wrapper_helper}" --wecode-wrapper-helper hook-first-field
 }
 
 extract_hook_number_field() {
   [[ -n "${hook_payload}" && "$#" -gt 0 ]] || return 0
   wrapper_helper_available || return 0
-  HOOK_PAYLOAD="${hook_payload}" HOOK_FIELD_NAMES="$*" "${wrapper_helper}" --codux-wrapper-helper hook-number-field
+  HOOK_PAYLOAD="${hook_payload}" HOOK_FIELD_NAMES="$*" "${wrapper_helper}" --wecode-wrapper-helper hook-number-field
 }
 
 extract_hook_notification_type() {
   [[ -n "${hook_payload}" ]] || return 0
   wrapper_helper_available || return 0
-  HOOK_PAYLOAD="${hook_payload}" "${wrapper_helper}" --codux-wrapper-helper hook-notification-type
+  HOOK_PAYLOAD="${hook_payload}" "${wrapper_helper}" --wecode-wrapper-helper hook-notification-type
 }
 
 resolved_claude_external_session_id() {
@@ -214,7 +214,7 @@ configured_permission_mode() {
   esac
 
   wrapper_helper_available || return 0
-  CONFIG_PATH="${DMUX_TOOL_PERMISSION_SETTINGS_FILE}" CONFIG_KEY="${config_key}" "${wrapper_helper}" --codux-wrapper-helper json-string-key
+  CONFIG_PATH="${DMUX_TOOL_PERMISSION_SETTINGS_FILE}" CONFIG_KEY="${config_key}" "${wrapper_helper}" --wecode-wrapper-helper json-string-key
 }
 
 has_full_access_permission() {

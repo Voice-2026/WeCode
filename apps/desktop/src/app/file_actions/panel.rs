@@ -1,6 +1,6 @@
 use super::*;
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn current_file_panel_state_snapshot(
         &self,
     ) -> super::app_state::FilePanelState {
@@ -160,8 +160,8 @@ impl CoduxApp {
         self.invalidate_file_panel(cx);
         self.invalidate_status_bar(cx);
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let result = codux_runtime::async_runtime::run_limited_blocking_with_priority(
-                codux_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND + generation,
+            let result = wecode_runtime::async_runtime::run_limited_blocking_with_priority(
+                wecode_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND + generation,
                 move || {
                     let files = runtime_service.reload_project_files(
                         &project_path,

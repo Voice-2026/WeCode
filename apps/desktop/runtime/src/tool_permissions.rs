@@ -250,7 +250,7 @@ mod tests {
     use uuid::Uuid;
 
     fn temp_support_dir() -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("codux-gpui-tools-test-{}", Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("wecode-gpui-tools-test-{}", Uuid::new_v4()));
         fs::create_dir_all(&dir).unwrap();
         dir
     }

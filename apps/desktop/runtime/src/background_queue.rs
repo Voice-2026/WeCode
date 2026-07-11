@@ -172,7 +172,7 @@ mod tests {
         let release = Arc::new((Mutex::new(false), Condvar::new()));
         let handler_values = Arc::clone(&values);
         let handler_release = Arc::clone(&release);
-        let queue = SerialJobQueue::new("codux-test-serial-job-worker", move |job: TestJob| {
+        let queue = SerialJobQueue::new("wecode-test-serial-job-worker", move |job: TestJob| {
             let (values, values_signal) = &*handler_values;
             values.lock().unwrap().push(job.value);
             values_signal.notify_all();

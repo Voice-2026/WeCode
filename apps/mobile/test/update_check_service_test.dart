@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:codux_flutter/services/update_check_service.dart';
+import 'package:wecode_flutter/services/update_check_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
@@ -21,7 +21,7 @@ void main() {
           jsonEncode({
             'tag_name': 'v1.7.2',
             'html_url':
-                'https://github.com/duxweb/codux-flutter/releases/tag/v1.7.2',
+                'https://github.com/duxweb/wecode-flutter/releases/tag/v1.7.2',
           }),
           200,
         ),
@@ -86,8 +86,8 @@ void main() {
 
 PackageInfo _packageInfo({String version = '1.7.1'}) {
   return PackageInfo(
-    appName: 'Codux',
-    packageName: 'plus.dux.codux',
+    appName: 'WeCode',
+    packageName: 'plus.dux.wecode',
     version: version,
     buildNumber: '35',
     buildSignature: '',

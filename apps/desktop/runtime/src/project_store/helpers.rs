@@ -178,7 +178,7 @@ pub(super) fn normalized_project_name(name: &str, path: &str) -> String {
 pub(super) fn project_uuid(name: &str, path: &str) -> String {
     Uuid::new_v5(
         &Uuid::NAMESPACE_URL,
-        format!("codux:project:{name}:{path}").as_bytes(),
+        format!("wecode:project:{name}:{path}").as_bytes(),
     )
     .to_string()
 }
@@ -189,9 +189,9 @@ mod tests {
 
     #[test]
     fn badge_from_name_uses_word_initials_or_first_four_chars() {
-        assert_eq!(badge_from_name("codux"), "CODU");
-        assert_eq!(badge_from_name("codux-gpui"), "CG");
-        assert_eq!(badge_from_name("Codux GPUI"), "CG");
+        assert_eq!(badge_from_name("wecode"), "WECO");
+        assert_eq!(badge_from_name("wecode-gpui"), "WG");
+        assert_eq!(badge_from_name("WeCode GPUI"), "WCG");
         assert_eq!(badge_from_name("getUserInfo"), "GUI");
         assert_eq!(badge_from_name("wx-pay-api"), "WPA");
         assert_eq!(badge_from_name("a-b-c-d-e"), "ABCD");

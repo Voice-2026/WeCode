@@ -36,7 +36,7 @@ impl RemoteHostRuntime {
             );
             return;
         };
-        if let Err(reason) = codux_protocol::pairing_request_matches(
+        if let Err(reason) = wecode_protocol::pairing_request_matches(
             &active_pairing.pairing_id,
             &active_pairing.code,
             &active_pairing.secret,
@@ -297,7 +297,7 @@ impl RemoteHostRuntime {
         let transports = self
             .transport_candidates_snapshot()
             .iter()
-            .map(codux_protocol::confirmed_transport_entry)
+            .map(wecode_protocol::confirmed_transport_entry)
             .collect::<Vec<_>>();
         self.send_plain(
             REMOTE_PAIRING_CONFIRMED,

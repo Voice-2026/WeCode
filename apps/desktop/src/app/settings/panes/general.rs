@@ -8,7 +8,7 @@ pub(super) fn settings_general_pane(
     terminal_font_families: &[String],
     update: &UpdateSummary,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     let language = settings.language.as_str();
     let visible_language = pending_restart_language.unwrap_or(language);
@@ -22,7 +22,7 @@ pub(super) fn settings_general_pane(
                     Some(settings_text(
                         language,
                         "settings.language.restart_message",
-                        "Restart Codux to apply the selected language.",
+                        "Restart WeCode to apply the selected language.",
                     )),
                     settings_select_impl(
                         "settings-language",

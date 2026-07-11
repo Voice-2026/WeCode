@@ -99,16 +99,16 @@ use crate::{
         WorktreeSnapshot, WorktreeSummary,
     },
 };
-#[cfg(test)]
-use codux_terminal_core::{
-    RuntimeModel, RuntimeProject, RuntimeWorktree, RuntimeWorktreeState, runtime_scope_key,
-};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     path::{Path, PathBuf},
     sync::{Arc, Mutex, OnceLock},
+};
+#[cfg(test)]
+use wecode_terminal_core::{
+    RuntimeModel, RuntimeProject, RuntimeWorktree, RuntimeWorktreeState, runtime_scope_key,
 };
 
 include!("types.rs");

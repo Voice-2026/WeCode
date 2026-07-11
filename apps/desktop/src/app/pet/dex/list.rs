@@ -145,7 +145,7 @@ fn pet_dex_card_frame(id: SharedString) -> gpui::Stateful<gpui::Div> {
         .text_center()
 }
 
-pub(super) fn pet_dex_virtual_card(card: PetDexCard, cx: &mut Context<CoduxApp>) -> AnyElement {
+pub(super) fn pet_dex_virtual_card(card: PetDexCard, cx: &mut Context<WeCodeApp>) -> AnyElement {
     match card {
         PetDexCard::Bundled {
             item,
@@ -288,7 +288,10 @@ pub(super) fn pet_dex_virtual_card(card: PetDexCard, cx: &mut Context<CoduxApp>)
     }
 }
 
-pub(super) fn pet_dex_empty_state(message: String, cx: &mut Context<CoduxApp>) -> impl IntoElement {
+pub(super) fn pet_dex_empty_state(
+    message: String,
+    cx: &mut Context<WeCodeApp>,
+) -> impl IntoElement {
     div()
         .rounded(px(10.0))
         .border_1()
@@ -307,7 +310,7 @@ pub(super) fn pet_legacy_row(
     record: PetLegacyRecord,
     sprite_path: ImageSource,
     language: String,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let legacy_id = record.id.clone();
     let pet_name = if record.custom_name.trim().is_empty() {
@@ -405,7 +408,7 @@ pub(super) fn pet_legacy_row(
                 .text_color(color(theme::TEXT_DIM))
                 .child(pet_date_label(record.retired_at)),
         )
-        .child(with_codux_tooltip(
+        .child(with_wecode_tooltip(
             cx.entity(),
             format!("pet-restore-legacy-tooltip-{legacy_id}"),
             Button::new(SharedString::from(format!(

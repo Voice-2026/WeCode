@@ -1,6 +1,6 @@
 use super::*;
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn open_file_picker_window(
         &mut self,
         mode: FilePickerMode,
@@ -40,7 +40,7 @@ impl CoduxApp {
             cx,
             move |state, runtime, runtime_service, _window, _cx| {
                 let mut app =
-                    CoduxApp::new_settings_window_from_state(state, runtime, runtime_service);
+                    WeCodeApp::new_settings_window_from_state(state, runtime, runtime_service);
                 app.window_mode = AppWindowMode::FilePicker;
                 app.file_picker_mode = mode;
                 app.file_picker_target = target;
@@ -140,7 +140,7 @@ impl CoduxApp {
                 let dir = self.project_editor_browse_path.trim();
                 let name = self.file_picker_filename.trim();
                 (!dir.is_empty() && !name.is_empty())
-                    .then(|| codux_runtime::path::join_path(dir, name))
+                    .then(|| wecode_runtime::path::join_path(dir, name))
             }
         }
     }
@@ -194,7 +194,7 @@ impl CoduxApp {
                 self.status_message = "saving a copy…".to_string();
                 self.invalidate_status_bar(cx);
                 cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-                    let result = codux_runtime::async_runtime::run_limited_blocking(move || {
+                    let result = wecode_runtime::async_runtime::run_limited_blocking(move || {
                         runtime_service.save_file_as(
                             source_device.as_deref(),
                             &source_path,
@@ -326,7 +326,7 @@ impl CoduxApp {
         self.invalidate_project_management(cx);
 
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let result = codux_runtime::async_runtime::spawn_blocking(move || {
+            let result = wecode_runtime::async_runtime::spawn_blocking(move || {
                 match device_id.as_deref() {
                     Some(device_id) => {
                         runtime_service.remote_rename_path(device_id, &old_path, &new_path)
@@ -523,7 +523,7 @@ impl CoduxApp {
         self.invalidate_project_management(cx);
 
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let confirmed = codux_runtime::async_runtime::spawn_blocking({
+            let confirmed = wecode_runtime::async_runtime::spawn_blocking({
                 let service = runtime_service.clone();
                 move || {
                     service.localized_confirm_dialog(LocalizedConfirmDialogRequest {
@@ -538,7 +538,7 @@ impl CoduxApp {
             .unwrap_or_else(|error| Err(format!("failed to show delete confirmation: {error}")));
 
             let result = match confirmed {
-                Ok(true) => codux_runtime::async_runtime::spawn_blocking(move || {
+                Ok(true) => wecode_runtime::async_runtime::spawn_blocking(move || {
                     match device_id.as_deref() {
                         Some(device_id) => {
                             runtime_service.remote_delete_path(device_id, &entry_path)
@@ -605,7 +605,7 @@ impl CoduxApp {
         // makes the host re-list the drive's current dir, not its root, and the
         // new folder appears to vanish. `join_path` trims internally for `target`.
         let browse_path = self.project_editor_browse_path.trim().to_string();
-        let target = codux_runtime::path::join_path(&browse_path, &name);
+        let target = wecode_runtime::path::join_path(&browse_path, &name);
         let runtime_service = self.runtime_service.clone();
         let window_handle = window.window_handle();
         self.project_editor_browse_busy = true;
@@ -617,7 +617,7 @@ impl CoduxApp {
             // remote create may wait for the host to connect, and that wait must
             // not occupy the single-worker priority queue (which would freeze
             // every other blocking load — file tree, git — meanwhile).
-            let result = codux_runtime::async_runtime::spawn_blocking(move || {
+            let result = wecode_runtime::async_runtime::spawn_blocking(move || {
                 match device_id.as_deref() {
                     Some(device_id) => runtime_service
                         .remote_create_directory(device_id, &target)
@@ -689,7 +689,7 @@ impl CoduxApp {
             // and that wait must not occupy the single-worker priority queue —
             // doing so would freeze every other blocking load until it returns.
             let result =
-                codux_runtime::async_runtime::spawn_blocking(move || match device_id.as_deref() {
+                wecode_runtime::async_runtime::spawn_blocking(move || match device_id.as_deref() {
                     Some(device_id) => runtime_service.remote_browse_directory(
                         device_id,
                         path_for_call.as_deref(),
@@ -730,7 +730,7 @@ impl CoduxApp {
 
     fn apply_project_editor_browse(
         &mut self,
-        listing: codux_runtime::remote::RemoteDirectoryListing,
+        listing: wecode_runtime::remote::RemoteDirectoryListing,
     ) {
         self.project_editor_browse_path = listing.path;
         self.project_editor_browse_parent = listing.parent;
@@ -784,7 +784,7 @@ impl CoduxApp {
         self.invalidate_project_management(cx);
 
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let result = codux_runtime::async_runtime::run_limited_blocking(move || {
+            let result = wecode_runtime::async_runtime::run_limited_blocking(move || {
                 let save_result = if let Some(project_id) = project_id {
                     runtime_service.project_update(ProjectUpdateRequest {
                         project_id,
@@ -864,7 +864,7 @@ fn clean_dialog_path(path: &str) -> String {
             }
         }
     }
-    codux_runtime::path::display_path(path)
+    wecode_runtime::path::display_path(path)
 }
 
 fn file_picker_path_name(path: &str) -> String {
@@ -880,7 +880,7 @@ fn file_picker_sibling_path(path: &str, name: &str) -> String {
     let trimmed = path.trim_end_matches(['/', '\\']);
     let parent = trimmed.rsplit_once(['/', '\\']).map(|(parent, _)| parent);
     match parent {
-        Some(parent) if !parent.is_empty() => codux_runtime::path::join_path(parent, name),
+        Some(parent) if !parent.is_empty() => wecode_runtime::path::join_path(parent, name),
         Some("") if path.starts_with('/') => format!("/{name}"),
         _ => name.to_string(),
     }

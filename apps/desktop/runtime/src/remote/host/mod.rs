@@ -43,23 +43,6 @@ use crate::terminal_pty::{
 use crate::worktree::{
     WorktreeCreateRequest, WorktreeMergeRequest, WorktreeRemoveRequest, WorktreeService,
 };
-use codux_remote_transport::{RemoteTransportUpload, WebTunnelTcpConnectRequest};
-use codux_runtime_core::{
-    ai_stats as runtime_ai_stats, file as runtime_file, git as runtime_git, host as runtime_host,
-    project as runtime_project, subscription::RuntimeSubscriptionRouter,
-    terminal as runtime_terminal, upload as runtime_upload, worktree as runtime_worktree,
-};
-use codux_runtime_live::{
-    host_metrics::sample_host_metrics,
-    remote_terminal_dispatch::{
-        RemoteTerminalDispatch, TerminalMessage, finish_terminal_create_viewer_lifecycle,
-        is_terminal_kind, prepare_terminal_create_lifecycle,
-    },
-};
-use codux_terminal_core::{
-    RemoteSequenceGuard, TerminalDriver, TerminalSequence, TerminalSessionHandle,
-    runtime_scope_parts,
-};
 use serde_json::{Value, json};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
@@ -70,6 +53,23 @@ use std::{
         atomic::{AtomicU64, Ordering},
     },
     time::{Duration, Instant},
+};
+use wecode_remote_transport::{RemoteTransportUpload, WebTunnelTcpConnectRequest};
+use wecode_runtime_core::{
+    ai_stats as runtime_ai_stats, file as runtime_file, git as runtime_git, host as runtime_host,
+    project as runtime_project, subscription::RuntimeSubscriptionRouter,
+    terminal as runtime_terminal, upload as runtime_upload, worktree as runtime_worktree,
+};
+use wecode_runtime_live::{
+    host_metrics::sample_host_metrics,
+    remote_terminal_dispatch::{
+        RemoteTerminalDispatch, TerminalMessage, finish_terminal_create_viewer_lifecycle,
+        is_terminal_kind, prepare_terminal_create_lifecycle,
+    },
+};
+use wecode_terminal_core::{
+    RemoteSequenceGuard, TerminalDriver, TerminalSequence, TerminalSessionHandle,
+    runtime_scope_parts,
 };
 
 const REMOTE_TERMINAL_OUTPUT_BATCH_MS: u64 = 32;
@@ -200,7 +200,7 @@ use worktrees::*;
 
 impl RemoteHostRuntime {
     pub fn new(support_dir: PathBuf) -> Self {
-        codux_ai_history::trace::set_trace_sink(crate::runtime_trace::runtime_trace);
+        wecode_ai_history::trace::set_trace_sink(crate::runtime_trace::runtime_trace);
         let ai_history = AIHistoryIndexer::with_database_path(support_dir.join("ai-usage.sqlite3"));
         Self::new_with_ai_history(support_dir, ai_history)
     }
@@ -507,7 +507,7 @@ impl RemoteHostRuntime {
                 self.handle_worktree_remove(&envelope)
             }
             // Every terminal-protocol message routes through the shared dispatch
-            // in `codux-runtime-live`, so the desktop and the headless agent
+            // in `wecode-runtime-live`, so the desktop and the headless agent
             // enumerate the protocol surface in ONE place and cannot drift apart.
             // The desktop's host-specific arms (create/list/input/subscribe/...
             // which touch its terminal layout, output batching and baseline
@@ -579,7 +579,7 @@ impl RemoteHostRuntime {
                 runtime_instance_id: self.runtime_instance_id.clone(),
                 name: remote_host_name(),
                 platform: std::env::consts::OS.to_string(),
-                app: "Codux".to_string(),
+                app: "WeCode".to_string(),
                 transports,
             }),
         );

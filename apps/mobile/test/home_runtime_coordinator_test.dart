@@ -1,16 +1,16 @@
 import 'dart:async';
 
-import 'package:codux_flutter/models/remote_models.dart';
-import 'package:codux_flutter/screens/home/home_runtime_coordinator.dart';
-import 'package:codux_flutter/services/remote_capabilities.dart';
-import 'package:codux_flutter/services/remote_protocol.dart';
-import 'package:codux_flutter/services/remote_runtime_store.dart';
-import 'package:codux_flutter/services/remote_terminal_binding_coordinator.dart';
-import 'package:codux_flutter/services/remote_terminal_output_controller.dart';
-import 'package:codux_flutter/services/terminal_buffer_retry.dart';
-import 'package:codux_flutter/services/terminal_input_batcher.dart';
-import 'package:codux_flutter/services/terminal_input_reliable_sender.dart';
-import 'package:codux_flutter/services/terminal_repaint_signal.dart';
+import 'package:wecode_flutter/models/remote_models.dart';
+import 'package:wecode_flutter/screens/home/home_runtime_coordinator.dart';
+import 'package:wecode_flutter/services/remote_capabilities.dart';
+import 'package:wecode_flutter/services/remote_protocol.dart';
+import 'package:wecode_flutter/services/remote_runtime_store.dart';
+import 'package:wecode_flutter/services/remote_terminal_binding_coordinator.dart';
+import 'package:wecode_flutter/services/remote_terminal_output_controller.dart';
+import 'package:wecode_flutter/services/terminal_buffer_retry.dart';
+import 'package:wecode_flutter/services/terminal_input_batcher.dart';
+import 'package:wecode_flutter/services/terminal_input_reliable_sender.dart';
+import 'package:wecode_flutter/services/terminal_repaint_signal.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

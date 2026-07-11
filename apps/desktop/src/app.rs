@@ -4,7 +4,35 @@ use crate::{
     theme::{self, color},
 };
 use anyhow::Result;
-use codux_runtime::{
+use gpui::{
+    AnyElement, AnyWindowHandle, App, AppContext, Bounds, ClipboardItem, Context, ElementId,
+    FocusHandle, FontWeight, ImageSource, InteractiveElement, IntoElement, KeyDownEvent, Length,
+    MouseButton, ObjectFit, ParentElement, PathBuilder, Pixels, Render, ScrollHandle, SharedString,
+    StatefulInteractiveElement, Styled, StyledImage, Subscription, UniformListScrollHandle, Window,
+    WindowAppearance, WindowBackgroundAppearance, WindowBounds, WindowControlArea, WindowKind,
+    WindowOptions, canvas, div, img, linear_color_stop, linear_gradient, point,
+    prelude::FluentBuilder as _, px, relative, rems, size,
+};
+use gpui_component::{
+    ActiveTheme, Disableable, ElementExt, Icon, Root, Sizable, Size, VirtualListScrollHandle,
+    button::{Button, ButtonCustomVariant, ButtonVariants},
+    input::{Input, InputEvent, InputState},
+    menu::{ContextMenuExt, DropdownMenu, PopupMenu, PopupMenuItem},
+    resizable::{ResizableState, h_resizable, resizable_panel, v_resizable},
+    spinner::Spinner,
+    switch::Switch,
+    v_virtual_list,
+};
+use std::{
+    cell::Cell,
+    collections::{BTreeMap, HashMap, HashSet},
+    path::{Path, PathBuf},
+    rc::Rc,
+    sync::{Arc, OnceLock},
+    thread,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+};
+use wecode_runtime::{
     ai_history::{
         AIGlobalHistorySummary, AIHistorySummary, AISessionForkRequest, AISessionForkTarget,
         AISessionSummary,
@@ -67,34 +95,6 @@ use codux_runtime::{
         ProjectWorktreeGitSummary, WorktreeInfo, WorktreeSnapshot, WorktreeSummary,
         WorktreeTaskInfo,
     },
-};
-use gpui::{
-    AnyElement, AnyWindowHandle, App, AppContext, Bounds, ClipboardItem, Context, ElementId,
-    FocusHandle, FontWeight, ImageSource, InteractiveElement, IntoElement, KeyDownEvent, Length,
-    MouseButton, ObjectFit, ParentElement, PathBuilder, Pixels, Render, ScrollHandle, SharedString,
-    StatefulInteractiveElement, Styled, StyledImage, Subscription, UniformListScrollHandle, Window,
-    WindowAppearance, WindowBackgroundAppearance, WindowBounds, WindowControlArea, WindowKind,
-    WindowOptions, canvas, div, img, linear_color_stop, linear_gradient, point,
-    prelude::FluentBuilder as _, px, relative, rems, size,
-};
-use gpui_component::{
-    ActiveTheme, Disableable, ElementExt, Icon, Root, Sizable, Size, VirtualListScrollHandle,
-    button::{Button, ButtonCustomVariant, ButtonVariants},
-    input::{Input, InputEvent, InputState},
-    menu::{ContextMenuExt, DropdownMenu, PopupMenu, PopupMenuItem},
-    resizable::{ResizableState, h_resizable, resizable_panel, v_resizable},
-    spinner::Spinner,
-    switch::Switch,
-    v_virtual_list,
-};
-use std::{
-    cell::Cell,
-    collections::{BTreeMap, HashMap, HashSet},
-    path::{Path, PathBuf},
-    rc::Rc,
-    sync::{Arc, OnceLock},
-    thread,
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 mod about;
@@ -162,7 +162,7 @@ mod workspace_toolbar;
 mod workspace_views;
 mod worktree_creator;
 
-pub use self::app_state::CoduxApp;
+pub use self::app_state::WeCodeApp;
 pub(crate) use self::app_state::{active_settings_snapshot, set_active_settings_snapshot};
 
 pub(crate) const MAIN_WINDOW_DEFAULT_WIDTH: f32 = 1280.0;
@@ -191,7 +191,7 @@ use self::{
         publish_settings_update, publish_ssh_update, publish_statistics_settings_update,
     },
     app_helpers::{
-        PROJECT_BADGE_COLORS, defer_codux_app_update, generated_git_branch_name,
+        PROJECT_BADGE_COLORS, defer_wecode_app_update, generated_git_branch_name,
         generated_git_commit_message, generated_project_child_name, git_remote_action_label,
         join_relative_child_path, normalized_git_action_paths, plural,
         project_badge_text_from_name, reordered_ids,
@@ -215,7 +215,7 @@ use self::{
     desktop_pet::*,
     formatting::compact_number,
     project_column::{ProjectColumnView, ProjectListState},
-    scroll_compat::{ScrollableElement, codux_uniform_list},
+    scroll_compat::{ScrollableElement, wecode_uniform_list},
     settings::SettingsPane,
     shell_utils::{shell_quote, terminal_command_text},
     shortcuts::{shortcut_display_from_keystroke, shortcut_matches},
@@ -238,10 +238,10 @@ use self::{
         collapsed_terminal_slots_from_layout, normalize_terminal_restore_state,
         prepare_memory_launch_artifacts, refresh_terminal_pane_config,
         restore_terminal_tabs_skeleton, spawn_terminal_tabs, terminal_config_for_settings,
-        terminal_launch_context, terminal_layout_is_foreign_to_owner, terminal_pane_summary,
-        terminal_pane_terminal_id, terminal_pty_config_for_terminal_id,
-        terminal_restore_plan_for_language, terminal_split_tree_equal,
-        terminal_split_tree_for_panes, terminal_split_tree_insert_pane,
+        terminal_launch_context, terminal_layout_is_foreign_to_owner,
+        terminal_pane_index_for_close, terminal_pane_summary, terminal_pane_terminal_id,
+        terminal_pty_config_for_terminal_id, terminal_restore_plan_for_language,
+        terminal_split_tree_equal, terminal_split_tree_for_panes, terminal_split_tree_insert_pane,
         terminal_split_tree_insert_pane_root, terminal_split_tree_location_for_pane,
         terminal_split_tree_move_pane, terminal_split_tree_remove_pane,
         terminal_split_tree_update_ratios, terminal_split_tree_with_restored_location,

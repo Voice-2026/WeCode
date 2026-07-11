@@ -1,5 +1,5 @@
-import 'package:codux_flutter/models/remote_models.dart';
-import 'package:codux_flutter/services/terminal_viewport_controller.dart';
+import 'package:wecode_flutter/models/remote_models.dart';
+import 'package:wecode_flutter/services/terminal_viewport_controller.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

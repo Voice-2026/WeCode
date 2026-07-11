@@ -105,7 +105,7 @@ fn file_mutation_refresh_error(action: &str, error: String) -> String {
     format!("{action}, but the first file tree refresh failed: {error}")
 }
 
-impl CoduxApp {
+impl WeCodeApp {
     fn spawn_file_mutation<F>(
         &mut self,
         pending_status: String,
@@ -124,8 +124,8 @@ impl CoduxApp {
         self.status_message = pending_status;
         self.invalidate_file_panel(cx);
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let result = codux_runtime::async_runtime::run_limited_blocking_with_priority(
-                codux_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND + generation,
+            let result = wecode_runtime::async_runtime::run_limited_blocking_with_priority(
+                wecode_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND + generation,
                 task,
             )
             .await
@@ -196,8 +196,8 @@ impl CoduxApp {
         self.status_message = format!("{error}. Retrying file tree refresh…");
         self.invalidate_file_panel(cx);
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let result = codux_runtime::async_runtime::run_limited_blocking_with_priority(
-                codux_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND + generation,
+            let result = wecode_runtime::async_runtime::run_limited_blocking_with_priority(
+                wecode_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND + generation,
                 {
                     let project_path = project_path.clone();
                     let file_directory = file_directory.clone();

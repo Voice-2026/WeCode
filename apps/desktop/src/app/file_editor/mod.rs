@@ -1,6 +1,6 @@
 use super::*;
 use crate::app::app_state::FileEditorTab;
-use crate::app::ui_helpers::codux_tooltip_container;
+use crate::app::ui_helpers::wecode_tooltip_container;
 use gpui_component::{
     input::{Redo, Search, TabSize, Undo},
     text::{TextView, TextViewState},

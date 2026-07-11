@@ -94,7 +94,7 @@ pub(super) fn pet_species_subtitle(species: &str) -> String {
         "dolphin" => "Good for collaboration and exploration",
         "penguin" => "Good for terminal workflows",
         "panda" => "Good for quiet maintenance",
-        _ => "Codux pet companion",
+        _ => "WeCode pet companion",
     }
     .to_string()
 }

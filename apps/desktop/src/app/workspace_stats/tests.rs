@@ -4,10 +4,10 @@ use super::*;
 
 #[test]
 fn project_table_total_tokens_always_include_cache() {
-    let mut global = codux_runtime::ai_history::AIGlobalHistorySummary::default();
+    let mut global = wecode_runtime::ai_history::AIGlobalHistorySummary::default();
     global
         .project_totals
-        .push(codux_runtime::ai_history::AIProjectUsageSummary {
+        .push(wecode_runtime::ai_history::AIProjectUsageSummary {
             project_path: "/tmp/project".to_string(),
             project_name: "Project".to_string(),
             input_tokens: 80,
@@ -28,10 +28,10 @@ fn project_table_total_tokens_always_include_cache() {
 
 #[test]
 fn range_project_table_total_tokens_always_include_cache() {
-    let mut global = codux_runtime::ai_history::AIGlobalHistorySummary::default();
+    let mut global = wecode_runtime::ai_history::AIGlobalHistorySummary::default();
     global
         .project_totals
-        .push(codux_runtime::ai_history::AIProjectUsageSummary {
+        .push(wecode_runtime::ai_history::AIProjectUsageSummary {
             project_path: "/tmp/all".to_string(),
             project_name: "All".to_string(),
             total_tokens: 10,
@@ -39,13 +39,13 @@ fn range_project_table_total_tokens_always_include_cache() {
             request_count: 1,
             ..Default::default()
         });
-    let mut range = codux_runtime::ai_history::AIGlobalHistoryRangeSummary {
+    let mut range = wecode_runtime::ai_history::AIGlobalHistoryRangeSummary {
         key: "today".to_string(),
         ..Default::default()
     };
     range
         .project_totals
-        .push(codux_runtime::ai_history::AIProjectUsageSummary {
+        .push(wecode_runtime::ai_history::AIProjectUsageSummary {
             project_path: "/tmp/range".to_string(),
             project_name: "Range".to_string(),
             total_tokens: 30,
@@ -111,7 +111,7 @@ fn heatmap_month_labels_group_visible_columns() {
     let mut cells = Vec::new();
     for day in [jan_22, jan_29, feb_5] {
         for row in 0..STATS_HEATMAP_ROWS {
-            cells.push(codux_runtime::ai_history::AIHistoryHeatmapCellView {
+            cells.push(wecode_runtime::ai_history::AIHistoryHeatmapCellView {
                 day: day + row as f64 * 24.0 * 60.0 * 60.0,
                 ..Default::default()
             });
@@ -155,10 +155,10 @@ fn trend_axis_indexes_do_not_duplicate_single_bucket() {
 
 #[test]
 fn trend_bucket_visual_total_respects_cache_mode() {
-    let mut global = codux_runtime::ai_history::AIGlobalHistorySummary::default();
+    let mut global = wecode_runtime::ai_history::AIGlobalHistorySummary::default();
     global
         .recent_time_buckets
-        .push(codux_runtime::ai_history_normalized::AITimeBucket {
+        .push(wecode_runtime::ai_history_normalized::AITimeBucket {
             start: 0.0,
             end: 1800.0,
             input_tokens: 80,
@@ -183,7 +183,7 @@ fn trend_bucket_visual_total_respects_cache_mode() {
 fn heatmap_cell_tooltip_includes_token_breakdown() {
     let tooltip = heatmap_cell_tooltip(
         "english",
-        &codux_runtime::ai_history::AIHistoryHeatmapCellView {
+        &wecode_runtime::ai_history::AIHistoryHeatmapCellView {
             day: 0.0,
             value: 100,
             input_tokens: 80,

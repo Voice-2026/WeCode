@@ -11,7 +11,7 @@ pub(super) fn pet_dex_current_card(
     total_xp: i64,
     claimed_at: Option<i64>,
     language: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let sprite_path = pet_sprite_path(runtime_asset_root, support_dir, pet, custom_pets);
     let name = if pet.claimed {
@@ -245,7 +245,7 @@ pub(super) fn pet_dex_sidebar_overview(
     unlocked_count: usize,
     total_count: usize,
     collection_subtitle: String,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     div()
         .child(
@@ -318,7 +318,7 @@ pub(super) fn pet_dex_summary_row(
     label: String,
     subtitle: String,
     value: String,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     div()
         .rounded(px(8.0))

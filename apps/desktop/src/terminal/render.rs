@@ -82,9 +82,9 @@ impl Render for TerminalView {
             };
             let device_label = self.session.viewport_owner_label().unwrap_or_else(|| {
                 if portrait {
-                    codux_runtime::i18n::translate(&lang, "terminal.handoff.phone", "Phone")
+                    wecode_runtime::i18n::translate(&lang, "terminal.handoff.phone", "Phone")
                 } else {
-                    codux_runtime::i18n::translate(&lang, "terminal.handoff.tablet", "Tablet")
+                    wecode_runtime::i18n::translate(&lang, "terminal.handoff.tablet", "Tablet")
                 }
             });
             terminal.child(
@@ -126,7 +126,7 @@ impl Render for TerminalView {
                         div()
                             .text_size(px(13.0))
                             .text_color(fg.opacity(0.45))
-                            .child(codux_runtime::i18n::translate(
+                            .child(wecode_runtime::i18n::translate(
                                 &lang,
                                 "terminal.handoff.inUse",
                                 "is using this terminal",
@@ -153,7 +153,7 @@ impl Render for TerminalView {
                                     .text_size(px(13.0))
                                     .font_weight(gpui::FontWeight::SEMIBOLD)
                                     .text_color(accent_fg)
-                                    .child(codux_runtime::i18n::translate(
+                                    .child(wecode_runtime::i18n::translate(
                                         &lang,
                                         "terminal.handoff.takeOver",
                                         "Take over",
@@ -213,7 +213,7 @@ fn terminal_context_menu(
     }
     let has_selection = view.read(cx).selected_text(cx).is_some();
     let translate =
-        |key: &str, default: &str| codux_runtime::i18n::translate(language, key, default);
+        |key: &str, default: &str| wecode_runtime::i18n::translate(language, key, default);
     let copy_view = view.clone();
     let paste_view = view.clone();
     let select_all_view = view.clone();

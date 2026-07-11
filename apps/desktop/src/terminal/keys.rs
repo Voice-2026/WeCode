@@ -1,16 +1,16 @@
 fn keystroke_to_bytes(keystroke: &Keystroke, mode: TerminalInputMode) -> Option<Vec<u8>> {
-    codux_terminal_core::terminal_key_input_bytes(core_key_input(keystroke, mode))
+    wecode_terminal_core::terminal_key_input_bytes(core_key_input(keystroke, mode))
 }
 
 fn is_copy_keystroke(keystroke: &Keystroke) -> bool {
-    codux_terminal_core::terminal_is_copy_shortcut(core_key_input(
+    wecode_terminal_core::terminal_is_copy_shortcut(core_key_input(
         keystroke,
         TerminalInputMode::default(),
     ))
 }
 
 fn is_paste_keystroke(keystroke: &Keystroke) -> bool {
-    codux_terminal_core::terminal_is_paste_shortcut(core_key_input(
+    wecode_terminal_core::terminal_is_paste_shortcut(core_key_input(
         keystroke,
         TerminalInputMode::default(),
     ))
@@ -41,11 +41,11 @@ fn prompt_jump_direction(keystroke: &Keystroke) -> Option<i32> {
 fn core_key_input(
     keystroke: &Keystroke,
     mode: TerminalInputMode,
-) -> codux_terminal_core::TerminalKeyInput<'_> {
-    codux_terminal_core::TerminalKeyInput {
+) -> wecode_terminal_core::TerminalKeyInput<'_> {
+    wecode_terminal_core::TerminalKeyInput {
         key: &keystroke.key,
         key_char: keystroke.key_char.as_deref(),
-        modifiers: codux_terminal_core::TerminalKeyInputModifiers {
+        modifiers: wecode_terminal_core::TerminalKeyInputModifiers {
             shift: keystroke.modifiers.shift,
             alt: keystroke.modifiers.alt,
             control: keystroke.modifiers.control,
@@ -85,7 +85,7 @@ fn clipboard_text_looks_like_image_payload(text: &str) -> bool {
 }
 
 fn write_terminal_clipboard_image(format: ImageFormat, bytes: &[u8]) -> std::io::Result<PathBuf> {
-    let directory = codux_runtime::runtime_paths::runtime_temp_dir().join("clipboard-images");
+    let directory = wecode_runtime::runtime_paths::runtime_temp_dir().join("clipboard-images");
     fs::create_dir_all(&directory)?;
     let file_name = format!(
         "terminal-paste-{}-{}.{}",

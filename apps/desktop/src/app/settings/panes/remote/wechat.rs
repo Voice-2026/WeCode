@@ -1,15 +1,15 @@
-use codux_runtime::wechat_bridge_service::{self, WeChatBridgeSnapshot, WeChatBridgeState};
+use wecode_runtime::wechat_bridge_service::{self, WeChatBridgeSnapshot, WeChatBridgeState};
 
 use super::overlays::remote_pairing_qr;
 use super::*;
 
 /// The "WeChat" card in the Remote settings pane: bridge status, QR login,
 /// and connect/stop/logout controls. Reads the bridge snapshot on render;
-/// [`CoduxApp::wechat_bridge_watch`] keeps re-rendering while a login or
+/// [`WeCodeApp::wechat_bridge_watch`] keeps re-rendering while a login or
 /// connection attempt is in flight.
 pub(in crate::app::settings) fn settings_remote_wechat_card(
     language: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     let snapshot = wechat_bridge_service::wechat_bridge_snapshot();
 
@@ -67,7 +67,7 @@ pub(in crate::app::settings) fn settings_remote_wechat_card(
 fn wechat_status_row(
     snapshot: &WeChatBridgeSnapshot,
     language: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     let (dot, label) = match snapshot.state {
         WeChatBridgeState::Connected => {
@@ -138,7 +138,7 @@ fn wechat_status_row(
                 false,
                 cx,
                 |app, _event, _window, cx| {
-                    codux_runtime::wechat_bridge_service::wechat_bridge_stop();
+                    wecode_runtime::wechat_bridge_service::wechat_bridge_stop();
                     app.wechat_bridge_watch(cx);
                 },
             ));
@@ -152,7 +152,7 @@ fn wechat_status_row(
                     false,
                     cx,
                     |app, _event, _window, cx| {
-                        codux_runtime::wechat_bridge_service::wechat_bridge_start_saved();
+                        wecode_runtime::wechat_bridge_service::wechat_bridge_start_saved();
                         app.wechat_bridge_watch(cx);
                     },
                 ));
@@ -168,7 +168,7 @@ fn wechat_status_row(
                 false,
                 cx,
                 |app, _event, _window, cx| {
-                    codux_runtime::wechat_bridge_service::wechat_bridge_begin_login();
+                    wecode_runtime::wechat_bridge_service::wechat_bridge_begin_login();
                     app.wechat_bridge_watch(cx);
                 },
             ));
@@ -182,7 +182,7 @@ fn wechat_status_row(
             false,
             cx,
             |app, _event, _window, cx| {
-                codux_runtime::wechat_bridge_service::wechat_bridge_logout();
+                wecode_runtime::wechat_bridge_service::wechat_bridge_logout();
                 app.wechat_bridge_watch(cx);
             },
         ));
@@ -222,7 +222,7 @@ fn wechat_pairing_row(
     chat_id: &str,
     code: &str,
     language: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     let peer: String = if chat_id.chars().count() > 12 {
         let head: String = chat_id.chars().take(12).collect();
@@ -275,7 +275,7 @@ fn wechat_pairing_row(
         .into_any_element()
 }
 
-impl CoduxApp {
+impl WeCodeApp {
     /// Mirror async bridge-state transitions (scan, confirm, connect, pairing
     /// requests, errors) into renders. Polls the snapshot once a second and
     /// re-renders only on change, so a long-lived connected bridge costs one

@@ -120,13 +120,13 @@ class _ScannerScreenState extends State<ScannerScreen>
     final value = token.trim();
     if (value.isEmpty) return;
     final uri = Uri.tryParse(value);
-    if (uri != null && uri.scheme == 'codux' && uri.host == 'pair') {
+    if (uri != null && uri.scheme == 'wecode' && uri.host == 'pair') {
       _handleDetected(value);
       return;
     }
     _handleDetected(
       Uri(
-        scheme: 'codux',
+        scheme: 'wecode',
         host: 'pair',
         queryParameters: {'payload': value},
       ).toString(),

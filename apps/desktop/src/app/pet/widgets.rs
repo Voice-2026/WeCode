@@ -3,7 +3,7 @@ use super::*;
 pub(super) fn pet_cancel_button(
     id: &'static str,
     language: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> Button {
     Button::new(id)
         .ghost()
@@ -37,8 +37,8 @@ pub(super) fn pet_footer_button(
     label: String,
     icon: HeroIconName,
     primary: bool,
-    cx: &mut Context<CoduxApp>,
-    on_click: impl Fn(&mut CoduxApp, &gpui::ClickEvent, &mut Window, &mut Context<CoduxApp>) + 'static,
+    cx: &mut Context<WeCodeApp>,
+    on_click: impl Fn(&mut WeCodeApp, &gpui::ClickEvent, &mut Window, &mut Context<WeCodeApp>) + 'static,
 ) -> Button {
     let button = Button::new(id)
         .text_color(if primary {
@@ -79,8 +79,8 @@ pub(super) fn pet_inline_button(
     label: String,
     icon: HeroIconName,
     enabled: bool,
-    cx: &mut Context<CoduxApp>,
-    on_click: impl Fn(&mut CoduxApp, &gpui::ClickEvent, &mut Window, &mut Context<CoduxApp>) + 'static,
+    cx: &mut Context<WeCodeApp>,
+    on_click: impl Fn(&mut WeCodeApp, &gpui::ClickEvent, &mut Window, &mut Context<WeCodeApp>) + 'static,
 ) -> Button {
     Button::new(id)
         .compact()

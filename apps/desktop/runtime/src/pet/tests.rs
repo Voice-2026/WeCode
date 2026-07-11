@@ -7,14 +7,14 @@ use serde_json::Value;
 use uuid::Uuid;
 
 fn temp_support_dir() -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("codux-gpui-pet-test-{}", Uuid::new_v4()));
+    let dir = std::env::temp_dir().join(format!("wecode-gpui-pet-test-{}", Uuid::new_v4()));
     fs::create_dir_all(&dir).unwrap();
     dir
 }
 
 fn encrypt_for_test(snapshot: &PetSnapshot) -> Vec<u8> {
     let json = serde_json::to_vec(snapshot).unwrap();
-    let key = pet_state_cipher_key("codux");
+    let key = pet_state_cipher_key("wecode");
     let cipher = Aes256Gcm::new(&key);
     let nonce = [7_u8; 12];
     let encrypted = cipher

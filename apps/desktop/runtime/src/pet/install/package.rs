@@ -17,7 +17,7 @@ pub(super) fn install_custom_pet_package(
     if package_id.is_empty() {
         return Err("The Petdex package name is invalid.".to_string());
     }
-    let staging_dir = std::env::temp_dir().join(format!("codux-pet-staging-{}", Uuid::new_v4()));
+    let staging_dir = std::env::temp_dir().join(format!("wecode-pet-staging-{}", Uuid::new_v4()));
     let destination = custom_pets_dir(support_dir).join(&package_id);
     fs::create_dir_all(&staging_dir).map_err(|error| error.to_string())?;
     let _cleanup = StagingCleanup(staging_dir.clone());

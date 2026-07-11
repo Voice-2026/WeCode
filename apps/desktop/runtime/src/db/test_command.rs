@@ -8,7 +8,7 @@ use std::{
 use uuid::Uuid;
 
 pub(super) fn write_test_profile_file(profile: &DBConnectionProfile) -> Result<PathBuf, String> {
-    let path = std::env::temp_dir().join(format!("codux-db-profile-test-{}.json", Uuid::new_v4()));
+    let path = std::env::temp_dir().join(format!("wecode-db-profile-test-{}.json", Uuid::new_v4()));
     let body = serde_json::to_vec_pretty(&json!([profile])).map_err(|error| error.to_string())?;
     write_private_file(&path, &body)?;
     Ok(path)
@@ -43,10 +43,10 @@ pub(super) fn run_db_test_command(
         .arg(&profile.id)
         .arg("--")
         .arg(test_statement(profile))
-        .env("CODUX_DB_PROFILES_FILE", profiles_file)
-        .env("CODUX_DB_PROJECT_ID", &profile.project_id)
+        .env("WECODE_DB_PROFILES_FILE", profiles_file)
+        .env("WECODE_DB_PROJECT_ID", &profile.project_id)
         .output()
-        .map_err(|error| format!("failed to run codux-db test command: {error}"))?;
+        .map_err(|error| format!("failed to run wecode-db test command: {error}"))?;
     if output.status.success() {
         Ok(DBQueryResult {
             ok: true,
@@ -61,7 +61,7 @@ pub(super) fn run_db_test_command(
         let message = [stderr.trim(), stdout.trim()]
             .into_iter()
             .find(|value| !value.is_empty())
-            .unwrap_or("codux-db test command failed")
+            .unwrap_or("wecode-db test command failed")
             .to_string();
         Err(message)
     }

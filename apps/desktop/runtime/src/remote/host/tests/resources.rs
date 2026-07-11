@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn terminal_project_subscriptions_keep_devices_scoped_to_their_projects() {
-    let support_dir = temp_support_dir("codux-remote-terminal-subscriptions");
+    let support_dir = temp_support_dir("wecode-remote-terminal-subscriptions");
     let (project_a, project_b) = write_two_project_state(&support_dir);
     let terminals = Arc::new(TerminalManager::new());
     let runtime = Arc::new(RemoteHostRuntime::new_with_ai_history_and_terminals(
@@ -74,7 +74,7 @@ fn terminal_project_subscriptions_keep_devices_scoped_to_their_projects() {
 
 #[test]
 fn project_select_replaces_previous_terminal_project_viewers() {
-    let support_dir = temp_support_dir("codux-project-select-terminal-viewers");
+    let support_dir = temp_support_dir("wecode-project-select-terminal-viewers");
     let (project_a, project_b) = write_two_project_state(&support_dir);
     let terminals = Arc::new(TerminalManager::new());
     let runtime = Arc::new(RemoteHostRuntime::new_with_ai_history_and_terminals(
@@ -144,7 +144,7 @@ fn project_select_replaces_previous_terminal_project_viewers() {
 
 #[test]
 fn resource_subscriptions_broadcast_project_scoped_git_status() {
-    let support_dir = temp_support_dir("codux-remote-resource-subscriptions");
+    let support_dir = temp_support_dir("wecode-remote-resource-subscriptions");
     let (project_a, _) = write_two_project_state(&support_dir);
     let runtime = Arc::new(RemoteHostRuntime::new(support_dir.clone()));
     let transport = Arc::new(CapturingTransport::default());
@@ -194,7 +194,7 @@ fn resource_subscriptions_broadcast_project_scoped_git_status() {
 
 #[test]
 fn terminal_resource_subscription_sends_tail_raw_baseline() {
-    let support_dir = temp_support_dir("codux-remote-resource-terminal-tail-baseline");
+    let support_dir = temp_support_dir("wecode-remote-resource-terminal-tail-baseline");
     write_paired_remote_settings(&support_dir);
     let terminals = Arc::new(TerminalManager::new());
     let runtime = Arc::new(RemoteHostRuntime::new_with_ai_history_and_terminals(

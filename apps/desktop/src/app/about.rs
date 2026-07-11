@@ -1,21 +1,21 @@
 use super::*;
 use crate::app::app_state::UpdateDialogPhase;
 use crate::app::window_actions::{AuxiliaryWindowSlot, AuxiliaryWindowSpec};
-use codux_runtime::{
+use gpui_component::{Size, progress::Progress};
+use wecode_runtime::{
     app_info::{DiagnosticsExportRequest, UpdateInstallProgressEvent},
     dialog::{
         DialogFilter, LocalizedAlertDialogRequest, LocalizedConfirmDialogRequest,
         LocalizedSaveDialogRequest,
     },
 };
-use gpui_component::{Size, progress::Progress};
 
 /// Days the app must have been installed before the GitHub-star nudge auto-pops.
 const STAR_PROMPT_AFTER_DAYS: i64 = 3;
 
-const CODUX_WEBSITE_URL: &str = "https://codux.dux.cn";
-const CODUX_GITHUB_URL: &str = "https://github.com/duxweb/codux";
-const CODUX_IDENTIFIER: &str = "com.duxweb.codux";
+const WECODE_WEBSITE_URL: &str = "https://wecode.dux.cn";
+const WECODE_GITHUB_URL: &str = "https://github.com/duxweb/wecode";
+const WECODE_IDENTIFIER: &str = "com.duxweb.wecode";
 const UPDATE_DIALOG_WIDTH: f32 = 440.0;
 const UPDATE_DIALOG_DEFAULT_HEIGHT: f32 = 210.0;
 const UPDATE_DIALOG_AVAILABLE_HEIGHT: f32 = 362.0;
@@ -25,7 +25,7 @@ const UPDATE_DIALOG_FINISHED_HEIGHT: f32 = 282.0;
 const UPDATE_DIALOG_MIN_HEIGHT: f32 = 210.0;
 const UPDATE_DIALOG_NOTES_HEIGHT: f32 = 130.0;
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn about_workspace(
         &self,
         _window: &mut Window,
@@ -34,9 +34,9 @@ impl CoduxApp {
         let locale = locale_from_language_setting(&self.state.settings.language);
         let about = self
             .runtime_service
-            .about_metadata(env!("CARGO_PKG_VERSION"), CODUX_IDENTIFIER);
+            .about_metadata(env!("CARGO_PKG_VERSION"), WECODE_IDENTIFIER);
         child_window_shell(
-            translate(&locale, "menu.app.about_format", "About Codux").replace("%@", "Codux"),
+            translate(&locale, "menu.app.about_format", "About WeCode").replace("%@", "WeCode"),
             cx,
         )
         .child(
@@ -92,7 +92,7 @@ impl CoduxApp {
                                 .child(translate(
                                     &locale,
                                     "about.copyright",
-                                    "Copyright (c) 2025 Codux contributors",
+                                    "Copyright (c) 2025 WeCode contributors",
                                 )),
                         ),
                 )
@@ -108,7 +108,7 @@ impl CoduxApp {
         self.open_auxiliary_window(
             AuxiliaryWindowSpec {
                 slot: AuxiliaryWindowSlot::About,
-                title: SharedString::from("About Codux"),
+                title: SharedString::from("About WeCode"),
                 size: size(px(380.0), px(380.0)),
                 min_size: size(px(360.0), px(360.0)),
                 already_open_message: "about window already opened",
@@ -118,7 +118,7 @@ impl CoduxApp {
             cx,
             |state, runtime, runtime_service, _window, _cx| {
                 let mut app =
-                    CoduxApp::new_settings_window_from_state(state, runtime, runtime_service);
+                    WeCodeApp::new_settings_window_from_state(state, runtime, runtime_service);
                 app.window_mode = AppWindowMode::About;
                 app
             },
@@ -149,7 +149,7 @@ impl CoduxApp {
             cx,
             |state, runtime, runtime_service, _window, _cx| {
                 let mut app =
-                    CoduxApp::new_settings_window_from_state(state, runtime, runtime_service);
+                    WeCodeApp::new_settings_window_from_state(state, runtime, runtime_service);
                 app.window_mode = AppWindowMode::UpdateDialog;
                 app.update_dialog_phase = UpdateDialogPhase::Checking;
                 app.update_dialog_status = None;
@@ -184,7 +184,7 @@ impl CoduxApp {
             },
             cx,
             |state, runtime, runtime_service, _window, _cx| {
-                CoduxApp::new_memory_manager_window(state, runtime, runtime_service)
+                WeCodeApp::new_memory_manager_window(state, runtime, runtime_service)
             },
             |view, _window, cx| {
                 view.update(cx, |app, cx| app.reload_memory_manager_snapshot_async(cx));
@@ -193,18 +193,18 @@ impl CoduxApp {
         self.invalidate_status_bar(cx);
     }
 
-    pub(in crate::app) fn open_codux_website(&mut self, cx: &mut Context<Self>) {
-        match self.runtime_service.open_url(CODUX_WEBSITE_URL) {
-            Ok(()) => self.status_message = "Codux website opened".to_string(),
-            Err(error) => self.status_message = format!("failed to open Codux website: {error}"),
+    pub(in crate::app) fn open_wecode_website(&mut self, cx: &mut Context<Self>) {
+        match self.runtime_service.open_url(WECODE_WEBSITE_URL) {
+            Ok(()) => self.status_message = "WeCode website opened".to_string(),
+            Err(error) => self.status_message = format!("failed to open WeCode website: {error}"),
         }
         self.invalidate_status_bar(cx);
     }
 
-    pub(in crate::app) fn open_codux_github(&mut self, cx: &mut Context<Self>) {
-        match self.runtime_service.open_url(CODUX_GITHUB_URL) {
-            Ok(()) => self.status_message = "Codux GitHub opened".to_string(),
-            Err(error) => self.status_message = format!("failed to open Codux GitHub: {error}"),
+    pub(in crate::app) fn open_wecode_github(&mut self, cx: &mut Context<Self>) {
+        match self.runtime_service.open_url(WECODE_GITHUB_URL) {
+            Ok(()) => self.status_message = "WeCode GitHub opened".to_string(),
+            Err(error) => self.status_message = format!("failed to open WeCode GitHub: {error}"),
         }
         self.invalidate_status_bar(cx);
     }
@@ -220,18 +220,18 @@ impl CoduxApp {
         cx.spawn(async move |_: gpui::WeakEntity<Self>, _cx| {
             let confirmed = service
                 .localized_confirm_dialog(LocalizedConfirmDialogRequest {
-                    title: translate(&language, "star.title", "Enjoying Codux?"),
+                    title: translate(&language, "star.title", "Enjoying WeCode?"),
                     message: translate(
                         &language,
                         "star.body",
-                        "If Codux is useful to you, a GitHub star really helps the project grow. Open the repository to star it?",
+                        "If WeCode is useful to you, a GitHub star really helps the project grow. Open the repository to star it?",
                     ),
                     confirm_label: translate(&language, "star.confirm", "Star on GitHub"),
                     cancel_label: translate(&language, "star.later", "Maybe later"),
                 })
                 .unwrap_or(false);
             if confirmed {
-                let _ = service.open_url(CODUX_GITHUB_URL);
+                let _ = service.open_url(WECODE_GITHUB_URL);
             }
         })
         .detach();
@@ -271,7 +271,7 @@ impl CoduxApp {
                     translate(
                         &language,
                         "about.user_agreement_data",
-                        "Codux only reads the local state needed to display terminal sessions, Git repository status, AI tool activity, and local statistics.",
+                        "WeCode only reads the local state needed to display terminal sessions, Git repository status, AI tool activity, and local statistics.",
                     ),
                     translate(
                         &language,
@@ -281,7 +281,7 @@ impl CoduxApp {
                     translate(
                         &language,
                         "about.user_agreement_license",
-                        "Codux is distributed as open-source software under the GPL-3.0 license.",
+                        "WeCode is distributed as open-source software under the GPL-3.0 license.",
                     ),
                 ]
                 .join("\n\n"),
@@ -305,7 +305,7 @@ impl CoduxApp {
         let service = self.runtime_service.clone();
         let repo_root = std::env::current_dir().unwrap_or_default();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let status_result = codux_runtime::async_runtime::spawn(async move {
+            let status_result = wecode_runtime::async_runtime::spawn(async move {
                 service.update_status(repo_root, env!("CARGO_PKG_VERSION"))
             })
             .await;
@@ -374,7 +374,7 @@ impl CoduxApp {
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             let (progress_tx, progress_rx) = flume::unbounded::<UpdateInstallProgressEvent>();
             let install_service = service.clone();
-            let install_task = codux_runtime::async_runtime::spawn_blocking(move || {
+            let install_task = wecode_runtime::async_runtime::spawn_blocking(move || {
                 install_service.install_update_with_progress(
                     repo_root,
                     env!("CARGO_PKG_VERSION"),
@@ -505,19 +505,19 @@ impl CoduxApp {
                 "Choose where to save the diagnostics report.",
             ),
             prompt: self.text("common.save", "Save"),
-            default_path: Some(format!("codux-diagnostics-{}.json", timestamp_slug())),
+            default_path: Some(format!("wecode-diagnostics-{}.json", timestamp_slug())),
             filters: vec![DialogFilter {
                 _name: "JSON".to_string(),
                 extensions: vec!["json".to_string()],
             }],
             can_create_directories: Some(true),
         };
-        let about = service.about_metadata(env!("CARGO_PKG_VERSION"), CODUX_IDENTIFIER);
+        let about = service.about_metadata(env!("CARGO_PKG_VERSION"), WECODE_IDENTIFIER);
         let current_version = env!("CARGO_PKG_VERSION").to_string();
         let repo_root = std::env::current_dir().unwrap_or_default();
 
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let result = codux_runtime::async_runtime::spawn_blocking(move || {
+            let result = wecode_runtime::async_runtime::spawn_blocking(move || {
                 let Some(destination) = service.localized_save_dialog(save_request)? else {
                     return Ok(None);
                 };
@@ -583,7 +583,7 @@ fn about_icon_mark() -> impl IntoElement {
         )
 }
 
-fn about_action_row(locale: &str, cx: &mut Context<CoduxApp>) -> impl IntoElement {
+fn about_action_row(locale: &str, cx: &mut Context<WeCodeApp>) -> impl IntoElement {
     let tr = |key: &str, fallback: &str| translate(locale, key, fallback);
     div()
         .mt(px(24.0))
@@ -603,7 +603,7 @@ fn about_action_row(locale: &str, cx: &mut Context<CoduxApp>) -> impl IntoElemen
             tr("about.website", "Website"),
             HeroIconName::ArrowTopRightOnSquare,
             cx,
-            |app, _event, _window, cx| app.open_codux_website(cx),
+            |app, _event, _window, cx| app.open_wecode_website(cx),
         ))
         .child(about_button(
             "about-check-updates",
@@ -618,8 +618,8 @@ fn about_button(
     id: &'static str,
     label: String,
     icon: HeroIconName,
-    cx: &mut Context<CoduxApp>,
-    on_click: impl Fn(&mut CoduxApp, &gpui::ClickEvent, &mut Window, &mut Context<CoduxApp>) + 'static,
+    cx: &mut Context<WeCodeApp>,
+    on_click: impl Fn(&mut WeCodeApp, &gpui::ClickEvent, &mut Window, &mut Context<WeCodeApp>) + 'static,
 ) -> impl IntoElement {
     Button::new(id)
         .secondary()
@@ -640,7 +640,11 @@ fn about_button(
         )
 }
 
-fn update_dialog_content(app: &CoduxApp, language: &str, cx: &mut Context<CoduxApp>) -> AnyElement {
+fn update_dialog_content(
+    app: &WeCodeApp,
+    language: &str,
+    cx: &mut Context<WeCodeApp>,
+) -> AnyElement {
     let phase = app.update_dialog_phase;
     let title = update_dialog_header_title(app, language);
     let subtitle = update_dialog_subtitle(app, language);
@@ -688,7 +692,7 @@ fn update_dialog_content(app: &CoduxApp, language: &str, cx: &mut Context<CoduxA
         .into_any_element()
 }
 
-fn update_dialog_icon(phase: UpdateDialogPhase, cx: &mut Context<CoduxApp>) -> AnyElement {
+fn update_dialog_icon(phase: UpdateDialogPhase, cx: &mut Context<WeCodeApp>) -> AnyElement {
     let busy = matches!(
         phase,
         UpdateDialogPhase::Checking | UpdateDialogPhase::Downloading
@@ -725,7 +729,7 @@ fn update_dialog_icon(phase: UpdateDialogPhase, cx: &mut Context<CoduxApp>) -> A
         .into_any_element()
 }
 
-fn update_dialog_body(app: &CoduxApp, language: &str, cx: &mut Context<CoduxApp>) -> AnyElement {
+fn update_dialog_body(app: &WeCodeApp, language: &str, cx: &mut Context<WeCodeApp>) -> AnyElement {
     let body = div().w_full().min_h_0().flex().flex_col().gap(px(10.0));
     match app.update_dialog_phase {
         UpdateDialogPhase::Available => body
@@ -774,7 +778,7 @@ fn update_dialog_body(app: &CoduxApp, language: &str, cx: &mut Context<CoduxApp>
                     .child(translate(
                         language,
                         "update.installed.message",
-                        "The update was downloaded. Restart Codux to finish applying it.",
+                        "The update was downloaded. Restart WeCode to finish applying it.",
                     )),
             )
             .child(update_progress_view(
@@ -825,7 +829,7 @@ fn update_dialog_body(app: &CoduxApp, language: &str, cx: &mut Context<CoduxApp>
     }
 }
 
-fn update_dialog_release_notes(app: &CoduxApp, language: &str) -> String {
+fn update_dialog_release_notes(app: &WeCodeApp, language: &str) -> String {
     app.update_dialog_status
         .as_ref()
         .and_then(|status| status.notes.clone())
@@ -843,7 +847,11 @@ fn update_dialog_release_notes(app: &CoduxApp, language: &str) -> String {
         })
 }
 
-fn update_dialog_footer(app: &CoduxApp, language: &str, cx: &mut Context<CoduxApp>) -> AnyElement {
+fn update_dialog_footer(
+    app: &WeCodeApp,
+    language: &str,
+    cx: &mut Context<WeCodeApp>,
+) -> AnyElement {
     let phase = app.update_dialog_phase;
     let busy = matches!(
         phase,
@@ -936,7 +944,7 @@ fn resize_update_dialog_window_handle(
     handle: AnyWindowHandle,
     phase: UpdateDialogPhase,
     language: String,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) {
     let _ = handle.update(cx, |_view, window, _cx| {
         set_update_dialog_window_phase(window, phase, &language);
@@ -946,7 +954,7 @@ fn resize_update_dialog_window_handle(
 fn update_progress_view(
     progress: Option<&UpdateInstallProgressEvent>,
     language: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     let downloaded = progress
         .map(|progress| progress.downloaded_bytes)
@@ -1039,7 +1047,7 @@ fn update_dialog_title(phase: UpdateDialogPhase, language: &str) -> String {
     }
 }
 
-fn update_dialog_subtitle(app: &CoduxApp, language: &str) -> String {
+fn update_dialog_subtitle(app: &WeCodeApp, language: &str) -> String {
     if app.update_dialog_phase == UpdateDialogPhase::Latest {
         let current_version = app
             .update_dialog_status
@@ -1076,7 +1084,7 @@ fn update_dialog_subtitle(app: &CoduxApp, language: &str) -> String {
     String::new()
 }
 
-fn update_dialog_header_title(app: &CoduxApp, language: &str) -> String {
+fn update_dialog_header_title(app: &WeCodeApp, language: &str) -> String {
     if app.update_dialog_phase == UpdateDialogPhase::Available
         && let Some(status) = &app.update_dialog_status
         && let Some(version) = status.latest_version.as_deref().filter(|v| !v.is_empty())

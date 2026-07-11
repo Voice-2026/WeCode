@@ -17,7 +17,7 @@ pub async fn test_provider(provider: AIProviderSettings) -> Result<LLMProviderTe
     let provider = sanitize_test_provider(provider)?;
     let text = complete_with_provider(
         &provider,
-        "Reply with exactly: Codux provider test ok",
+        "Reply with exactly: WeCode provider test ok",
         Some("You are a connectivity test. Output only the requested text."),
     )
     .await?;
@@ -61,15 +61,15 @@ async fn complete_genai(
     system_prompt: Option<&str>,
     options: LLMProviderCompletionOptions,
 ) -> Result<String, String> {
-    // The genai integration lives in the shared `codux-llm` crate. The desktop
+    // The genai integration lives in the shared `wecode-llm` crate. The desktop
     // keeps its richer `AISettings`-aware selection above and forwards the
     // chosen provider to the shared core.
     install_llm_trace_hook();
-    codux_llm::complete(&llm_provider_from_settings(provider), prompt, system_prompt, options).await
+    wecode_llm::complete(&llm_provider_from_settings(provider), prompt, system_prompt, options).await
 }
 
-fn llm_provider_from_settings(provider: &AIProviderSettings) -> codux_llm::LlmProvider {
-    codux_llm::LlmProvider {
+fn llm_provider_from_settings(provider: &AIProviderSettings) -> wecode_llm::LlmProvider {
+    wecode_llm::LlmProvider {
         id: provider.id.clone(),
         kind: provider.kind.clone(),
         display_name: provider.display_name.clone(),

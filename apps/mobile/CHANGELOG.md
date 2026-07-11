@@ -8,7 +8,7 @@ Important changes to this project are documented here.
 
 ### Changed
 
-- Aligned the Flutter mobile release with Codux 2.0.0-rc.5. No mobile pairing protocol changes are required for this release candidate.
+- Aligned the Flutter mobile release with WeCode 2.0.0-rc.5. No mobile pairing protocol changes are required for this release candidate.
 
 ### Fixed
 
@@ -22,25 +22,25 @@ Important changes to this project are documented here.
 
 ### Changed
 
-- Aligned the Flutter mobile release with Codux 2.0.0-rc.4. No mobile pairing protocol changes are required for this release candidate.
+- Aligned the Flutter mobile release with WeCode 2.0.0-rc.4. No mobile pairing protocol changes are required for this release candidate.
 
 ## [2.0.0-rc.3] - 2026-07-05
 
 ### Changed
 
-- Aligned the Flutter mobile release with Codux 2.0.0-rc.3. No mobile protocol changes are required for this release candidate.
+- Aligned the Flutter mobile release with WeCode 2.0.0-rc.3. No mobile protocol changes are required for this release candidate.
 
 ## [2.0.0-rc.2] - 2026-07-04
 
 ### Changed
 
-- Aligned the Flutter mobile release with Codux 2.0.0-rc.2. No mobile protocol changes are required for this release candidate.
+- Aligned the Flutter mobile release with WeCode 2.0.0-rc.2. No mobile protocol changes are required for this release candidate.
 
 ## [2.0.0-rc.1] - 2026-07-04
 
 ### Changed
 
-- Aligned the Flutter mobile release with Codux 2.0.0-rc.1. No mobile protocol changes are required for this release candidate.
+- Aligned the Flutter mobile release with WeCode 2.0.0-rc.1. No mobile protocol changes are required for this release candidate.
 
 ## [2.0.0-beta.8] - 2026-07-02
 
@@ -58,19 +58,19 @@ Important changes to this project are documented here.
 
 ### Changed
 
-- Aligned the mobile package with the Codux 2.0.0-beta.5 desktop and agent release. No mobile protocol changes are required for this beta.
+- Aligned the mobile package with the WeCode 2.0.0-beta.5 desktop and agent release. No mobile protocol changes are required for this beta.
 
 ## [2.0.0-beta.4] - 2026-06-30
 
 ### Changed
 
-- Aligned the mobile package with the Codux 2.0.0-beta.4 desktop and agent release. No mobile protocol changes are required for this beta.
+- Aligned the mobile package with the WeCode 2.0.0-beta.4 desktop and agent release. No mobile protocol changes are required for this beta.
 
 ## [2.0.0-beta.3] - 2026-06-25
 
 ### Added
 
-- Direct LAN (peer-to-peer) connection to a Codux host on the same network via iroh mDNS, with a direct-vs-relay indicator on the connection badge.
+- Direct LAN (peer-to-peer) connection to a WeCode host on the same network via iroh mDNS, with a direct-vs-relay indicator on the connection badge.
 - Persistent remote terminals: returning to a project re-attaches the same host shell, and the phone can share an agent terminal with the desktop and hand off the viewport (the desktop reclaims it by tapping the phone badge).
 - Import a pairing QR from a photo or screenshot as a fallback when the live camera scan struggles.
 
@@ -108,7 +108,7 @@ Important changes to this project are documented here.
 
 ### Added
 
-- Connect to a remote Codux host (`codux-agent`) and drive its terminals, Git, and AI sessions from your phone over the end-to-end encrypted Iroh transport. (Beta)
+- Connect to a remote WeCode host (`wecode-agent`) and drive its terminals, Git, and AI sessions from your phone over the end-to-end encrypted Iroh transport. (Beta)
 
 ### Fixed
 
@@ -199,7 +199,7 @@ Important changes to this project are documented here.
 
 - Added v3.1 host capability parsing, terminal-buffer chunk assembly, per-session terminal replicas, terminal subscription scopes, and bounded history rendering for large terminal output.
 - Added reliable terminal input helpers, output sequencing/resync helpers, upload metadata helpers, and protocol payload codecs for future cross-device runtime domains.
-- Added mobile update checking, refined debug-log export, and updated controller-oriented documentation for Codux Mobile.
+- Added mobile update checking, refined debug-log export, and updated controller-oriented documentation for WeCode Mobile.
 
 ### Changed
 
@@ -234,7 +234,7 @@ Important changes to this project are documented here.
 
 ### Added
 
-- Added the official v3 remote protocol for Codux Mobile, sharing the same relay/WebRTC model as Codux Desktop.
+- Added the official v3 remote protocol for WeCode Mobile, sharing the same relay/WebRTC model as WeCode Desktop.
 - Added stateless QR ticket pairing so the desktop can publish a short-lived pairing payload through the relay service.
 - Added WebRTC DataChannel direct transport with WebSocket relay fallback, plus latency reporting based on protocol ping/pong.
 - Added in-app debug logs with copy/export support and configurable log verbosity for connection and terminal diagnostics.
@@ -253,7 +253,7 @@ Important changes to this project are documented here.
 
 ### Notes
 
-- Codux Mobile 1.7.0 should be paired with Codux Desktop 1.7.0. Existing paired devices should be paired again after upgrading.
+- WeCode Mobile 1.7.0 should be paired with WeCode Desktop 1.7.0. Existing paired devices should be paired again after upgrading.
 
 ## [1.7.0-beta.1] - 2026-06-07
 
@@ -265,7 +265,7 @@ Important changes to this project are documented here.
 
 ### Notes
 
-- This beta requires the updated Codux desktop app and updated Codux relay service. Existing remote devices need to be paired again.
+- This beta requires the updated WeCode desktop app and updated WeCode relay service. Existing remote devices need to be paired again.
 
 ## [1.6.8] - 2026-06-07
 
@@ -311,7 +311,7 @@ Important changes to this project are documented here.
 
 ### Fixed
 
-- Fixed iOS bridge exports so `codux_iroh_add_node_addr` is available to the Swift plugin.
+- Fixed iOS bridge exports so `wecode_iroh_add_node_addr` is available to the Swift plugin.
 - Linked the iOS Iroh bridge against `Network.framework` and re-signed embedded Flutter native asset frameworks with the active build identity.
 
 ## [1.6.0] - 2026-06-05
@@ -339,7 +339,7 @@ Important changes to this project are documented here.
 
 ### Changed
 
-- Aligned the mobile client with the Codux 1.5.0 desktop protocol and GPUI terminal host.
+- Aligned the mobile client with the WeCode 1.5.0 desktop protocol and GPUI terminal host.
 - Improved shared terminal restore, resize, split ordering, and mobile terminal rendering across Android and iOS.
 - Added a remote protocol version check during `host.info` so incompatible desktop builds ask users to update instead of connecting silently.
 
@@ -350,13 +350,13 @@ Important changes to this project are documented here.
 
 ### Notes
 
-- Includes the 1.5.0-beta.1 mobile validation cycle for the Codux 1.5.0 desktop protocol, shared terminal restore, split ordering, Android and iOS terminal rendering, and host protocol compatibility checks.
+- Includes the 1.5.0-beta.1 mobile validation cycle for the WeCode 1.5.0 desktop protocol, shared terminal restore, split ordering, Android and iOS terminal rendering, and host protocol compatibility checks.
 
 ## [1.5.0-beta.1] - 2026-06-03
 
 ### Changed
 
-- Aligned the mobile client with the Codux 1.5.0 desktop protocol and GPUI terminal host.
+- Aligned the mobile client with the WeCode 1.5.0 desktop protocol and GPUI terminal host.
 - Improved shared terminal restore, resize, split ordering, and mobile terminal rendering across Android and iOS.
 - Added a remote protocol version check during `host.info` so incompatible desktop builds ask users to update instead of connecting silently.
 
@@ -495,15 +495,15 @@ Important changes to this project are documented here.
 
 ### Added
 
-- Initial Codux Mobile Flutter client for connecting to Codux on macOS through the relay service.
+- Initial WeCode Mobile Flutter client for connecting to WeCode on macOS through the relay service.
 - Added QR pairing, device management, project switching, terminal split switching, file browsing, image upload, and AI usage panels.
 - Added native Android terminal rendering through a Termux TerminalView based Flutter platform view, including remote output, user input, scrollback, text selection, quick keys, and IME avoidance.
-- Added GitHub update checking against the latest `duxweb/codux-flutter` release.
+- Added GitHub update checking against the latest `duxweb/wecode-flutter` release.
 
 ### Changed
 
 - Replaced the earlier WebView / xterm rendering direction with the native Android terminal plugin.
-- Added release logging control through `CODUX_LOG_LEVEL`, shared by Flutter and the native terminal plugin.
+- Added release logging control through `WECODE_LOG_LEVEL`, shared by Flutter and the native terminal plugin.
 
 ### Fixed
 

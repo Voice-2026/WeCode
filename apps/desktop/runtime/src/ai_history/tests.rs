@@ -1,6 +1,6 @@
 //! Desktop-only tests for the live-stats view (`stats_view`), which merges the
 //! crate's `AIHistorySummary` with the desktop's `AIRuntimeStateSummary`. The
-//! session/summary DB tests live in the `codux-ai-sessions` crate.
+//! session/summary DB tests live in the `wecode-ai-sessions` crate.
 
 use super::*;
 use crate::ai_history_normalized::{AIHeatmapDay, AITimeBucket, AIUsageBreakdownItem};

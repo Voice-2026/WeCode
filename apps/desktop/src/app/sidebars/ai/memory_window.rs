@@ -13,7 +13,7 @@ pub(in crate::app) fn memory_manager_window_workspace(
     project_profile_refreshing: bool,
     language: &str,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let window_title = ai_sidebar_text(language, "memory.manager.window.title", "Memory Manager");
     let title = ai_sidebar_text(language, "memory.manager.title", "Memory");
@@ -335,7 +335,7 @@ pub(in crate::app) fn memory_manager_window_workspace(
 /// Shared card shell for every memory manager card (queue / failed / summary /
 /// profile / entry). One consistent radius, border, surface and padding so the
 /// content area stops looking like a pile of mismatched boxes.
-pub(super) fn ai_memory_card(cx: &mut Context<CoduxApp>) -> gpui::Div {
+pub(super) fn ai_memory_card(cx: &mut Context<WeCodeApp>) -> gpui::Div {
     div()
         .w_full()
         .rounded(px(10.0))
@@ -351,7 +351,7 @@ pub(super) fn ai_memory_card(cx: &mut Context<CoduxApp>) -> gpui::Div {
 pub(super) fn ai_memory_stat_chip(
     value: impl Into<String>,
     label: impl Into<String>,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     div()
         .flex()
@@ -386,8 +386,8 @@ pub(super) fn ai_memory_nav_row(
     label: impl Into<String>,
     count: Option<i64>,
     active: bool,
-    cx: &mut Context<CoduxApp>,
-    on_click: impl Fn(&mut CoduxApp, &gpui::ClickEvent, &mut Window, &mut Context<CoduxApp>) + 'static,
+    cx: &mut Context<WeCodeApp>,
+    on_click: impl Fn(&mut WeCodeApp, &gpui::ClickEvent, &mut Window, &mut Context<WeCodeApp>) + 'static,
 ) -> impl IntoElement {
     let label = label.into();
     let foreground = if active {
@@ -450,7 +450,7 @@ pub(super) fn ai_memory_nav_row(
 /// Small uppercase group label for the left sidebar (e.g. "Projects").
 pub(super) fn ai_memory_group_label(
     label: impl Into<String>,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     div()
         .px(px(10.0))
@@ -469,7 +469,7 @@ pub(super) fn ai_memory_overview_strip(
     manager: &MemoryManagerSnapshot,
     active_tab: MemoryManagerTab,
     language: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     if active_tab == MemoryManagerTab::Queue {
         let text = ai_sidebar_text(
@@ -525,7 +525,7 @@ pub(super) fn ai_memory_overview_strip(
         .into_any_element()
 }
 
-pub(super) fn ai_memory_overview_text(text: String, cx: &mut Context<CoduxApp>) -> AnyElement {
+pub(super) fn ai_memory_overview_text(text: String, cx: &mut Context<WeCodeApp>) -> AnyElement {
     div()
         .truncate()
         .text_size(rems(0.75))
@@ -624,7 +624,7 @@ pub(super) fn ai_memory_manager_window_content(
     empty_failed: String,
     language: &str,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     let mut content = div().size_full().flex().flex_col();
     if active_tab == MemoryManagerTab::Queue {
@@ -708,7 +708,7 @@ pub(super) fn ai_memory_manager_section_switcher(
     active_tab: MemoryManagerTab,
     selected_scope: &str,
     language: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let user_active = selected_scope == "user"
         && active_tab != MemoryManagerTab::Queue

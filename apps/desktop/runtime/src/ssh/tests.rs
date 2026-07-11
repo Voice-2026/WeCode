@@ -40,10 +40,10 @@ fn password_profiles_require_password() {
 fn launch_context_lists_profiles_without_secrets() {
     let mut profiles = vec![profile_with_secret()];
     let context = render_ssh_launch_context_for_profiles(&mut profiles, None).unwrap();
-    assert!(context.contains("codux-ssh list"));
-    assert!(context.contains("codux-ssh <profile-id>"));
-    assert!(context.contains("codux-ssh <profile-id> -- '<remote-command>'"));
-    assert!(context.contains("Always run `codux-ssh list` at the time of use"));
+    assert!(context.contains("wecode-ssh list"));
+    assert!(context.contains("wecode-ssh <profile-id>"));
+    assert!(context.contains("wecode-ssh <profile-id> -- '<remote-command>'"));
+    assert!(context.contains("Always run `wecode-ssh list` at the time of use"));
     assert!(context.contains("Do not grep the repository"));
     assert!(!context.contains("Production"));
     assert!(!context.contains("root@example.com:2222"));
@@ -58,10 +58,10 @@ fn launch_command_only_references_profile_id() {
     let profile = profile_with_secret();
     let store = SSHStore {
         profiles: Mutex::new(vec![profile]),
-        state_file: PathBuf::from("/tmp/codux-ssh-test.json"),
+        state_file: PathBuf::from("/tmp/wecode-ssh-test.json"),
     };
     let command = store.launch_command("profile-1".to_string()).unwrap();
-    assert!(command.command.contains("codux-ssh"));
+    assert!(command.command.contains("wecode-ssh"));
     assert!(command.command.contains("profile-1"));
     assert!(!command.command.contains("secret-password"));
     assert!(!command.command.contains("secret-passphrase"));
@@ -81,7 +81,7 @@ fn ssh_test_profile_file_is_owner_only() {
 
 #[test]
 fn ssh_store_uses_shared_config_document_snapshot() {
-    let support_dir = std::env::temp_dir().join(format!("codux-ssh-store-{}", Uuid::new_v4()));
+    let support_dir = std::env::temp_dir().join(format!("wecode-ssh-store-{}", Uuid::new_v4()));
     fs::create_dir_all(&support_dir).unwrap();
     let store = SSHStore::from_support_dir(support_dir.clone());
 
@@ -113,12 +113,12 @@ fn ssh_store_uses_shared_config_document_snapshot() {
 
 #[cfg(not(windows))]
 #[test]
-fn codux_ssh_remote_command_exits_after_noninteractive_password_auth() {
+fn wecode_ssh_remote_command_exits_after_noninteractive_password_auth() {
     use std::io::Write;
     use std::os::unix::fs::PermissionsExt;
     use std::process::{Command, Stdio};
 
-    let dir = std::env::temp_dir().join(format!("codux-ssh-noninteractive-{}", Uuid::new_v4()));
+    let dir = std::env::temp_dir().join(format!("wecode-ssh-noninteractive-{}", Uuid::new_v4()));
     let bin = dir.join("bin");
     fs::create_dir_all(&bin).unwrap();
     let fake_ssh = bin.join("ssh");
@@ -129,7 +129,7 @@ fn codux_ssh_remote_command_exits_after_noninteractive_password_auth() {
            if [ \"$arg\" = \"-f\" ]; then\n\
              printf 'password: ' >&2\n\
              IFS= read -r _password\n\
-             printf 'master-ready\\n' >> \"$CODUX_SSH_TEST_LOG\"\n\
+             printf 'master-ready\\n' >> \"$WECODE_SSH_TEST_LOG\"\n\
              exit 0\n\
            fi\n\
          done\n\
@@ -167,21 +167,21 @@ fn codux_ssh_remote_command_exits_after_noninteractive_password_auth() {
     let staged_wrappers = dir.join("runtime-assets/scripts/wrappers");
     let staged_bin = staged_wrappers.join("bin");
     fs::create_dir_all(&staged_bin).unwrap();
-    let wrapper = staged_bin.join("codux-ssh");
-    fs::copy(source_wrappers.join("bin/codux-ssh"), &wrapper).unwrap();
+    let wrapper = staged_bin.join("wecode-ssh");
+    fs::copy(source_wrappers.join("bin/wecode-ssh"), &wrapper).unwrap();
     fs::copy(
-        source_wrappers.join("codux-ssh-expect.exp"),
-        staged_wrappers.join("codux-ssh-expect.exp"),
+        source_wrappers.join("wecode-ssh-expect.exp"),
+        staged_wrappers.join("wecode-ssh-expect.exp"),
     )
     .unwrap();
-    let helper = staged_wrappers.join("codux-wrapper-helper");
+    let helper = staged_wrappers.join("wecode-wrapper-helper");
     fs::write(
         &helper,
         "#!/bin/sh\n\
-         if [ \"$1\" != \"--codux-wrapper-helper\" ]; then exit 64; fi\n\
+         if [ \"$1\" != \"--wecode-wrapper-helper\" ]; then exit 64; fi\n\
          case \"$2\" in\n\
            ssh-profile-shell)\n\
-             printf '%s\\n' 'ssh_password=secret' \"ssh_key_passphrase=''\" 'ssh_args=(ssh -p 22 -o ControlMaster=auto -o ControlPath=/tmp/codux-ssh-test-%r@%h:%p -o ControlPersist=300 root@example.com)'\n\
+             printf '%s\\n' 'ssh_password=secret' \"ssh_key_passphrase=''\" 'ssh_args=(ssh -p 22 -o ControlMaster=auto -o ControlPath=/tmp/wecode-ssh-test-%r@%h:%p -o ControlPersist=300 root@example.com)'\n\
              ;;\n\
            ssh-list-profiles)\n\
              printf '%s\\n' '{\"profiles\":[{\"id\":\"profile-1\",\"name\":\"Test\",\"host\":\"example.com\",\"port\":22,\"username\":\"root\",\"endpoint\":\"root@example.com:22\",\"credential\":\"password\"}]}'\n\
@@ -194,7 +194,7 @@ fn codux_ssh_remote_command_exits_after_noninteractive_password_auth() {
         &fake_ssh,
         &wrapper,
         &helper,
-        &staged_wrappers.join("codux-ssh-expect.exp"),
+        &staged_wrappers.join("wecode-ssh-expect.exp"),
     ] {
         let mut permissions = fs::metadata(executable).unwrap().permissions();
         permissions.set_mode(0o755);
@@ -207,9 +207,9 @@ fn codux_ssh_remote_command_exits_after_noninteractive_password_auth() {
         .arg("profile-1")
         .arg("--")
         .arg("cat")
-        .env("CODUX_SSH_TEST_LOG", &log_file)
+        .env("WECODE_SSH_TEST_LOG", &log_file)
         .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
-        .env("CODUX_SSH_PROFILES_FILE", &profiles)
+        .env("WECODE_SSH_PROFILES_FILE", &profiles)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -225,7 +225,7 @@ fn codux_ssh_remote_command_exits_after_noninteractive_password_auth() {
 
     assert!(
         output.status.success(),
-        "codux-ssh should exit after remote command, stderr={}",
+        "wecode-ssh should exit after remote command, stderr={}",
         String::from_utf8_lossy(&output.stderr)
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -241,11 +241,11 @@ fn codux_ssh_remote_command_exits_after_noninteractive_password_auth() {
 
 #[cfg(not(windows))]
 #[test]
-fn codux_ssh_without_control_path_uses_expect_fallback_for_password_auth() {
+fn wecode_ssh_without_control_path_uses_expect_fallback_for_password_auth() {
     use std::os::unix::fs::PermissionsExt;
     use std::process::Command;
 
-    let dir = std::env::temp_dir().join(format!("codux-ssh-no-controlpath-{}", Uuid::new_v4()));
+    let dir = std::env::temp_dir().join(format!("wecode-ssh-no-controlpath-{}", Uuid::new_v4()));
     let bin = dir.join("bin");
     fs::create_dir_all(&bin).unwrap();
     let fake_ssh = bin.join("ssh");
@@ -290,18 +290,18 @@ fn codux_ssh_without_control_path_uses_expect_fallback_for_password_auth() {
     let staged_wrappers = dir.join("runtime-assets/scripts/wrappers");
     let staged_bin = staged_wrappers.join("bin");
     fs::create_dir_all(&staged_bin).unwrap();
-    let wrapper = staged_bin.join("codux-ssh");
-    fs::copy(source_wrappers.join("bin/codux-ssh"), &wrapper).unwrap();
+    let wrapper = staged_bin.join("wecode-ssh");
+    fs::copy(source_wrappers.join("bin/wecode-ssh"), &wrapper).unwrap();
     fs::copy(
-        source_wrappers.join("codux-ssh-expect.exp"),
-        staged_wrappers.join("codux-ssh-expect.exp"),
+        source_wrappers.join("wecode-ssh-expect.exp"),
+        staged_wrappers.join("wecode-ssh-expect.exp"),
     )
     .unwrap();
-    let helper = staged_wrappers.join("codux-wrapper-helper");
+    let helper = staged_wrappers.join("wecode-wrapper-helper");
     fs::write(
         &helper,
         "#!/bin/sh\n\
-         if [ \"$1\" != \"--codux-wrapper-helper\" ]; then exit 64; fi\n\
+         if [ \"$1\" != \"--wecode-wrapper-helper\" ]; then exit 64; fi\n\
          case \"$2\" in\n\
            ssh-profile-shell)\n\
              printf '%s\\n' 'ssh_password=secret' \"ssh_key_passphrase=''\" 'ssh_args=(ssh -p 22 root@example.com)'\n\
@@ -314,7 +314,7 @@ fn codux_ssh_without_control_path_uses_expect_fallback_for_password_auth() {
         &fake_ssh,
         &wrapper,
         &helper,
-        &staged_wrappers.join("codux-ssh-expect.exp"),
+        &staged_wrappers.join("wecode-ssh-expect.exp"),
     ] {
         let mut permissions = fs::metadata(executable).unwrap().permissions();
         permissions.set_mode(0o755);
@@ -327,13 +327,13 @@ fn codux_ssh_without_control_path_uses_expect_fallback_for_password_auth() {
         .arg("--")
         .arg("echo fallback-ok")
         .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
-        .env("CODUX_SSH_PROFILES_FILE", &profiles)
+        .env("WECODE_SSH_PROFILES_FILE", &profiles)
         .output()
         .unwrap();
 
     assert!(
         output.status.success(),
-        "codux-ssh fallback should succeed, stderr={}",
+        "wecode-ssh fallback should succeed, stderr={}",
         String::from_utf8_lossy(&output.stderr)
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -345,11 +345,11 @@ fn codux_ssh_without_control_path_uses_expect_fallback_for_password_auth() {
 
 #[cfg(not(windows))]
 #[test]
-fn codux_ssh_scp_expands_remote_colon_path_and_invokes_scp() {
+fn wecode_ssh_scp_expands_remote_colon_path_and_invokes_scp() {
     use std::os::unix::fs::PermissionsExt;
     use std::process::Command;
 
-    let dir = std::env::temp_dir().join(format!("codux-ssh-scp-{}", Uuid::new_v4()));
+    let dir = std::env::temp_dir().join(format!("wecode-ssh-scp-{}", Uuid::new_v4()));
     let bin = dir.join("bin");
     fs::create_dir_all(&bin).unwrap();
     let args_file = dir.join("scp-args.txt");
@@ -395,14 +395,14 @@ fn codux_ssh_scp_expands_remote_colon_path_and_invokes_scp() {
     let staged_wrappers = dir.join("runtime-assets/scripts/wrappers");
     let staged_bin = staged_wrappers.join("bin");
     fs::create_dir_all(&staged_bin).unwrap();
-    let wrapper = staged_bin.join("codux-ssh");
-    fs::copy(source_wrappers.join("bin/codux-ssh"), &wrapper).unwrap();
-    let helper = staged_wrappers.join("codux-wrapper-helper");
+    let wrapper = staged_bin.join("wecode-ssh");
+    fs::copy(source_wrappers.join("bin/wecode-ssh"), &wrapper).unwrap();
+    let helper = staged_wrappers.join("wecode-wrapper-helper");
     fs::write(
         &helper,
         format!(
             "#!/bin/sh\n\
-             if [ \"$1\" != \"--codux-wrapper-helper\" ]; then exit 64; fi\n\
+             if [ \"$1\" != \"--wecode-wrapper-helper\" ]; then exit 64; fi\n\
              case \"$2\" in\n\
                scp-profile-shell)\n\
                  printf '%s\\n' \"ssh_password=''\" \"ssh_key_passphrase=''\" \"ssh_remote='root@example.com'\" 'scp_args=(scp -P 2222 -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -i {key})'\n\
@@ -427,13 +427,13 @@ fn codux_ssh_scp_expands_remote_colon_path_and_invokes_scp() {
         .arg(":/remote/file.log")
         .arg("./local.log")
         .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
-        .env("CODUX_SSH_PROFILES_FILE", &profiles)
+        .env("WECODE_SSH_PROFILES_FILE", &profiles)
         .output()
         .unwrap();
 
     assert!(
         output.status.success(),
-        "codux-ssh scp should succeed, stderr={}",
+        "wecode-ssh scp should succeed, stderr={}",
         String::from_utf8_lossy(&output.stderr)
     );
     let recorded = fs::read_to_string(&args_file).unwrap_or_default();

@@ -1,6 +1,6 @@
-import 'package:codux_flutter/screens/scanner_screen.dart';
-import 'package:codux_flutter/i18n.dart';
-import 'package:codux_flutter/theme/app_theme.dart';
+import 'package:wecode_flutter/screens/scanner_screen.dart';
+import 'package:wecode_flutter/i18n.dart';
+import 'package:wecode_flutter/theme/app_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -43,10 +43,10 @@ void main() {
     await tester.tap(find.text('配对'));
     await tester.pump();
 
-    expect(payload, 'codux://pair?payload=iroh-ticket-token');
+    expect(payload, 'wecode://pair?payload=iroh-ticket-token');
   });
 
-  testWidgets('manual pairing submits full codux pair link unchanged', (
+  testWidgets('manual pairing submits full wecode pair link unchanged', (
     tester,
   ) async {
     String? payload;
@@ -76,7 +76,7 @@ void main() {
     await tester.tap(find.text('手动连接'));
     await tester.pumpAndSettle();
 
-    const pairLink = 'codux://pair?payload=embedded-iroh-ticket';
+    const pairLink = 'wecode://pair?payload=embedded-iroh-ticket';
     await tester.enterText(
       find.widgetWithText(TextField, '粘贴电脑端显示的配对 Token'),
       pairLink,

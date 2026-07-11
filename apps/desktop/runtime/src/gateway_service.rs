@@ -1,5 +1,5 @@
-//! Lifecycle wrapper that runs the embedded `codux-gateway` (OpenAI/Anthropic
-//! API backed by Kiro) on the shared Codux async runtime.
+//! Lifecycle wrapper that runs the embedded `wecode-gateway` (OpenAI/Anthropic
+//! API backed by Kiro) on the shared WeCode async runtime.
 //!
 //! The gateway configuration lives in `settings.json` under the `"gateway"` key:
 //!
@@ -26,11 +26,11 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::OnceLock;
 
-pub use codux_gateway::GatewayConfig;
-pub use codux_gateway::config::CredentialSource;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
+pub use wecode_gateway::GatewayConfig;
+pub use wecode_gateway::config::CredentialSource;
 
 use crate::async_runtime;
 use crate::config::ConfigStore;
@@ -112,7 +112,7 @@ impl GatewayService {
 
         if settings.enabled {
             async_runtime::spawn(async move {
-                match codux_gateway::start(settings.config).await {
+                match wecode_gateway::start(settings.config).await {
                     Ok(handle) => {
                         let local_addr = handle.local_addr();
                         *addr.lock() = Some(local_addr);
@@ -131,7 +131,7 @@ impl GatewayService {
                             addr: None,
                             error: Some(e.to_string()),
                         });
-                        eprintln!("[codux-gateway] failed to start: {e}");
+                        eprintln!("[wecode-gateway] failed to start: {e}");
                     }
                 }
             });
@@ -164,7 +164,7 @@ impl GatewayService {
     }
 }
 
-fn apply_runtime_model_aliases(config: &mut codux_gateway::GatewayConfig) {
+fn apply_runtime_model_aliases(config: &mut wecode_gateway::GatewayConfig) {
     for (alias, target) in [
         ("opus", "claude-opus-4.8"),
         ("claude-opus-4", "claude-opus-4.8"),

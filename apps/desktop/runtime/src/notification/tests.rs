@@ -33,7 +33,7 @@ fn summary_redacts_tokens_and_reports_known_channels() {
 #[test]
 fn toggle_channel_preserves_endpoint_and_token() {
     let dir = std::env::temp_dir().join(format!(
-        "codux-gpui-notification-test-{}",
+        "wecode-gpui-notification-test-{}",
         uuid::Uuid::new_v4()
     ));
     fs::create_dir_all(&dir).expect("create temp support");

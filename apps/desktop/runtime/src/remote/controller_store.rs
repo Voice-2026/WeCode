@@ -102,7 +102,7 @@ mod tests {
 
     fn temp_support() -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
-            "codux-controller-store-{}-{}",
+            "wecode-controller-store-{}-{}",
             std::process::id(),
             uuid::Uuid::new_v4().simple()
         ));

@@ -5,8 +5,8 @@ import 'package:device_info_plus/device_info_plus.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:codux_protocol_ffi/codux_protocol_ffi.dart'
-    as codux_terminal_core;
+import 'package:wecode_protocol_ffi/wecode_protocol_ffi.dart'
+    as wecode_terminal_core;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../i18n.dart';
@@ -54,7 +54,7 @@ import '../../services/terminal_viewport_controller.dart';
 import '../../services/remote_state_versions.dart';
 import '../../theme/app_theme.dart';
 import '../../services/worktree_utils.dart';
-import '../../widgets/components/codux_home_shell.dart';
+import '../../widgets/components/wecode_home_shell.dart';
 import '../../widgets/components/device_home_screen.dart';
 import '../../widgets/components/project_files_panel.dart';
 import '../../widgets/components/remote_terminal_pane.dart';
@@ -62,7 +62,7 @@ import '../../widgets/components/terminal_switcher_screen.dart';
 import '../../widgets/components/worktree_action_dialog.dart';
 import '../../widgets/components/terminal_upload_source_sheet.dart';
 import '../../widgets/components/update_available_dialog.dart';
-import '../../widgets/components/codux_about_dialog.dart';
+import '../../widgets/components/wecode_about_dialog.dart';
 import '../../widgets/components/debug_log_dialog.dart';
 import '../../widgets/components/device_action_dialogs.dart';
 import '../../widgets/components/file_action_dialogs.dart';
@@ -85,8 +85,8 @@ const Duration _remoteLatencyProbeTimeout = Duration(seconds: 8);
 // path. Below the host lease TTL so the lease never lapses mid-interaction.
 const Duration _viewportClaimThrottle = Duration(seconds: 2);
 
-class CoduxHomePage extends StatefulWidget {
-  const CoduxHomePage({
+class WeCodeHomePage extends StatefulWidget {
+  const WeCodeHomePage({
     super.key,
     required this.onChangeAccent,
     required this.onChangeLocale,
@@ -102,10 +102,10 @@ class CoduxHomePage extends StatefulWidget {
   final RemoteTransportFactory? transportFactory;
 
   @override
-  State<CoduxHomePage> createState() => _CoduxHomePageState();
+  State<WeCodeHomePage> createState() => _WeCodeHomePageState();
 }
 
-class _CoduxHomePageState extends State<CoduxHomePage>
+class _WeCodeHomePageState extends State<WeCodeHomePage>
     with TickerProviderStateMixin {
   late final HomeController c;
 
@@ -159,25 +159,25 @@ class _CoduxHomePageState extends State<CoduxHomePage>
             bottomInset,
           );
           final workspacePage = _buildWorkspace(topInset, bottomInset);
-          return CoduxHomeShell(
-            metrics: CoduxHomeShellMetrics(
+          return WeCodeHomeShell(
+            metrics: WeCodeHomeShellMetrics(
               topInset: topInset,
               bottomInset: bottomInset,
               leftInset: leftInset,
               edgeBackAnimation: c._edgeBackController,
             ),
-            pages: CoduxHomeShellPages(
+            pages: WeCodeHomeShellPages(
               deviceHome: deviceHome,
               settingsPage: settingsPage,
               switcherPage: switcherPage,
               workspacePage: workspacePage,
             ),
-            state: CoduxHomeShellState(
+            state: WeCodeHomeShellState(
               showSettings: c._showSettings,
               showTerminal: c._showTerminal,
               showTerminalSwitcher: c._showTerminalSwitcher,
             ),
-            overlays: CoduxHomeOverlayState(
+            overlays: WeCodeHomeOverlayState(
               showScanner: c._showScanner,
               pendingPairing: c._pendingPairing,
               pairingInFlight: c._pairingInFlight,
@@ -209,7 +209,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
               blockingLoadingMessage: c._blockingLoadingMessage,
               toastMessage: c._toastMessage,
             ),
-            actions: CoduxHomeShellActions(
+            actions: WeCodeHomeShellActions(
               onBack: c._handleBackNavigation,
               onEdgeDragStart: c._handleWorkspaceEdgeDragStart,
               onEdgeDragUpdate: c._handleWorkspaceEdgeDragUpdate,
@@ -300,7 +300,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
         unawaited(c._storage.saveSettings(settings));
       },
       onChangeLogLevel: (next) {
-        CoduxLog.setLevelName(next);
+        WeCodeLog.setLevelName(next);
         c._applyState(() => c._settings = c._settings.copyWith(logLevel: next));
       },
       onChangeAppTextScale: (next) {
@@ -388,8 +388,8 @@ class _CoduxHomePageState extends State<CoduxHomePage>
         if (firstResize) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted) return;
-            CoduxLog.debug(
-              '[codux-flutter-terminal] first resize ready selected=${c._selectedProjectId ?? ''} session=${c._sessionId ?? ''} terminalListLoaded=$c._terminalListLoaded',
+            WeCodeLog.debug(
+              '[wecode-flutter-terminal] first resize ready selected=${c._selectedProjectId ?? ''} session=${c._sessionId ?? ''} terminalListLoaded=$c._terminalListLoaded',
             );
             c._ensureTerminalForSelectedProject();
             c._mountVisibleTerminal(reason: 'first-resize');

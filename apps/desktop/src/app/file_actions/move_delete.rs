@@ -1,6 +1,6 @@
 use super::*;
 
-impl CoduxApp {
+impl WeCodeApp {
     fn spawn_file_move_conflict_check(
         &mut self,
         paths: Vec<String>,
@@ -27,8 +27,8 @@ impl CoduxApp {
         );
         self.invalidate_file_panel(cx);
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let result = codux_runtime::async_runtime::run_limited_blocking_with_priority(
-                codux_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND + generation,
+            let result = wecode_runtime::async_runtime::run_limited_blocking_with_priority(
+                wecode_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND + generation,
                 move || {
                     let target_entries = runtime_service.try_reload_project_files(
                         &project_path,
@@ -122,7 +122,7 @@ impl CoduxApp {
         let timer = cx.background_executor().clone();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             timer.timer(Duration::from_millis(120)).await;
-            let result = codux_runtime::async_runtime::spawn_blocking(move || {
+            let result = wecode_runtime::async_runtime::spawn_blocking(move || {
                 service.localized_confirm_dialog(LocalizedConfirmDialogRequest {
                     title,
                     message,
@@ -318,7 +318,7 @@ impl CoduxApp {
             let timer = cx.background_executor().clone();
             cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
                 timer.timer(Duration::from_millis(120)).await;
-                let result = codux_runtime::async_runtime::spawn_blocking(move || {
+                let result = wecode_runtime::async_runtime::spawn_blocking(move || {
                     service.localized_confirm_dialog(LocalizedConfirmDialogRequest {
                         title,
                         message,

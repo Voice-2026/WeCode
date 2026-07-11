@@ -263,8 +263,8 @@ impl RemoteHostRuntime {
                     .map(|project| project.path)
             })
             .unwrap_or_default();
-        let service = codux_ai_sessions::AIHistoryService::new(self.support_dir.clone());
-        let result = codux_ai_sessions::session_op_result(&service, &project_path, payload);
+        let service = wecode_ai_sessions::AIHistoryService::new(self.support_dir.clone());
+        let result = wecode_ai_sessions::session_op_result(&service, &project_path, payload);
         self.send(
             REMOTE_AI_SESSION_RESULT,
             envelope.device_id.as_deref(),

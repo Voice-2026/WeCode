@@ -1,6 +1,6 @@
 use super::*;
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn register_native_menu_actions(
         &mut self,
         mut root: gpui::Div,
@@ -16,72 +16,73 @@ impl CoduxApp {
 
         register!(
             native_menu::ShowAbout,
-            |app: &mut CoduxApp, window: &mut Window, cx: &mut Context<CoduxApp>| {
+            |app: &mut WeCodeApp, window: &mut Window, cx: &mut Context<WeCodeApp>| {
                 app.open_about_window(window, cx)
             }
         );
         register!(
             native_menu::OpenSettings,
-            |app: &mut CoduxApp, window: &mut Window, cx: &mut Context<CoduxApp>| {
+            |app: &mut WeCodeApp, window: &mut Window, cx: &mut Context<WeCodeApp>| {
                 app.open_settings_window(window, cx)
             }
         );
         register!(
             native_menu::CheckUpdates,
-            |app: &mut CoduxApp, window: &mut Window, cx: &mut Context<CoduxApp>| {
+            |app: &mut WeCodeApp, window: &mut Window, cx: &mut Context<WeCodeApp>| {
                 app.open_update_dialog_window(window, cx)
             }
         );
-        register!(native_menu::ExportDiagnostics, |app: &mut CoduxApp,
+        register!(native_menu::ExportDiagnostics, |app: &mut WeCodeApp,
                                                    _window: &mut Window,
                                                    cx: &mut Context<
-            CoduxApp,
+            WeCodeApp,
         >| {
             app.export_diagnostics(cx)
         });
-        register!(
-            native_menu::OpenRuntimeLog,
-            |app: &mut CoduxApp, _window: &mut Window, cx: &mut Context<CoduxApp>| {
-                app.open_runtime_log(cx)
-            }
-        );
+        register!(native_menu::OpenRuntimeLog, |app: &mut WeCodeApp,
+                                                _window: &mut Window,
+                                                cx: &mut Context<
+            WeCodeApp,
+        >| {
+            app.open_runtime_log(cx)
+        });
         register!(
             native_menu::OpenLiveLog,
-            |app: &mut CoduxApp, _window: &mut Window, cx: &mut Context<CoduxApp>| {
+            |app: &mut WeCodeApp, _window: &mut Window, cx: &mut Context<WeCodeApp>| {
                 app.open_live_log(cx)
             }
         );
         register!(
             native_menu::OpenWebsite,
-            |app: &mut CoduxApp, _window: &mut Window, cx: &mut Context<CoduxApp>| {
-                app.open_codux_website(cx)
+            |app: &mut WeCodeApp, _window: &mut Window, cx: &mut Context<WeCodeApp>| {
+                app.open_wecode_website(cx)
             }
         );
         register!(
             native_menu::OpenGithub,
-            |app: &mut CoduxApp, _window: &mut Window, cx: &mut Context<CoduxApp>| {
-                app.open_codux_github(cx)
+            |app: &mut WeCodeApp, _window: &mut Window, cx: &mut Context<WeCodeApp>| {
+                app.open_wecode_github(cx)
             }
         );
         register!(
-            native_menu::HideCodux,
-            |_app: &mut CoduxApp, _window: &mut Window, cx: &mut Context<CoduxApp>| { cx.hide() }
+            native_menu::HideWeCode,
+            |_app: &mut WeCodeApp, _window: &mut Window, cx: &mut Context<WeCodeApp>| { cx.hide() }
         );
         register!(
             native_menu::HideOthers,
-            |_app: &mut CoduxApp, _window: &mut Window, cx: &mut Context<CoduxApp>| {
+            |_app: &mut WeCodeApp, _window: &mut Window, cx: &mut Context<WeCodeApp>| {
                 cx.hide_other_apps()
             }
         );
         register!(
             native_menu::ShowAll,
-            |_app: &mut CoduxApp, _window: &mut Window, cx: &mut Context<CoduxApp>| {
+            |_app: &mut WeCodeApp, _window: &mut Window, cx: &mut Context<WeCodeApp>| {
                 cx.unhide_other_apps()
             }
         );
         register!(
-            native_menu::QuitCodux,
-            |app: &mut CoduxApp, _window: &mut Window, cx: &mut Context<CoduxApp>| {
+            native_menu::QuitWeCode,
+            |app: &mut WeCodeApp, _window: &mut Window, cx: &mut Context<WeCodeApp>| {
                 if app.window_mode == AppWindowMode::Main {
                     app.request_quit(cx);
                 }
@@ -89,33 +90,33 @@ impl CoduxApp {
         );
         register!(
             native_menu::NewProject,
-            |app: &mut CoduxApp, window: &mut Window, cx: &mut Context<CoduxApp>| {
+            |app: &mut WeCodeApp, window: &mut Window, cx: &mut Context<WeCodeApp>| {
                 app.open_project_create_window(window, cx)
             }
         );
-        register!(native_menu::OpenProjectFolder, |app: &mut CoduxApp,
+        register!(native_menu::OpenProjectFolder, |app: &mut WeCodeApp,
                                                    window: &mut Window,
                                                    cx: &mut Context<
-            CoduxApp,
+            WeCodeApp,
         >| {
             app.open_project_folder_from_dialog(window, cx)
         });
-        register!(native_menu::CloseCurrentProject, |app: &mut CoduxApp,
+        register!(native_menu::CloseCurrentProject, |app: &mut WeCodeApp,
                                                      window: &mut Window,
                                                      cx: &mut Context<
-            CoduxApp,
+            WeCodeApp,
         >| {
             app.close_selected_project(window, cx)
         });
         register!(
             native_menu::CloseActive,
-            |app: &mut CoduxApp, window: &mut Window, cx: &mut Context<CoduxApp>| {
+            |app: &mut WeCodeApp, window: &mut Window, cx: &mut Context<WeCodeApp>| {
                 app.close_active_workspace_item(window, cx)
             }
         );
         register!(
             native_menu::CloseWindow,
-            |app: &mut CoduxApp, window: &mut Window, cx: &mut Context<CoduxApp>| {
+            |app: &mut WeCodeApp, window: &mut Window, cx: &mut Context<WeCodeApp>| {
                 if app.window_mode == AppWindowMode::Main {
                     app.close_active_workspace_item(window, cx);
                 } else {
@@ -125,85 +126,87 @@ impl CoduxApp {
         );
         register!(
             native_menu::ViewTerminal,
-            |app: &mut CoduxApp, window: &mut Window, cx: &mut Context<CoduxApp>| {
+            |app: &mut WeCodeApp, window: &mut Window, cx: &mut Context<WeCodeApp>| {
                 app.set_workspace_view(WorkspaceView::Terminal, window, cx)
             }
         );
         register!(
             native_menu::ViewFiles,
-            |app: &mut CoduxApp, window: &mut Window, cx: &mut Context<CoduxApp>| {
+            |app: &mut WeCodeApp, window: &mut Window, cx: &mut Context<WeCodeApp>| {
                 app.set_workspace_view(WorkspaceView::Files, window, cx)
             }
         );
         register!(
             native_menu::ViewReview,
-            |app: &mut CoduxApp, window: &mut Window, cx: &mut Context<CoduxApp>| {
+            |app: &mut WeCodeApp, window: &mut Window, cx: &mut Context<WeCodeApp>| {
                 app.set_workspace_view(WorkspaceView::Review, window, cx)
             }
         );
         register!(
             native_menu::ViewStats,
-            |app: &mut CoduxApp, window: &mut Window, cx: &mut Context<CoduxApp>| {
+            |app: &mut WeCodeApp, window: &mut Window, cx: &mut Context<WeCodeApp>| {
                 app.set_workspace_view(WorkspaceView::Stats, window, cx)
             }
         );
-        register!(
-            native_menu::ToggleProjects,
-            |app: &mut CoduxApp, window: &mut Window, cx: &mut Context<CoduxApp>| {
-                app.toggle_project_column(window, cx)
-            }
-        );
+        register!(native_menu::ToggleProjects, |app: &mut WeCodeApp,
+                                                window: &mut Window,
+                                                cx: &mut Context<
+            WeCodeApp,
+        >| {
+            app.toggle_project_column(window, cx)
+        });
         register!(
             native_menu::ToggleTasks,
-            |app: &mut CoduxApp, window: &mut Window, cx: &mut Context<CoduxApp>| {
+            |app: &mut WeCodeApp, window: &mut Window, cx: &mut Context<WeCodeApp>| {
                 app.toggle_task_column(window, cx)
             }
         );
         register!(
             native_menu::OpenGitPanel,
-            |app: &mut CoduxApp, window: &mut Window, cx: &mut Context<CoduxApp>| {
+            |app: &mut WeCodeApp, window: &mut Window, cx: &mut Context<WeCodeApp>| {
                 app.toggle_assistant_panel(AssistantPanel::Git, window, cx)
             }
         );
-        register!(
-            native_menu::OpenFilesPanel,
-            |app: &mut CoduxApp, window: &mut Window, cx: &mut Context<CoduxApp>| {
-                app.toggle_assistant_panel(AssistantPanel::FileManager, window, cx)
-            }
-        );
+        register!(native_menu::OpenFilesPanel, |app: &mut WeCodeApp,
+                                                window: &mut Window,
+                                                cx: &mut Context<
+            WeCodeApp,
+        >| {
+            app.toggle_assistant_panel(AssistantPanel::FileManager, window, cx)
+        });
         register!(
             native_menu::OpenAiPanel,
-            |app: &mut CoduxApp, window: &mut Window, cx: &mut Context<CoduxApp>| {
+            |app: &mut WeCodeApp, window: &mut Window, cx: &mut Context<WeCodeApp>| {
                 app.toggle_assistant_panel(AssistantPanel::AIStats, window, cx)
             }
         );
         register!(
             native_menu::OpenSshPanel,
-            |app: &mut CoduxApp, window: &mut Window, cx: &mut Context<CoduxApp>| {
+            |app: &mut WeCodeApp, window: &mut Window, cx: &mut Context<WeCodeApp>| {
                 app.toggle_assistant_panel(AssistantPanel::SSH, window, cx)
             }
         );
         register!(
             native_menu::CreateSplit,
-            |app: &mut CoduxApp, window: &mut Window, cx: &mut Context<CoduxApp>| {
+            |app: &mut WeCodeApp, window: &mut Window, cx: &mut Context<WeCodeApp>| {
                 app.split_terminal(window, cx)
             }
         );
         register!(
             native_menu::CreateTask,
-            |app: &mut CoduxApp, window: &mut Window, cx: &mut Context<CoduxApp>| {
+            |app: &mut WeCodeApp, window: &mut Window, cx: &mut Context<WeCodeApp>| {
                 app.open_worktree_creator_window(window, cx)
             }
         );
         register!(
             native_menu::EditorSave,
-            |app: &mut CoduxApp, window: &mut Window, cx: &mut Context<CoduxApp>| {
+            |app: &mut WeCodeApp, window: &mut Window, cx: &mut Context<WeCodeApp>| {
                 app.save_selected_file_preview(window, cx)
             }
         );
         register!(
             native_menu::EditorSearch,
-            |app: &mut CoduxApp, window: &mut Window, cx: &mut Context<CoduxApp>| {
+            |app: &mut WeCodeApp, window: &mut Window, cx: &mut Context<WeCodeApp>| {
                 // The global cmd-f binding consumes the keystroke before the
                 // terminal's key handler sees it — route to terminal search here.
                 if app.terminal_search_contains_focused(window, cx) {
@@ -219,23 +222,23 @@ impl CoduxApp {
                 }
             }
         );
-        register!(native_menu::MinimizeWindow, |_app: &mut CoduxApp,
+        register!(native_menu::MinimizeWindow, |_app: &mut WeCodeApp,
                                                 window: &mut Window,
                                                 _cx: &mut Context<
-            CoduxApp,
+            WeCodeApp,
         >| {
             window.minimize_window()
         });
         register!(
             native_menu::ZoomWindow,
-            |_app: &mut CoduxApp, window: &mut Window, _cx: &mut Context<CoduxApp>| {
+            |_app: &mut WeCodeApp, window: &mut Window, _cx: &mut Context<WeCodeApp>| {
                 window.zoom_window()
             }
         );
-        register!(native_menu::ToggleFullscreen, |app: &mut CoduxApp,
+        register!(native_menu::ToggleFullscreen, |app: &mut WeCodeApp,
                                                   window: &mut Window,
                                                   _cx: &mut Context<
-            CoduxApp,
+            WeCodeApp,
         >| {
             window.toggle_fullscreen();
             app.main_window_fullscreen = window.is_fullscreen();

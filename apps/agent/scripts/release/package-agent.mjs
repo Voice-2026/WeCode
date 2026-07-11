@@ -16,8 +16,8 @@ const platform = targetPlatformLabel();
 const arch = targetArchLabel();
 const extension = platform === "windows" ? ".exe" : "";
 const outputDir = path.join(root, stageRoot, buildId);
-const assetName = `codux-agent-${version}-${platform}-${arch}${extension}`;
-const legacyAssetName = `codux-${platform}-${arch}${extension}`;
+const assetName = `wecode-agent-${version}-${platform}-${arch}${extension}`;
+const legacyAssetName = `wecode-${platform}-${arch}${extension}`;
 const writeLegacyAlias = process.env.RELEASE_WRITE_LEGACY_AGENT_ALIAS !== "false";
 
 fs.rmSync(outputDir, { recursive: true, force: true });
@@ -43,7 +43,7 @@ console.log(`Packaged ${assetName}`);
 function releaseBinaryPath(binaryExtension) {
   const segments = [root, "target"];
   if (target) segments.push(target);
-  segments.push(profile, `codux-agent${binaryExtension}`);
+  segments.push(profile, `wecode-agent${binaryExtension}`);
   const binaryPath = path.join(...segments);
   if (!fs.existsSync(binaryPath)) {
     throw new Error(`Built agent binary not found: ${binaryPath}`);

@@ -1,6 +1,6 @@
 use super::*;
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn files_workspace_body(
         &mut self,
         _window: &mut Window,

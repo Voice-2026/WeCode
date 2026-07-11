@@ -11,10 +11,10 @@ use super::{RemoteHostRuntime, RemoteService};
 use crate::ai_history_indexer::AIHistoryProjectState;
 use crate::config::flush_all_config_writes;
 use crate::terminal_pty::{TerminalManager, TerminalSessionSnapshot};
-use codux_runtime_core::upload::quote_terminal_path;
 use serde_json::json;
 use std::fs;
 use std::sync::Arc;
+use wecode_runtime_core::upload::quote_terminal_path;
 
 #[test]
 fn summary_matches_tauri_remote_status_shape_from_settings() {
@@ -159,7 +159,7 @@ fn remote_pairing_payload_contains_iroh_transport_candidates() {
         &settings,
         &pairing,
         vec![
-            codux_protocol::iroh_transport_candidate_with_ticket_and_authentication(
+            wecode_protocol::iroh_transport_candidate_with_ticket_and_authentication(
                 "https://relay.example",
                 "node-1",
                 "https://relay.example",
@@ -199,7 +199,7 @@ fn remote_pairing_payload_url_embeds_pairing_payload_without_http_ticket_service
     });
     let payload = super::relay::remote_pairing_payload_url(&value).expect("payload url");
     let url = url::Url::parse(&payload).expect("qr url");
-    assert_eq!(url.scheme(), "codux");
+    assert_eq!(url.scheme(), "wecode");
     assert_eq!(url.host_str(), Some("pair"));
     assert!(url.query_pairs().any(|(key, _)| key == "payload"));
     assert!(!url.query_pairs().any(|(key, _)| key == "ticket"));
@@ -240,7 +240,7 @@ fn remote_relay_presets_use_iroh_relay_urls() {
 #[test]
 fn remote_host_runtime_stops_without_enabled_remote_settings() {
     let dir = std::env::temp_dir().join(format!(
-        "codux-gpui-remote-host-disabled-test-{}",
+        "wecode-gpui-remote-host-disabled-test-{}",
         uuid::Uuid::new_v4()
     ));
     fs::create_dir_all(&dir).expect("create temp support");
@@ -270,7 +270,7 @@ fn remote_host_runtime_stops_without_enabled_remote_settings() {
 #[test]
 fn remote_host_runtime_queues_status_events_for_gpui() {
     let dir = std::env::temp_dir().join(format!(
-        "codux-gpui-remote-event-test-{}",
+        "wecode-gpui-remote-event-test-{}",
         uuid::Uuid::new_v4()
     ));
     fs::create_dir_all(&dir).expect("create temp support");
@@ -294,7 +294,7 @@ fn remote_host_runtime_queues_status_events_for_gpui() {
 #[test]
 fn remote_host_runtime_shutdown_stops_and_queues_gpui_event() {
     let dir = std::env::temp_dir().join(format!(
-        "codux-gpui-remote-shutdown-test-{}",
+        "wecode-gpui-remote-shutdown-test-{}",
         uuid::Uuid::new_v4()
     ));
     fs::create_dir_all(&dir).expect("create temp support");
@@ -319,7 +319,7 @@ fn remote_host_runtime_shutdown_stops_and_queues_gpui_event() {
 #[test]
 fn remote_file_list_matches_tauri_mobile_shape_and_sorting() {
     let dir = std::env::temp_dir().join(format!(
-        "codux-gpui-remote-file-list-test-{}",
+        "wecode-gpui-remote-file-list-test-{}",
         uuid::Uuid::new_v4()
     ));
     fs::create_dir_all(dir.join("zeta")).expect("create zeta");
@@ -351,7 +351,7 @@ fn remote_file_list_matches_tauri_mobile_shape_and_sorting() {
 #[test]
 fn remote_file_read_write_and_rename_match_tauri_mobile_limits() {
     let dir = std::env::temp_dir().join(format!(
-        "codux-gpui-remote-file-mutate-test-{}",
+        "wecode-gpui-remote-file-mutate-test-{}",
         uuid::Uuid::new_v4()
     ));
     let other = dir.join("other");
@@ -387,7 +387,7 @@ fn remote_file_read_write_and_rename_match_tauri_mobile_limits() {
 
 #[test]
 fn remote_ai_stats_payload_matches_tauri_empty_snapshot_shape() {
-    let payload = codux_runtime_core::ai_stats::ai_stats_payload_from_state(
+    let payload = wecode_runtime_core::ai_stats::ai_stats_payload_from_state(
         "project-1".to_string(),
         "Project One".to_string(),
         AIHistoryProjectState {
@@ -504,8 +504,8 @@ fn remote_terminal_snapshot_payload_uses_compact_terminal_identity_shape() {
             session_key: Some("session-key-1".to_string()),
             project_id: "project-1".to_string(),
             worktree_id: Some("worktree-1".to_string()),
-            project_name: "Codux".to_string(),
-            cwd: "/workspace/codux".to_string(),
+            project_name: "WeCode".to_string(),
+            cwd: "/workspace/wecode".to_string(),
             shell: "zsh".to_string(),
             command: String::new(),
             cols: 120,
@@ -542,7 +542,7 @@ fn remote_terminal_snapshot_payload_uses_compact_terminal_identity_shape() {
         payload
             .get("displayTitle")
             .and_then(serde_json::Value::as_str),
-        Some("Codux · Shell")
+        Some("WeCode · Shell")
     );
     assert_eq!(
         payload.get("cols").and_then(serde_json::Value::as_u64),
@@ -609,7 +609,7 @@ fn remote_terminal_upload_helpers_match_tauri_shape() {
         Some("term_id")
     );
     let dir = std::env::temp_dir().join(format!(
-        "codux-gpui-upload-path-test-{}",
+        "wecode-gpui-upload-path-test-{}",
         uuid::Uuid::new_v4()
     ));
     fs::create_dir_all(&dir).expect("create temp support");
@@ -625,29 +625,29 @@ fn remote_terminal_upload_helpers_match_tauri_shape() {
 #[test]
 fn terminal_upload_path_input_quotes_shell_sensitive_paths() {
     assert_eq!(
-        quote_terminal_path("/tmp/CoduxUploads/file.txt"),
-        "/tmp/CoduxUploads/file.txt"
+        quote_terminal_path("/tmp/WeCodeUploads/file.txt"),
+        "/tmp/WeCodeUploads/file.txt"
     );
 
     #[cfg(not(windows))]
     assert_eq!(
-        terminal_upload_path_input(std::path::Path::new("/tmp/Codux Uploads/file name.txt")),
-        "'/tmp/Codux Uploads/file name.txt'"
+        terminal_upload_path_input(std::path::Path::new("/tmp/WeCode Uploads/file name.txt")),
+        "'/tmp/WeCode Uploads/file name.txt'"
     );
 
     #[cfg(windows)]
     assert_eq!(
         terminal_upload_path_input(std::path::Path::new(
-            r"C:\Users\Codux User\AppData\Local\Temp\file name.txt"
+            r"C:\Users\WeCode User\AppData\Local\Temp\file name.txt"
         )),
-        r#""C:\Users\Codux User\AppData\Local\Temp\file name.txt""#
+        r#""C:\Users\WeCode User\AppData\Local\Temp\file name.txt""#
     );
 }
 
 #[test]
 fn refresh_devices_disabled_remote_is_noop() {
     let dir = std::env::temp_dir().join(format!(
-        "codux-gpui-remote-refresh-noop-test-{}",
+        "wecode-gpui-remote-refresh-noop-test-{}",
         uuid::Uuid::new_v4()
     ));
     fs::create_dir_all(&dir).expect("create temp support");
@@ -676,7 +676,7 @@ fn refresh_devices_disabled_remote_is_noop() {
 #[test]
 fn register_host_disabled_is_noop() {
     let dir = std::env::temp_dir().join(format!(
-        "codux-gpui-remote-register-noop-test-{}",
+        "wecode-gpui-remote-register-noop-test-{}",
         uuid::Uuid::new_v4()
     ));
     fs::create_dir_all(&dir).expect("create temp support");
@@ -703,7 +703,7 @@ fn register_host_disabled_is_noop() {
 #[test]
 fn sync_settings_background_is_noop_when_disabled() {
     let dir = std::env::temp_dir().join(format!(
-        "codux-gpui-remote-sync-disabled-test-{}",
+        "wecode-gpui-remote-sync-disabled-test-{}",
         uuid::Uuid::new_v4()
     ));
     fs::create_dir_all(&dir).expect("create temp support");
@@ -732,7 +732,8 @@ fn sync_settings_background_is_noop_when_disabled() {
 
 #[test]
 fn reads_settings_json_without_exposing_tokens() {
-    let dir = std::env::temp_dir().join(format!("codux-gpui-remote-test-{}", uuid::Uuid::new_v4()));
+    let dir =
+        std::env::temp_dir().join(format!("wecode-gpui-remote-test-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(&dir).expect("create temp support");
     fs::write(
         dir.join("settings.json"),
@@ -764,7 +765,7 @@ fn reads_settings_json_without_exposing_tokens() {
 #[test]
 fn toggles_remote_host_and_revokes_cached_device_preserving_secrets() {
     let dir = std::env::temp_dir().join(format!(
-        "codux-gpui-remote-mutate-test-{}",
+        "wecode-gpui-remote-mutate-test-{}",
         uuid::Uuid::new_v4()
     ));
     fs::create_dir_all(&dir).expect("create temp support");
@@ -810,7 +811,7 @@ fn toggles_remote_host_and_revokes_cached_device_preserving_secrets() {
 #[test]
 fn refresh_devices_without_host_token_returns_local_cached_devices() {
     let dir = std::env::temp_dir().join(format!(
-        "codux-gpui-remote-refresh-test-{}",
+        "wecode-gpui-remote-refresh-test-{}",
         uuid::Uuid::new_v4()
     ));
     fs::create_dir_all(&dir).expect("create temp support");
@@ -849,7 +850,8 @@ fn refresh_devices_without_host_token_returns_local_cached_devices() {
 
 #[test]
 fn remote_host_runtime_apply_snapshot_queues_gpui_event() {
-    let dir = std::env::temp_dir().join(format!("codux-gpui-remote-host-{}", uuid::Uuid::new_v4()));
+    let dir =
+        std::env::temp_dir().join(format!("wecode-gpui-remote-host-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(&dir).expect("create temp support");
     let runtime = RemoteHostRuntime::new(dir.clone());
     let summary = remote_summary_from_settings(RemoteSettings {
@@ -875,7 +877,8 @@ fn remote_host_runtime_apply_snapshot_queues_gpui_event() {
 
 #[test]
 fn remote_host_runtime_uses_injected_terminal_manager() {
-    let dir = std::env::temp_dir().join(format!("codux-gpui-remote-host-{}", uuid::Uuid::new_v4()));
+    let dir =
+        std::env::temp_dir().join(format!("wecode-gpui-remote-host-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(&dir).expect("create temp support");
     let terminals = Arc::new(TerminalManager::new());
     let runtime = RemoteHostRuntime::new_with_ai_history_and_terminals(

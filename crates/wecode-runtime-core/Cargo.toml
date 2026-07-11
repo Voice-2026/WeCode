@@ -1,0 +1,13 @@
+[package]
+name = "wecode-runtime-core"
+version = "1.8.1"
+edition = "2024"
+
+[dependencies]
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+wecode-protocol = { path = "../wecode-protocol" }
+wecode-terminal-core = { path = "../wecode-terminal-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+typed-path = "0.12.3"
+uuid = { version = "1", features = ["v5"] }

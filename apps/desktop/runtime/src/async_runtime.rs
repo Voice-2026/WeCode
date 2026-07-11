@@ -71,9 +71,9 @@ fn runtime() -> &'static tokio::runtime::Runtime {
     RUNTIME.get_or_init(|| {
         tokio::runtime::Builder::new_multi_thread()
             .enable_all()
-            .thread_name("codux-runtime")
+            .thread_name("wecode-runtime")
             .build()
-            .expect("failed to create Codux async runtime")
+            .expect("failed to create WeCode async runtime")
     })
 }
 
@@ -115,7 +115,7 @@ where
     queue
         .jobs
         .lock()
-        .expect("Codux priority blocking queue poisoned")
+        .expect("WeCode priority blocking queue poisoned")
         .push(PriorityBlockingJob {
             priority,
             sequence,
@@ -126,10 +126,10 @@ where
     queue.notify.notify_one();
     let boxed = receiver
         .await
-        .expect("Codux priority blocking worker stopped")?;
+        .expect("WeCode priority blocking worker stopped")?;
     Ok(*boxed
         .downcast::<R>()
-        .expect("Codux priority blocking result type mismatch"))
+        .expect("WeCode priority blocking result type mismatch"))
 }
 
 pub fn blocking_queue_status() -> BlockingQueueStatus {
@@ -139,7 +139,7 @@ pub fn blocking_queue_status() -> BlockingQueueStatus {
     let queued = queue
         .jobs
         .lock()
-        .expect("Codux priority blocking queue poisoned")
+        .expect("WeCode priority blocking queue poisoned")
         .len();
     BlockingQueueStatus {
         queued,
@@ -156,7 +156,7 @@ where
         .get_or_init(|| Semaphore::new(MAX_CONCURRENT_BLOCKING_LOADS))
         .acquire()
         .await
-        .expect("Codux blocking limiter closed");
+        .expect("WeCode blocking limiter closed");
     let result = spawn_blocking(function).await;
     drop(permit);
     result
@@ -187,7 +187,7 @@ fn start_priority_blocking_worker(queue: Arc<PriorityBlockingQueue>) {
                 if let Some(job) = queue
                     .jobs
                     .lock()
-                    .expect("Codux priority blocking queue poisoned")
+                    .expect("WeCode priority blocking queue poisoned")
                     .pop()
                 {
                     break job;
@@ -232,7 +232,7 @@ where
             scope
                 .spawn(|| runtime().block_on(future))
                 .join()
-                .expect("Codux async runtime worker panicked")
+                .expect("WeCode async runtime worker panicked")
         })
     } else {
         runtime().block_on(future)

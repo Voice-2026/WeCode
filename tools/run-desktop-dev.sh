@@ -33,10 +33,10 @@ normalize_path_var() {
 normalize_path_var PKG_CONFIG_PATH
 
 if [ "$(uname -s)" = "Darwin" ]; then
-    cargo build -p codux
-    dev_bin="$root_dir/target/debug/Codux Dev"
-    cp "$root_dir/target/debug/codux" "$dev_bin"
+    cargo build -p wecode
+    dev_bin="$root_dir/target/debug/WeCode Dev"
+    cp "$root_dir/target/debug/wecode" "$dev_bin"
     exec "$dev_bin" "$@"
 fi
 
-exec cargo run -p codux -- "$@"
+exec cargo run -p wecode -- "$@"

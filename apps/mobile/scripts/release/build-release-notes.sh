@@ -30,7 +30,7 @@ if [[ ! -s "$chinese_notes" ]]; then
 fi
 
 {
-  echo "# Codux Mobile v$version"
+  echo "# WeCode Mobile v$version"
   echo
   echo "## English"
   cat "$english_notes"

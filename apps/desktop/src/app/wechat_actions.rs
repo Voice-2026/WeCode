@@ -2,26 +2,26 @@
 //! resolve the terminal session it binds to. Bridge lifecycle buttons live in
 //! the settings card (`settings/panes/remote/wechat.rs`).
 
-use codux_runtime::wechat_bridge_service::{
+use gpui::Context;
+use wecode_runtime::wechat_bridge_service::{
     wechat_bridge_bind_existing_to_session, wechat_bridge_confirm_pairing,
     wechat_bridge_dismiss_pairing, wechat_bridge_fallback_terminal_session_id,
 };
-use gpui::Context;
 
-use super::{CoduxApp, UiRegion};
+use super::{UiRegion, WeCodeApp};
 
-impl CoduxApp {
+impl WeCodeApp {
     /// Bind the pending WeChat peer to the active terminal session.
     pub(in crate::app) fn wechat_confirm_pairing(&mut self, cx: &mut Context<Self>) {
         let Some(session_id) = self.active_terminal_session_id() else {
-            codux_runtime::runtime_trace::runtime_trace(
+            wecode_runtime::runtime_trace::runtime_trace(
                 "wechat",
                 "confirm_pairing click skipped reason=no_active_terminal",
             );
             return;
         };
         let queued = wechat_bridge_confirm_pairing(&session_id);
-        codux_runtime::runtime_trace::runtime_trace(
+        wecode_runtime::runtime_trace::runtime_trace(
             "wechat",
             &format!("confirm_pairing click session={session_id} queued={queued}"),
         );
@@ -39,7 +39,7 @@ impl CoduxApp {
         cx: &mut Context<Self>,
     ) {
         let queued = wechat_bridge_bind_existing_to_session(session_id);
-        codux_runtime::runtime_trace::runtime_trace(
+        wecode_runtime::runtime_trace::runtime_trace(
             "wechat",
             &format!("bind_terminal click session={session_id} queued={queued}"),
         );

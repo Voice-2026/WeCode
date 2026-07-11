@@ -1,7 +1,7 @@
 use super::*;
 
 pub(in crate::app) struct StatusBarView {
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     snapshot: StatusBarSnapshot,
 }
 
@@ -58,7 +58,7 @@ impl Render for StatusBarView {
     }
 }
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn status_bar_view(
         &mut self,
         cx: &mut Context<Self>,
@@ -80,7 +80,7 @@ impl CoduxApp {
     }
 }
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn status_bar_snapshot(&self) -> StatusBarSnapshot {
         StatusBarSnapshot {
             language: self.state.settings.language.clone(),
@@ -92,7 +92,7 @@ impl CoduxApp {
             developer_hud: self.state.settings.developer_hud,
             runtime_ready: self.runtime_ready,
             runtime_queue_busy: {
-                let status = codux_runtime::async_runtime::blocking_queue_status();
+                let status = wecode_runtime::async_runtime::blocking_queue_status();
                 status.queued > 0 || status.running > 0
             },
             cpu_label: self.state.performance.cpu_label.clone(),
@@ -124,7 +124,7 @@ impl CoduxApp {
     /// Counted over the saved-host registry (not the link-states map) so the
     /// denominator matches the device list even for hosts not yet reached.
     fn remote_outbound_connected_count(&self) -> usize {
-        use codux_runtime::remote::ControllerLinkState;
+        use wecode_runtime::remote::ControllerLinkState;
         self.remote_saved_host_ids
             .iter()
             .filter(|id| {
@@ -140,7 +140,7 @@ impl CoduxApp {
     /// summary's status when an outbound host link is live (or dialing), so a
     /// controller-only machine still reads "connected" while it drives a host.
     fn remote_status_label(&self) -> String {
-        use codux_runtime::remote::ControllerLinkState;
+        use wecode_runtime::remote::ControllerLinkState;
         let host_status = self.state.remote.status.as_str();
         if host_status == "connected"
             || self.state.remote.online_devices > 0
@@ -210,7 +210,7 @@ fn non_empty(value: String) -> Option<String> {
 }
 
 fn status_bar_content(
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     snapshot: StatusBarSnapshot,
     cx: &mut Context<StatusBarView>,
 ) -> impl IntoElement {
@@ -371,7 +371,7 @@ fn status_runtime_ready_segment(
 }
 
 fn status_sync_action_button(
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     label: String,
     count: i64,
     theme_is_light: bool,
@@ -380,7 +380,7 @@ fn status_sync_action_button(
     loading: bool,
     disabled: bool,
     cx: &mut Context<StatusBarView>,
-    on_click: impl Fn(&mut CoduxApp, &gpui::ClickEvent, &mut Window, &mut Context<CoduxApp>) + 'static,
+    on_click: impl Fn(&mut WeCodeApp, &gpui::ClickEvent, &mut Window, &mut Context<WeCodeApp>) + 'static,
 ) -> impl IntoElement {
     let count = count.max(0);
     let count_bg = if theme_is_light { 0xFFFFFF } else { 0x000000 };
@@ -458,7 +458,7 @@ fn status_metric(id: &'static str, label: &'static str, value: String) -> impl I
 }
 
 fn status_ai_segment(
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     index_count: usize,
     error: Option<&str>,
     language: &str,
@@ -500,7 +500,7 @@ fn status_ai_segment(
 }
 
 fn status_memory_segment(
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     queued: i64,
     running: i64,
     failed: i64,
@@ -574,7 +574,7 @@ fn status_memory_segment(
 }
 
 fn status_remote_segment(
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     status: &str,
     devices: usize,
     online_devices: usize,
@@ -639,7 +639,7 @@ fn status_text(language: &str, key: &str, fallback: &str) -> String {
 }
 
 fn status_git_segment(
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     branch: &str,
     additions: i64,
     deletions: i64,

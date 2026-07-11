@@ -160,14 +160,14 @@ jobs:
               curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
               . "$CARGO_HOME/env"
               rustup target add "$CARGO_BUILD_TARGET"
-              cargo build -p codux-agent --release --target "$CARGO_BUILD_TARGET"
+              cargo build -p wecode-agent --release --target "$CARGO_BUILD_TARGET"
             '
           sudo chown -R "$(id -u):$(id -g)" target
 
       - name: Build agent
         if: runner.os != 'Linux'
         shell: bash
-        run: cargo build -p codux-agent --release --target "${CARGO_BUILD_TARGET}"
+        run: cargo build -p wecode-agent --release --target "${CARGO_BUILD_TARGET}"
 
       - name: Package agent
         shell: bash

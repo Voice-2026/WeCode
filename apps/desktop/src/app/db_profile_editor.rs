@@ -1,4 +1,4 @@
-use super::app_select::{CoduxSelectOption, codux_select};
+use super::app_select::{WeCodeSelectOption, wecode_select};
 use super::*;
 
 #[derive(Clone)]
@@ -56,27 +56,27 @@ impl DbProfileEditorLabels {
     }
 }
 
-fn db_engine_options() -> Vec<CoduxSelectOption> {
+fn db_engine_options() -> Vec<WeCodeSelectOption> {
     vec![
-        CoduxSelectOption::new("postgres", "PostgreSQL"),
-        CoduxSelectOption::new("mysql", "MySQL / MariaDB"),
-        CoduxSelectOption::new("sqlite", "SQLite"),
+        WeCodeSelectOption::new("postgres", "PostgreSQL"),
+        WeCodeSelectOption::new("mysql", "MySQL / MariaDB"),
+        WeCodeSelectOption::new("sqlite", "SQLite"),
     ]
 }
 
-fn db_ssl_options(labels: &DbProfileEditorLabels) -> Vec<CoduxSelectOption> {
+fn db_ssl_options(labels: &DbProfileEditorLabels) -> Vec<WeCodeSelectOption> {
     vec![
-        CoduxSelectOption::new("disable", labels.ssl_disable.clone()),
-        CoduxSelectOption::new("prefer", labels.ssl_prefer.clone()),
-        CoduxSelectOption::new("require", labels.ssl_require.clone()),
+        WeCodeSelectOption::new("disable", labels.ssl_disable.clone()),
+        WeCodeSelectOption::new("prefer", labels.ssl_prefer.clone()),
+        WeCodeSelectOption::new("require", labels.ssl_require.clone()),
     ]
 }
 
 pub(in crate::app) fn db_profile_editor_workspace(
-    app: &CoduxApp,
+    app: &WeCodeApp,
     db_testing: bool,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let labels = DbProfileEditorLabels::load(&app.state.settings.language);
     let test_result = app.db_test_result.clone();
@@ -278,8 +278,8 @@ fn db_dialog_input(
     placeholder: String,
     masked: bool,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
-    action: impl Fn(&mut CoduxApp, String, &mut Window, &mut Context<CoduxApp>) + 'static,
+    cx: &mut Context<WeCodeApp>,
+    action: impl Fn(&mut WeCodeApp, String, &mut Window, &mut Context<WeCodeApp>) + 'static,
 ) -> impl IntoElement {
     let value = value.to_string();
     let state = window.use_keyed_state(SharedString::from(format!("db-input-{id}")), cx, {
@@ -322,11 +322,11 @@ fn db_dialog_select(
     id: &'static str,
     label: String,
     value: &str,
-    options: Vec<CoduxSelectOption>,
+    options: Vec<WeCodeSelectOption>,
     select_label: String,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
-    action: impl Fn(&mut CoduxApp, String, &mut Window, &mut Context<CoduxApp>) + 'static,
+    cx: &mut Context<WeCodeApp>,
+    action: impl Fn(&mut WeCodeApp, String, &mut Window, &mut Context<WeCodeApp>) + 'static,
 ) -> impl IntoElement {
     div()
         .mb(px(16.0))
@@ -340,7 +340,7 @@ fn db_dialog_select(
                 .text_color(color(theme::TEXT_MUTED))
                 .child(label),
         )
-        .child(codux_select(
+        .child(wecode_select(
             &format!("db-select-{id}"),
             value,
             options,
@@ -357,7 +357,7 @@ fn db_dialog_select(
 fn read_only_toggle(
     read_only: bool,
     labels: &DbProfileEditorLabels,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     div()
         .mb(px(16.0))

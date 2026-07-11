@@ -29,7 +29,7 @@ fn new_remote_host_runtime(
     ai_runtime: Arc<AIRuntimeBridge>,
     terminals: Arc<TerminalManager>,
 ) -> Arc<RemoteHostRuntime> {
-    let current_sessions: Arc<dyn codux_runtime_core::ai_stats::RemoteAICurrentSessionProvider> =
+    let current_sessions: Arc<dyn wecode_runtime_core::ai_stats::RemoteAICurrentSessionProvider> =
         Arc::new(DesktopAICurrentSessionProvider {
             support_dir: support_dir.clone(),
             ai_runtime,
@@ -49,10 +49,10 @@ struct DesktopAICurrentSessionProvider {
     ai_runtime: Arc<AIRuntimeBridge>,
 }
 
-impl codux_runtime_core::ai_stats::RemoteAICurrentSessionProvider
+impl wecode_runtime_core::ai_stats::RemoteAICurrentSessionProvider
     for DesktopAICurrentSessionProvider
 {
-    fn current_sessions(&self, project_id: &str) -> Vec<codux_protocol::RemoteAICurrentSession> {
+    fn current_sessions(&self, project_id: &str) -> Vec<wecode_protocol::RemoteAICurrentSession> {
         let snapshot = self.ai_runtime.runtime_state_snapshot();
         let summary =
             AIRuntimeStateService::new(&self.support_dir).summary_from_runtime_snapshot(&snapshot);
@@ -62,7 +62,7 @@ impl codux_runtime_core::ai_stats::RemoteAICurrentSessionProvider
 
 impl RuntimeService {
     pub fn new(support_dir: PathBuf) -> Self {
-        codux_ai_history::trace::set_trace_sink(crate::runtime_trace::runtime_trace);
+        wecode_ai_history::trace::set_trace_sink(crate::runtime_trace::runtime_trace);
         let ai_history_indexer =
             AIHistoryIndexer::with_database_path(support_dir.join("ai-usage.sqlite3"));
         let ai_runtime = shared_ai_runtime_bridge();

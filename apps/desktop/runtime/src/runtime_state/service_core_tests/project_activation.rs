@@ -1,7 +1,7 @@
 #[test]
 fn app_runtime_ready_marks_selected_project_active_and_returns_startup_snapshots() {
     let support_dir =
-        std::env::temp_dir().join(format!("codux-runtime-ready-{}", uuid::Uuid::new_v4()));
+        std::env::temp_dir().join(format!("wecode-runtime-ready-{}", uuid::Uuid::new_v4()));
     let project_dir = support_dir.join("project");
     fs::create_dir_all(&project_dir).expect("create project dir");
     fs::write(
@@ -44,7 +44,7 @@ fn app_runtime_ready_marks_selected_project_active_and_returns_startup_snapshots
 #[test]
 fn project_update_marks_updated_project_active_and_rewatches_files() {
     let support_dir =
-        std::env::temp_dir().join(format!("codux-project-update-{}", uuid::Uuid::new_v4()));
+        std::env::temp_dir().join(format!("wecode-project-update-{}", uuid::Uuid::new_v4()));
     let old_project_dir = support_dir.join("old-project");
     let new_project_dir = support_dir.join("new-project");
     fs::create_dir_all(&old_project_dir).expect("create old project dir");
@@ -101,7 +101,7 @@ fn project_update_marks_updated_project_active_and_rewatches_files() {
 #[test]
 fn project_select_worktree_marks_root_project_active_and_watches_worktree_files() {
     let support_dir = std::env::temp_dir().join(format!(
-        "codux-project-select-worktree-{}",
+        "wecode-project-select-worktree-{}",
         uuid::Uuid::new_v4()
     ));
     let project_dir = support_dir.join("project");
@@ -173,7 +173,7 @@ fn project_select_worktree_marks_root_project_active_and_watches_worktree_files(
 #[test]
 fn project_and_worktree_switch_does_not_restore_saved_terminal_layout() {
     let support_dir = std::env::temp_dir().join(format!(
-        "codux-project-worktree-terminal-layout-{}",
+        "wecode-project-worktree-terminal-layout-{}",
         uuid::Uuid::new_v4()
     ));
     let project_dir = support_dir.join("project");
@@ -320,7 +320,7 @@ fn project_and_worktree_switch_does_not_restore_saved_terminal_layout() {
 #[test]
 fn project_and_worktree_switch_runs_runtime_activation_layout_pty_ai_and_git_flow() {
     let support_dir = std::env::temp_dir().join(format!(
-        "codux-runtime-switch-full-flow-{}",
+        "wecode-runtime-switch-full-flow-{}",
         uuid::Uuid::new_v4()
     ));
     let project_a_dir = support_dir.join("project-a");

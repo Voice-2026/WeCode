@@ -1,5 +1,5 @@
 //! Desktop lifecycle wrapper around the WeChat chat bridge
-//! (`codux-im-bridge`): owns the singleton bridge instance, persists
+//! (`wecode-im-bridge`): owns the singleton bridge instance, persists
 //! credentials/cursor/bindings under the app support dir, and exposes a
 //! poll-friendly status snapshot for the settings UI.
 //!
@@ -16,11 +16,11 @@ use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-use codux_im_bridge::binding::{BindingState, BindingStore, ChatBinding};
-use codux_im_bridge::runtime::{BridgeStatus, CredentialStore, HostSink, ReplyText, WeChatBridge};
-use codux_im_bridge::wechat::WeChatCredentials;
-use codux_runtime_live::terminal_pty::TerminalManager;
 use parking_lot::Mutex;
+use wecode_im_bridge::binding::{BindingState, BindingStore, ChatBinding};
+use wecode_im_bridge::runtime::{BridgeStatus, CredentialStore, HostSink, ReplyText, WeChatBridge};
+use wecode_im_bridge::wechat::WeChatCredentials;
+use wecode_runtime_live::terminal_pty::TerminalManager;
 
 use crate::async_runtime;
 use crate::runtime_paths;
@@ -222,7 +222,7 @@ impl CredentialStore for FileCredentialStore {
     }
 
     fn save_credentials(&self, creds: &WeChatCredentials) {
-        codux_im_bridge::binding::write_json_600(&self.paths.credentials_path, creds);
+        wecode_im_bridge::binding::write_json_600(&self.paths.credentials_path, creds);
         status_cell().lock().has_credentials = true;
     }
 
@@ -244,7 +244,7 @@ impl CredentialStore for FileCredentialStore {
             "wechat",
             &format!("cursor_saved len={}", cursor.len()),
         );
-        codux_im_bridge::binding::write_json_600(
+        wecode_im_bridge::binding::write_json_600(
             &self.paths.sync_path,
             &serde_json::json!({ "cursor": cursor }),
         );
@@ -354,10 +354,10 @@ impl HostSink for TerminalSink {
 
 fn reply_text() -> ReplyText {
     ReplyText {
-        pairing_prompt: "Codux 配对码 / pairing code: {code}\n请在 Codux 桌面端「远程 → 微信」中确认。 / Confirm it in Codux desktop under Remote → WeChat.".to_string(),
-        needs_binding: "该微信已授权，但还没有绑定终端会话。请在 Codux 桌面端选择一个会话完成绑定。 / Authorized but not bound to a terminal session yet. Pick one in Codux desktop.".to_string(),
+        pairing_prompt: "WeCode 配对码 / pairing code: {code}\n请在 WeCode 桌面端「远程 → 微信」中确认。 / Confirm it in WeCode desktop under Remote → WeChat.".to_string(),
+        needs_binding: "该微信已授权，但还没有绑定终端会话。请在 WeCode 桌面端选择一个会话完成绑定。 / Authorized but not bound to a terminal session yet. Pick one in WeCode desktop.".to_string(),
         rejected: "未授权访问。 / Not authorized.".to_string(),
-        pairing_confirmed: "✅ 绑定成功。现在发送的消息会输入到绑定的 Codux 终端。 / Paired. Your messages now go to the bound Codux terminal.".to_string(),
+        pairing_confirmed: "✅ 绑定成功。现在发送的消息会输入到绑定的 WeCode 终端。 / Paired. Your messages now go to the bound WeCode terminal.".to_string(),
     }
 }
 
@@ -774,7 +774,7 @@ fn pending_terminal_approval(
         .iter()
         .find(|session| session.terminal_id == session_id && session.state == "needsInput")?;
     let snapshot = terminals.screen_snapshot(session_id).ok()?;
-    let screen = codux_runtime_live::ai_runtime::screen_signal::screen_text_from_cells(&snapshot);
+    let screen = wecode_runtime_live::ai_runtime::screen_signal::screen_text_from_cells(&snapshot);
     let prompt = approval_prompt_from_screen(&screen)?;
     let fingerprint = format!(
         "{}:{}",
@@ -1105,7 +1105,7 @@ fn completed_terminal_reply(
 }
 
 fn completed_session_marker(
-    session: &codux_runtime_live::ai_runtime::AISessionSnapshot,
+    session: &wecode_runtime_live::ai_runtime::AISessionSnapshot,
 ) -> Option<String> {
     if session.is_running || session.state != "idle" || !session.has_completed_turn {
         return None;

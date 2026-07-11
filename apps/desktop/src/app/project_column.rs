@@ -1,11 +1,11 @@
 use super::agent_display::ping_dot;
 use super::ai_runtime_status::AgentLifecycleState;
-use super::app_state::CoduxTooltipPlacement;
-use super::ui_helpers::{codux_tooltip_container_with_placement, titlebar_drag_area};
+use super::app_state::WeCodeTooltipPlacement;
+use super::ui_helpers::{titlebar_drag_area, wecode_tooltip_container_with_placement};
 use super::*;
-use codux_runtime::remote::ControllerLinkState;
-use codux_runtime::{i18n::translate, settings::locale_from_language_setting};
 use gpui::Rems;
+use wecode_runtime::remote::ControllerLinkState;
+use wecode_runtime::{i18n::translate, settings::locale_from_language_setting};
 
 const PROJECT_TOOL_TEXT_SIZE: Rems = Rems(0.875);
 const PROJECT_TOOL_LINE_HEIGHT: Rems = Rems(1.125);
@@ -35,7 +35,7 @@ impl Render for ProjectRowDrag {
 }
 
 pub(in crate::app) struct ProjectColumnView {
-    pub(in crate::app) app_entity: gpui::Entity<CoduxApp>,
+    pub(in crate::app) app_entity: gpui::Entity<WeCodeApp>,
     pub(in crate::app) project_list_state: gpui::Entity<ProjectListState>,
     pub(in crate::app) collapsed: bool,
     pub(in crate::app) language: String,
@@ -172,7 +172,7 @@ impl Render for ProjectColumnView {
                     .pb(if collapsed { px(10.0) } else { px(10.0) })
                     .relative()
                     .overflow_hidden()
-                    .child(codux_uniform_list(
+                    .child(wecode_uniform_list(
                         "project-list",
                         projects.clone(),
                         scroll_handle,
@@ -243,7 +243,7 @@ fn project_column_header(collapsed: bool) -> impl IntoElement {
                             .text_size(rems(1.0))
                             .line_height(rems(1.25))
                             .text_color(color(theme::TEXT))
-                            .child("Codux"),
+                            .child("WeCode"),
                     )
                 }),
         )
@@ -269,7 +269,7 @@ fn project_column_header(collapsed: bool) -> impl IntoElement {
                     .line_height(rems(1.25))
                     .text_color(color(theme::TEXT))
                     .when(cfg!(target_os = "macos"), |this| this.invisible())
-                    .child("Codux"),
+                    .child("WeCode"),
             ))
             .into_any_element()
     }
@@ -281,7 +281,7 @@ fn project_tools_snapshot(
     has_project: bool,
     has_projects: bool,
     has_worktree: bool,
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     window: &mut Window,
     cx: &mut Context<ProjectColumnView>,
 ) -> AnyElement {
@@ -385,10 +385,10 @@ fn project_tool_button(
     label: Option<String>,
     tooltip: String,
     id: &'static str,
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     window: &mut Window,
     cx: &mut Context<ProjectColumnView>,
-    on_click: impl Fn(&mut CoduxApp, &gpui::ClickEvent, &mut Window, &mut Context<CoduxApp>) + 'static,
+    on_click: impl Fn(&mut WeCodeApp, &gpui::ClickEvent, &mut Window, &mut Context<WeCodeApp>) + 'static,
 ) -> impl IntoElement {
     let has_label = label.is_some();
     let button = Button::new(SharedString::from(format!("project-tool-{id}")))
@@ -415,11 +415,11 @@ fn project_tool_button(
         return button.into_any_element();
     }
 
-    codux_tooltip_container_with_placement(
+    wecode_tooltip_container_with_placement(
         app_entity.clone(),
         SharedString::from(format!("project-tool-{id}-tooltip")),
         tooltip,
-        CoduxTooltipPlacement::Right,
+        WeCodeTooltipPlacement::Right,
     )
     .child(button)
     .into_any_element()
@@ -478,7 +478,7 @@ fn project_more_button(
     _has_project: bool,
     _has_projects: bool,
     _has_worktree: bool,
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     cx: &mut Context<ProjectColumnView>,
 ) -> impl IntoElement {
     let has_label = label.is_some();
@@ -552,11 +552,11 @@ fn project_more_button(
         return button.into_any_element();
     }
 
-    codux_tooltip_container_with_placement(
+    wecode_tooltip_container_with_placement(
         app_entity.clone(),
         "project-tool-project-more-footer-tooltip",
         tooltip,
-        CoduxTooltipPlacement::Right,
+        WeCodeTooltipPlacement::Right,
     )
     .child(button)
     .into_any_element()
@@ -582,7 +582,7 @@ fn project_help_menu_entries(language: &str) -> Vec<ProjectHelpMenuEntry> {
         },
         Separator,
         Item {
-            label: label("menu.app.about_format", "About Codux").replace("%@", "Codux"),
+            label: label("menu.app.about_format", "About WeCode").replace("%@", "WeCode"),
             icon: HeroIconName::InformationCircle,
             action_id: "help:about",
         },
@@ -635,7 +635,7 @@ fn project_column_toggle_button(
     collapsed: bool,
     language: &str,
     label: Option<String>,
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     window: &mut Window,
     cx: &mut Context<ProjectColumnView>,
 ) -> impl IntoElement {
@@ -677,11 +677,11 @@ fn project_column_toggle_button(
         return button.into_any_element();
     }
 
-    codux_tooltip_container_with_placement(
+    wecode_tooltip_container_with_placement(
         app_entity.clone(),
         "project-column-toggle-tooltip",
         tooltip,
-        CoduxTooltipPlacement::Right,
+        WeCodeTooltipPlacement::Right,
     )
     .child(button)
     .into_any_element()
@@ -690,7 +690,7 @@ fn project_column_toggle_button(
 fn project_row(
     project: ProjectInfo,
     active: bool,
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     project_id: String,
     project_order: Vec<String>,
     lifecycle_state: Option<AgentLifecycleState>,
@@ -721,7 +721,7 @@ fn project_row(
                     collapsed: true,
                 },
                 move |drag, _, _, cx| {
-                    drag_app_entity.update(cx, |app, cx| app.clear_codux_tooltip(cx));
+                    drag_app_entity.update(cx, |app, cx| app.clear_wecode_tooltip(cx));
                     cx.new(|_| ProjectRowDrag {
                         project_id: drag.project_id.clone(),
                         project: drag.project.clone(),
@@ -739,7 +739,7 @@ fn project_row(
                     else {
                         return;
                     };
-                    defer_codux_app_update(
+                    defer_wecode_app_update(
                         drop_app_entity.clone(),
                         window,
                         cx,
@@ -769,11 +769,11 @@ fn project_row(
                 )
             })
             .child(
-                codux_tooltip_container_with_placement(
+                wecode_tooltip_container_with_placement(
                     app_entity.clone(),
                     SharedString::from(format!("project-icon-{}-tooltip", project.id)),
                     project.name.clone(),
-                    CoduxTooltipPlacement::Right,
+                    WeCodeTooltipPlacement::Right,
                 )
                 .child(
                     div()
@@ -839,7 +839,7 @@ fn project_row(
                 collapsed: false,
             },
             move |drag, _, _, cx| {
-                drag_app_entity.update(cx, |app, cx| app.clear_codux_tooltip(cx));
+                drag_app_entity.update(cx, |app, cx| app.clear_wecode_tooltip(cx));
                 cx.new(|_| ProjectRowDrag {
                     project_id: drag.project_id.clone(),
                     project: drag.project.clone(),
@@ -857,7 +857,7 @@ fn project_row(
                 else {
                     return;
                 };
-                defer_codux_app_update(drop_app_entity.clone(), window, cx, move |app, _, cx| {
+                defer_wecode_app_update(drop_app_entity.clone(), window, cx, move |app, _, cx| {
                     app.reorder_projects_by_ids(next_project_ids, cx);
                 });
                 cx.stop_propagation();
@@ -965,7 +965,7 @@ fn project_row_menu_labels(language: &str) -> ProjectRowMenuLabels {
 
 fn project_row_context_menu(
     menu: PopupMenu,
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     project_id: String,
     project_name: String,
     project_path: String,

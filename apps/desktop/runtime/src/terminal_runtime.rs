@@ -140,7 +140,7 @@ mod tests {
     #[test]
     fn terminal_runtime_round_trips_through_persistent_cache() {
         let support_dir = std::env::temp_dir().join(format!(
-            "codux-terminal-runtime-{}-{}",
+            "wecode-terminal-runtime-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

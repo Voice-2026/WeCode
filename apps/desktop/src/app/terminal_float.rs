@@ -2,13 +2,13 @@ use super::*;
 
 pub(in crate::app) fn terminal_float_window(
     title: String,
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     project_id: Option<String>,
     tab_view_id: usize,
     pane_index: usize,
     split_location: Option<TerminalSplitLocation>,
     slot: TerminalPaneSlot,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> gpui::Entity<TerminalFloatWindow> {
     cx.new(|_| TerminalFloatWindow {
         title,
@@ -29,7 +29,7 @@ pub(in crate::app) struct TerminalFloatWindow {
 }
 
 struct TerminalFloatRestore {
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     project_id: Option<String>,
     tab_view_id: usize,
     pane_index: usize,

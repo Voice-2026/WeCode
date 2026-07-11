@@ -1,8 +1,8 @@
 import 'dart:typed_data';
 
-import 'package:codux_flutter/models/remote_models.dart';
-import 'package:codux_flutter/services/remote_envelope_send_queue.dart';
-import 'package:codux_flutter/services/remote_transport.dart';
+import 'package:wecode_flutter/models/remote_models.dart';
+import 'package:wecode_flutter/services/remote_envelope_send_queue.dart';
+import 'package:wecode_flutter/services/remote_transport.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

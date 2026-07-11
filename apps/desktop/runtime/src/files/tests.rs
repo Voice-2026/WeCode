@@ -294,7 +294,7 @@ fn temp_dir(label: &str) -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .expect("clock")
         .as_nanos();
-    let dir = std::env::temp_dir().join(format!("codux-gpui-{label}-{nanos}"));
+    let dir = std::env::temp_dir().join(format!("wecode-gpui-{label}-{nanos}"));
     fs::create_dir_all(&dir).expect("temp dir");
     dir
 }

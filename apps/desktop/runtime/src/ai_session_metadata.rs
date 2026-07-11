@@ -111,7 +111,7 @@ mod tests {
     #[test]
     fn session_metadata_round_trips_independent_flags() {
         let support_dir = std::env::temp_dir().join(format!(
-            "codux-ai-session-meta-{}-{}",
+            "wecode-ai-session-meta-{}-{}",
             std::process::id(),
             SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)

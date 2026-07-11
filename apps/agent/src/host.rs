@@ -3,9 +3,9 @@
 //! machine's files and read its host info. This is the first real slice of the
 //! "headless controlled-end" — terminal/Git/AI domains follow the same
 //! dispatch shape (see plan/interconnect-plan.md), reusing the stateless
-//! payload builders in `codux-runtime-core`.
+//! payload builders in `wecode-runtime-core`.
 
-use codux_protocol::{
+use wecode_protocol::{
     REMOTE_AI_SESSION, REMOTE_AI_SESSION_RESULT, REMOTE_AI_STATE, REMOTE_AI_STATS, REMOTE_ERROR,
     REMOTE_FILE_BLOB, REMOTE_FILE_BYTES_WRITTEN, REMOTE_FILE_COPIED, REMOTE_FILE_COPY,
     REMOTE_FILE_CREATE_DIRECTORY, REMOTE_FILE_DELETE, REMOTE_FILE_DELETED,
@@ -21,11 +21,11 @@ use codux_protocol::{
     REMOTE_TRANSPORT_PONG, REMOTE_WORKTREE_CREATE, REMOTE_WORKTREE_LIST, REMOTE_WORKTREE_MERGE,
     REMOTE_WORKTREE_REMOVE, REMOTE_WORKTREE_UPDATED,
 };
-use codux_remote_transport::{
+use wecode_remote_transport::{
     RemoteHostTransportConfig, RemoteTransport, RemoteTransportCandidate, RemoteTransportFactory,
     WebTunnelTcpConnectRequest,
 };
-use codux_runtime_core::{
+use wecode_runtime_core::{
     file::{
         file_copy, file_delete, file_list_payload, file_make_directory, file_move,
         file_read_payload, file_rename, file_write, file_write_bytes,
@@ -34,18 +34,18 @@ use codux_runtime_core::{
     host::{HostInfoPayload, host_info_payload},
     project::project_list_payload,
 };
-use codux_runtime_live::{
+use wecode_runtime_live::{
     ai_runtime::AIRuntimeBridge, ai_runtime_state::AIRuntimeStateService,
     host_metrics::sample_host_metrics, terminal_pty::TerminalManager,
 };
 
 use crate::projects::AgentProjectStore;
-use codux_ai_history::indexer::AIHistoryIndexer;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
+use wecode_ai_history::indexer::AIHistoryIndexer;
 
 /// What the agent needs to stand up a host endpoint.
 pub struct AgentHostConfig {
@@ -81,7 +81,7 @@ fn make_handler(
     host_id: String,
     name: String,
     relay_authentication: String,
-) -> codux_remote_transport::RemoteTransportMessageHandler {
+) -> wecode_remote_transport::RemoteTransportMessageHandler {
     Arc::new(move |_source: String, data: Vec<u8>| {
         let Ok(envelope) = serde_json::from_slice::<Value>(&data) else {
             return;
@@ -281,7 +281,7 @@ fn make_handler(
                     .or(device_id)
                     .unwrap_or_default()
                     .to_string();
-                // Record the device so `codux device` can list it.
+                // Record the device so `wecode device` can list it.
                 let device_name = payload
                     .get("deviceName")
                     .and_then(Value::as_str)
@@ -305,14 +305,14 @@ fn make_handler(
                         // reconnected from the confirm transports — not only the
                         // QR — instead of dropping the token here.
                         let transport =
-                            codux_protocol::iroh_transport_candidate_with_ticket_and_authentication(
+                            wecode_protocol::iroh_transport_candidate_with_ticket_and_authentication(
                                 relay_url,
                                 node_id,
                                 relay_url,
                                 "",
                                 &relay_authentication,
                             );
-                        transports.push(codux_protocol::confirmed_transport_entry(&transport));
+                        transports.push(wecode_protocol::confirmed_transport_entry(&transport));
                     }
                 }
                 Some((
@@ -336,7 +336,7 @@ fn make_handler(
                     runtime_instance_id: format!("{host_id}-agent"),
                     name: name.clone(),
                     platform: std::env::consts::OS.to_string(),
-                    app: "codux-agent".to_string(),
+                    app: "wecode-agent".to_string(),
                     transports: Vec::new(),
                 }),
             )),
@@ -489,7 +489,7 @@ fn make_handler(
                     git_status_payload(
                         project_id.as_str(),
                         project_path.as_str(),
-                        codux_git::wire::status(&project_path),
+                        wecode_git::wire::status(&project_path),
                     ),
                 ))
             }
@@ -497,13 +497,13 @@ fn make_handler(
                 let (project_id, project_path) = git_project_target(&payload);
                 let op = payload.get("op").and_then(Value::as_str).unwrap_or("");
                 let args = payload.get("args").cloned().unwrap_or(Value::Null);
-                match codux_git::wire::invoke(&project_path, op, &args) {
+                match wecode_git::wire::invoke(&project_path, op, &args) {
                     Ok(()) => Some((
                         REMOTE_GIT_STATUS,
                         git_status_payload(
                             project_id.as_str(),
                             project_path.as_str(),
-                            codux_git::wire::status(&project_path),
+                            wecode_git::wire::status(&project_path),
                         ),
                     )),
                     Err(error) => Some((REMOTE_ERROR, json!({ "message": error }))),
@@ -523,12 +523,12 @@ fn make_handler(
                             "result": git_status_payload(
                         project_id.as_str(),
                         project_path.as_str(),
-                                codux_git::wire::status(&project_path),
+                                wecode_git::wire::status(&project_path),
                             ),
                         }),
                     ))
                 } else {
-                    match codux_git::wire::read(&project_path, op, &args) {
+                    match wecode_git::wire::read(&project_path, op, &args) {
                         Ok(result) => {
                             Some((REMOTE_GIT_READ, json!({ "op": op, "result": result })))
                         }
@@ -650,14 +650,14 @@ fn make_handler(
                 }
             }
             REMOTE_MEMORY_READ => {
-                // The host runs the codux-memory engine against its own store.
+                // The host runs the wecode-memory engine against its own store.
                 Some((
                     REMOTE_MEMORY_RESULT,
                     crate::memory::memory_read_payload(&payload),
                 ))
             }
             REMOTE_AI_SESSION => {
-                // The host runs the codux-ai-sessions engine against its own history.
+                // The host runs the wecode-ai-sessions engine against its own history.
                 Some((
                     REMOTE_AI_SESSION_RESULT,
                     crate::sessions::ai_session_payload(&payload),
@@ -828,7 +828,7 @@ async fn connect_serving_host(
                     .viewers_for_session(session_id, None)
                     .into_iter()
                     .map(|device| {
-                        codux_runtime_live::terminal_pty::terminal_viewport_remote_owner(&device)
+                        wecode_runtime_live::terminal_pty::terminal_viewport_remote_owner(&device)
                     })
                     .find(|owner| owner != expired_owner)
             },
@@ -899,8 +899,8 @@ fn spawn_ai_stats_poller(
     watchers: AIStatsWatchers,
 ) {
     tokio::spawn(async move {
-        use codux_protocol::RemoteAICurrentSession;
-        use codux_runtime_core::ai_stats::RemoteAICurrentSessionProvider;
+        use wecode_protocol::RemoteAICurrentSession;
+        use wecode_runtime_core::ai_stats::RemoteAICurrentSessionProvider;
         let mut last: HashMap<String, Vec<RemoteAICurrentSession>> = HashMap::new();
         let mut ticker = tokio::time::interval(std::time::Duration::from_millis(1000));
         loop {
@@ -953,14 +953,14 @@ struct AgentAICurrentSessionProvider {
     ai_runtime: Arc<AIRuntimeBridge>,
 }
 
-impl codux_runtime_core::ai_stats::RemoteAICurrentSessionProvider
+impl wecode_runtime_core::ai_stats::RemoteAICurrentSessionProvider
     for AgentAICurrentSessionProvider
 {
-    fn current_sessions(&self, project_id: &str) -> Vec<codux_protocol::RemoteAICurrentSession> {
+    fn current_sessions(&self, project_id: &str) -> Vec<wecode_protocol::RemoteAICurrentSession> {
         let snapshot = self.ai_runtime.runtime_state_snapshot();
         let summary = AIRuntimeStateService::new(&crate::projects::agent_data_dir())
             .summary_from_runtime_snapshot(&snapshot);
-        codux_runtime_live::ai_runtime_state::remote_current_sessions_from_runtime_state(
+        wecode_runtime_live::ai_runtime_state::remote_current_sessions_from_runtime_state(
             &summary, project_id,
         )
     }
@@ -973,11 +973,11 @@ pub async fn run_host(cfg: AgentHostConfig) -> Result<(), String> {
     let web_test = match crate::web_test::start_background() {
         Ok(server) => Some(server),
         Err(error) => {
-            eprintln!("Codux web test page disabled: {error}");
+            eprintln!("WeCode web test page disabled: {error}");
             None
         }
     };
-    println!("Codux host ready.");
+    println!("WeCode host ready.");
     println!("  device: {}", cfg.name);
     println!("  config: {}", crate::paths::config_path().display());
     if let Some(server) = &web_test {
@@ -995,11 +995,11 @@ pub async fn run_host(cfg: AgentHostConfig) -> Result<(), String> {
         // host's format. The controller dials from nodeId + relayUrl and the full
         // ticket is exchanged after it connects.
         let pairing = pairing_ticket_url(&cfg.host_id, &node_id, &relay, &cfg.relay_authentication);
-        println!("  pair:   run `codux link` or `codux qrcode`");
+        println!("  pair:   run `wecode link` or `wecode qrcode`");
         if verbose_startup_output() {
             println!("pairingTicket={pairing}");
         }
-        // Publish for `codux link` / `codux qrcode` to read.
+        // Publish for `wecode link` / `wecode qrcode` to read.
         crate::runstate::write_ticket(&pairing);
     }
     if let Some(ticket) = host.iroh_endpoint_ticket() {
@@ -1007,7 +1007,7 @@ pub async fn run_host(cfg: AgentHostConfig) -> Result<(), String> {
             println!("ticket={ticket}");
         }
     }
-    // Publish status for `codux status` / `codux stop`.
+    // Publish status for `wecode status` / `wecode stop`.
     crate::runstate::write_status(&crate::runstate::DaemonStatus {
         pid: std::process::id(),
         started_at: chrono::Utc::now().to_rfc3339(),
@@ -1027,12 +1027,12 @@ pub async fn run_host(cfg: AgentHostConfig) -> Result<(), String> {
 
 fn verbose_startup_output() -> bool {
     matches!(
-        std::env::var("CODUX_AGENT_VERBOSE").ok().as_deref(),
+        std::env::var("WECODE_AGENT_VERBOSE").ok().as_deref(),
         Some("1" | "true" | "TRUE" | "yes" | "YES")
     )
 }
 
-/// Build the `codux://pair?payload=<base64url>` pairing URL the desktop
+/// Build the `wecode://pair?payload=<base64url>` pairing URL the desktop
 /// controller pastes / the phone scans. Carries the minimum needed to dial —
 /// nodeId + relayUrl (+ relay auth) — NOT the bulky iroh endpoint ticket, so the
 /// QR stays small and scannable (the ticket ~doubles QR density). The code/
@@ -1047,15 +1047,15 @@ fn pairing_ticket_url(
     use base64::Engine;
     // Build the dial candidate and serialize it through the SHARED payload
     // builder so the desktop and agent hosts emit byte-identical QR transports —
-    // the ticket-free shape (nodeId + relayUrl) is defined once in codux_protocol.
-    let candidate = codux_protocol::iroh_transport_candidate_with_ticket_and_authentication(
+    // the ticket-free shape (nodeId + relayUrl) is defined once in wecode_protocol.
+    let candidate = wecode_protocol::iroh_transport_candidate_with_ticket_and_authentication(
         relay_url,
         node_id,
         relay_url,
         "",
         relay_authentication,
     );
-    let payload = codux_protocol::pairing_payload(
+    let payload = wecode_protocol::pairing_payload(
         &short_token(host_id, 1),
         &short_token(host_id, 2),
         &format!("{host_id}-pairing"),
@@ -1063,7 +1063,7 @@ fn pairing_ticket_url(
     );
     let bytes = serde_json::to_vec(&payload).unwrap_or_default();
     let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes);
-    format!("codux://pair?payload={encoded}")
+    format!("wecode://pair?payload={encoded}")
 }
 
 /// A short non-empty token derived from a seed (not cryptographic — the iroh
@@ -1080,22 +1080,22 @@ fn short_token(seed: &str, salt: u64) -> String {
 /// exercise the full file domain (list, mkdir, write, read, delete) end to end.
 /// Proves the headless host actually serves real domains over the transport.
 pub async fn run_serve_smoke_async() -> Result<String, String> {
-    use codux_remote_transport::RemoteControllerTransportConfig;
     use tokio::sync::mpsc;
+    use wecode_remote_transport::RemoteControllerTransportConfig;
 
     let cfg = AgentHostConfig {
         host_id: "host-serve-smoke".to_string(),
         host_token: "token-serve-smoke".to_string(),
-        name: "codux-agent-smoke".to_string(),
+        name: "wecode-agent-smoke".to_string(),
         relay_preset: "global".to_string(),
         relay_url: "https://relay.example".to_string(),
         relay_authentication: String::new(),
     };
-    // Keep the smoke's project store out of the real ~/.codux-agent.
-    let data_dir = std::env::temp_dir().join(format!("codux-agent-data-{}", std::process::id()));
+    // Keep the smoke's project store out of the real ~/.wecode-agent.
+    let data_dir = std::env::temp_dir().join(format!("wecode-agent-data-{}", std::process::id()));
     // Safe: the smoke sets this before any host/controller task is spawned.
     unsafe {
-        std::env::set_var("CODUX_AGENT_DATA_DIR", &data_dir);
+        std::env::set_var("WECODE_AGENT_DATA_DIR", &data_dir);
     }
     let (host, _slot) = connect_serving_host(&cfg).await?;
     let (node_id, relay_url) = host
@@ -1208,7 +1208,7 @@ pub async fn run_serve_smoke_async() -> Result<String, String> {
         }
 
         // 2. mkdir / write / read / delete in a unique temp dir
-        let dir = std::env::temp_dir().join(format!("codux-agent-serve-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("wecode-agent-serve-{}", std::process::id()));
         let dir = dir.to_string_lossy().to_string();
         let file = format!("{dir}/probe.txt");
 
@@ -1220,13 +1220,13 @@ pub async fn run_serve_smoke_async() -> Result<String, String> {
 
         request(
             REMOTE_FILE_WRITE,
-            json!({ "path": file, "content": "codux-agent" }),
+            json!({ "path": file, "content": "wecode-agent" }),
         )?;
         expect(&mut reply_rx, REMOTE_FILE_WRITTEN).await?;
 
         request(REMOTE_FILE_READ, json!({ "path": file }))?;
         let read = expect(&mut reply_rx, REMOTE_FILE_READ).await?;
-        if read.get("content").and_then(Value::as_str) != Some("codux-agent") {
+        if read.get("content").and_then(Value::as_str) != Some("wecode-agent") {
             return Err(format!("file.read returned unexpected content: {read}"));
         }
 
@@ -1239,7 +1239,7 @@ pub async fn run_serve_smoke_async() -> Result<String, String> {
             .and_then(Value::as_str)
             .ok_or_else(|| format!("file.readBlob reply missing ticket: {blob}"))?;
         let bytes = controller.fetch_blob(ticket).await?;
-        if bytes != b"codux-agent" {
+        if bytes != b"wecode-agent" {
             return Err(format!(
                 "file.readBlob fetched wrong bytes ({} bytes)",
                 bytes.len()
@@ -1272,7 +1272,7 @@ pub async fn run_serve_smoke_async() -> Result<String, String> {
         }
 
         // 3. project domain (add / remove)
-        let project_path = format!("/tmp/codux-agent-project-{}", std::process::id());
+        let project_path = format!("/tmp/wecode-agent-project-{}", std::process::id());
         request(
             REMOTE_PROJECT_ADD,
             json!({ "path": project_path, "name": "Smoke" }),
@@ -1318,9 +1318,9 @@ pub async fn run_serve_smoke_async() -> Result<String, String> {
             .to_string();
         request(
             REMOTE_TERMINAL_INPUT,
-            json!({ "sessionId": terminal_id, "data": "printf codux-terminal-ok\n" }),
+            json!({ "sessionId": terminal_id, "data": "printf wecode-terminal-ok\n" }),
         )?;
-        let marker = "codux-terminal-ok";
+        let marker = "wecode-terminal-ok";
         loop {
             let (kind, payload) =
                 tokio::time::timeout(std::time::Duration::from_secs(8), reply_rx.recv())
@@ -1338,7 +1338,8 @@ pub async fn run_serve_smoke_async() -> Result<String, String> {
         expect(&mut reply_rx, REMOTE_TERMINAL_CLOSED).await?;
 
         // 5. git domain (status against a fresh temp repo)
-        let repo_dir = std::env::temp_dir().join(format!("codux-agent-git-{}", std::process::id()));
+        let repo_dir =
+            std::env::temp_dir().join(format!("wecode-agent-git-{}", std::process::id()));
         let repo_dir = repo_dir.to_string_lossy().to_string();
         git2::Repository::init(&repo_dir).map_err(|error| error.to_string())?;
         std::fs::write(format!("{repo_dir}/probe.txt"), "x").map_err(|error| error.to_string())?;
@@ -1426,7 +1427,7 @@ pub async fn run_serve_smoke_async() -> Result<String, String> {
         let _ = std::fs::remove_dir_all(&repo_dir);
 
         // 6. ai stats domain (single-reply usage snapshot for a project)
-        let stats_project = format!("/tmp/codux-agent-ai-{}", std::process::id());
+        let stats_project = format!("/tmp/wecode-agent-ai-{}", std::process::id());
         request(
             REMOTE_PROJECT_ADD,
             json!({ "path": stats_project, "name": "AI" }),
@@ -1466,7 +1467,7 @@ pub async fn run_serve_smoke_async() -> Result<String, String> {
             ));
         }
 
-        // memory.read: the host runs the codux-memory engine against its store.
+        // memory.read: the host runs the wecode-memory engine against its store.
         request(
             REMOTE_MEMORY_READ,
             json!({ "op": "summary", "projectPath": stats_project }),
@@ -1491,7 +1492,7 @@ pub async fn run_serve_smoke_async() -> Result<String, String> {
             return Err(format!("memory.extract reply missing op: {extract}"));
         }
 
-        // ai.session: the host runs the codux-ai-sessions engine. A detail query
+        // ai.session: the host runs the wecode-ai-sessions engine. A detail query
         // for an unknown session returns null (no error path), exercising the
         // dispatch end to end.
         request(
@@ -1511,5 +1512,5 @@ pub async fn run_serve_smoke_async() -> Result<String, String> {
     controller.shutdown().await;
     let _ = std::fs::remove_dir_all(&data_dir);
     result?;
-    Ok("codux-agent-serve-ok\npairing + file (+blob) + project + terminal + git + ai + memory (read+extract) + ai-session domains verified".to_string())
+    Ok("wecode-agent-serve-ok\npairing + file (+blob) + project + terminal + git + ai + memory (read+extract) + ai-session domains verified".to_string())
 }

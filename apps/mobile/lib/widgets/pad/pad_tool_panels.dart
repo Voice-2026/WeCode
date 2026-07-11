@@ -974,7 +974,7 @@ class _GitPathStrip extends StatelessWidget {
           const SizedBox(width: 7),
           Expanded(
             child: Text(
-              path.isEmpty ? 'codux-gpui' : path,
+              path.isEmpty ? 'wecode-gpui' : path,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(

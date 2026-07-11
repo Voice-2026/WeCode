@@ -371,7 +371,7 @@ fn merge_snapshot_preserves_existing_non_default_worktree_name() {
     let mut raw = serde_json::from_value::<Value>(json!({
         "worktrees": [
             {"id": "p1", "projectId": "p1", "name": "main", "branch": "main", "path": "/tmp/main", "status": "todo", "isDefault": true},
-            {"id": "w1", "projectId": "p1", "name": "20260527-105412", "branch": "20260527-105412", "path": "/tmp/main/.codux/worktrees/20260527-105412", "status": "todo", "isDefault": false}
+            {"id": "w1", "projectId": "p1", "name": "20260527-105412", "branch": "20260527-105412", "path": "/tmp/main/.wecode/worktrees/20260527-105412", "status": "todo", "isDefault": false}
         ],
         "worktreeTasks": [
             {"worktreeId": "w1", "title": "20260527-105412", "baseBranch": "main", "status": "todo"}
@@ -405,7 +405,7 @@ fn merge_snapshot_preserves_existing_non_default_worktree_name() {
                     project_id: "p1".to_string(),
                     name: "main".to_string(),
                     branch: "20260527-105412".to_string(),
-                    path: "/tmp/main/.codux/worktrees/20260527-105412".to_string(),
+                    path: "/tmp/main/.wecode/worktrees/20260527-105412".to_string(),
                     status: "todo".to_string(),
                     is_default: false,
                     created_at: 100,
@@ -506,8 +506,8 @@ fn tauri_create_request_uses_requested_branch_and_task_title() {
 #[test]
 fn generates_stable_worktree_ids() {
     assert_eq!(
-        worktree_uuid("project", "/repo/.codux/worktrees/feature-one"),
-        worktree_uuid("project", "/repo/.codux/worktrees/feature-one")
+        worktree_uuid("project", "/repo/.wecode/worktrees/feature-one"),
+        worktree_uuid("project", "/repo/.wecode/worktrees/feature-one")
     );
 }
 
@@ -581,7 +581,7 @@ fn temp_dir(label: &str) -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    std::env::temp_dir().join(format!("codux-gpui-{label}-{nanos}"))
+    std::env::temp_dir().join(format!("wecode-gpui-{label}-{nanos}"))
 }
 
 fn create_repo_with_commit(repo: &Path) {
@@ -589,16 +589,18 @@ fn create_repo_with_commit(repo: &Path) {
     let git = super::GitRepository::init(repo).expect("init repo");
     let mut config = git.config().expect("repo config");
     config
-        .set_str("user.email", "codux@example.test")
+        .set_str("user.email", "wecode@example.test")
         .expect("set user email");
-    config.set_str("user.name", "Codux").expect("set user name");
+    config
+        .set_str("user.name", "WeCode")
+        .expect("set user name");
     fs::write(repo.join("README.md"), "hello\n").expect("write readme");
     let mut index = git.index().expect("index");
     index.add_path(Path::new("README.md")).expect("add readme");
     index.write().expect("write index");
     let tree_id = index.write_tree().expect("write tree");
     let tree = git.find_tree(tree_id).expect("find tree");
-    let signature = git2::Signature::now("Codux", "codux@example.test").expect("test signature");
+    let signature = git2::Signature::now("WeCode", "wecode@example.test").expect("test signature");
     git.commit(Some("HEAD"), &signature, &signature, "initial", &tree, &[])
         .expect("commit");
 }
@@ -617,7 +619,7 @@ fn commit_file(repo_path: &Path, relative_path: &str, content: &str, message: &s
         .head()
         .and_then(|head| head.peel_to_commit())
         .expect("head commit");
-    let signature = git2::Signature::now("Codux", "codux@example.test").expect("test signature");
+    let signature = git2::Signature::now("WeCode", "wecode@example.test").expect("test signature");
     git.commit(
         Some("HEAD"),
         &signature,

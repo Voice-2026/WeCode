@@ -1,4 +1,4 @@
-use super::app_select::{CoduxSelectOption, codux_select};
+use super::app_select::{WeCodeSelectOption, wecode_select};
 use super::*;
 
 #[derive(Clone)]
@@ -61,19 +61,19 @@ impl SshProfileEditorLabels {
     }
 }
 
-fn ssh_credential_options(labels: &SshProfileEditorLabels) -> Vec<CoduxSelectOption> {
+fn ssh_credential_options(labels: &SshProfileEditorLabels) -> Vec<WeCodeSelectOption> {
     vec![
-        CoduxSelectOption::new("none", labels.credential_none.clone()),
-        CoduxSelectOption::new("password", labels.credential_password.clone()),
-        CoduxSelectOption::new("privateKey", labels.credential_private_key.clone()),
+        WeCodeSelectOption::new("none", labels.credential_none.clone()),
+        WeCodeSelectOption::new("password", labels.credential_password.clone()),
+        WeCodeSelectOption::new("privateKey", labels.credential_private_key.clone()),
     ]
 }
 
 pub(in crate::app) fn ssh_profile_editor_workspace(
-    app: &CoduxApp,
+    app: &WeCodeApp,
     ssh_testing: bool,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let labels = SshProfileEditorLabels::load(&app.state.settings.language);
     let test_result = app.ssh_test_result.clone();
@@ -247,8 +247,8 @@ fn ssh_dialog_input(
     placeholder: String,
     masked: bool,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
-    action: impl Fn(&mut CoduxApp, String, &mut Window, &mut Context<CoduxApp>) + 'static,
+    cx: &mut Context<WeCodeApp>,
+    action: impl Fn(&mut WeCodeApp, String, &mut Window, &mut Context<WeCodeApp>) + 'static,
 ) -> impl IntoElement {
     let value = value.to_string();
     let state = window.use_keyed_state(SharedString::from(format!("ssh-input-{id}")), cx, {
@@ -291,7 +291,7 @@ fn ssh_private_key_path_input(
     value: &str,
     labels: &SshProfileEditorLabels,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let value = value.to_string();
     let state = window.use_keyed_state("ssh-input-private-key", cx, {
@@ -352,7 +352,7 @@ fn ssh_dialog_select(
     value: &str,
     labels: &SshProfileEditorLabels,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let select_id = "ssh-credential-select";
     let options = ssh_credential_options(labels);
@@ -369,7 +369,7 @@ fn ssh_dialog_select(
                 .text_color(color(theme::TEXT_MUTED))
                 .child(labels.credential.clone()),
         )
-        .child(codux_select(
+        .child(wecode_select(
             select_id,
             value,
             options,

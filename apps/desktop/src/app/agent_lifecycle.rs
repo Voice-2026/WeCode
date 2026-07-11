@@ -1,8 +1,8 @@
 use super::ai_runtime_status::AgentLifecycleState;
-use super::{CoduxApp, ProjectInfo, WorktreeInfo};
-use codux_runtime::ai_runtime::{TerminalStatusEvent, TerminalStatusState};
+use super::{ProjectInfo, WeCodeApp, WorktreeInfo};
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
+use wecode_runtime::ai_runtime::{TerminalStatusEvent, TerminalStatusState};
 
 // A crashed/killed CLI never sends its closing OSC; give the runtime probes
 // this long to confirm a live turn before garbage-collecting Working/Waiting.
@@ -87,14 +87,14 @@ pub(in crate::app) fn aggregate_agent_lifecycle(
     }
 }
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn apply_terminal_status_events(
         &mut self,
-        events: &[codux_runtime::ai_runtime::AIRuntimeSupervisorEvent],
+        events: &[wecode_runtime::ai_runtime::AIRuntimeSupervisorEvent],
     ) -> bool {
         let mut changed = false;
         for event in events {
-            let codux_runtime::ai_runtime::AIRuntimeSupervisorEvent::TerminalStatus { status } =
+            let wecode_runtime::ai_runtime::AIRuntimeSupervisorEvent::TerminalStatus { status } =
                 event
             else {
                 continue;
@@ -120,7 +120,7 @@ impl CoduxApp {
         entry.apply_status(next);
         let changed = pane_lifecycle_sync_entry_changed(existed_before, previous, entry.state);
         if changed {
-            codux_runtime::runtime_trace::runtime_trace(
+            wecode_runtime::runtime_trace::runtime_trace(
                 "agent-lifecycle",
                 &format!(
                     "terminal={} {:?}->{:?} status_source={}",
@@ -147,7 +147,7 @@ impl CoduxApp {
         };
         let changed = entry.dismiss_completed();
         if changed {
-            codux_runtime::runtime_trace::runtime_trace(
+            wecode_runtime::runtime_trace::runtime_trace(
                 "agent-lifecycle",
                 &format!("terminal={terminal_id} Completed->Idle dismissed"),
             );
@@ -231,7 +231,7 @@ impl CoduxApp {
         self.pane_agent_lifecycle.retain(|terminal_id, entry| {
             if !retained_terminal_ids.contains(terminal_id) {
                 if pane_lifecycle_prune_changed(entry.state) {
-                    codux_runtime::runtime_trace::runtime_trace(
+                    wecode_runtime::runtime_trace::runtime_trace(
                         "agent-lifecycle",
                         &format!("terminal={terminal_id} pruned was={:?}", entry.state),
                     );
@@ -240,7 +240,7 @@ impl CoduxApp {
                 return false;
             }
             if entry.is_stale_active(live_turn_terminal_ids.contains(terminal_id.as_str()), now) {
-                codux_runtime::runtime_trace::runtime_trace(
+                wecode_runtime::runtime_trace::runtime_trace(
                     "agent-lifecycle",
                     &format!("terminal={terminal_id} stale {:?} cleared", entry.state),
                 );

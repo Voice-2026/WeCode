@@ -1,6 +1,6 @@
 use super::*;
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn selected_file_entry_paths(&self) -> Vec<String> {
         let mut paths = if self.selected_file_entries.is_empty() {
             self.selected_file_entry

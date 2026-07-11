@@ -1,32 +1,32 @@
 use super::*;
-use crate::app::app_state::{CoduxTooltipPlacement, CoduxTooltipState};
+use crate::app::app_state::{WeCodeTooltipPlacement, WeCodeTooltipState};
 use gpui::{
     AnyElement, Display, Element, GlobalElementId, InspectorElementId, InteractiveElement,
     LayoutId, Position, Stateful, Style, deferred,
 };
 
-pub(in crate::app) fn with_codux_tooltip(
-    app_entity: gpui::Entity<CoduxApp>,
+pub(in crate::app) fn with_wecode_tooltip(
+    app_entity: gpui::Entity<WeCodeApp>,
     id: impl Into<ElementId>,
     element: impl IntoElement,
     text: impl Into<SharedString>,
 ) -> impl IntoElement {
-    codux_tooltip_container(app_entity, id, text).child(element)
+    wecode_tooltip_container(app_entity, id, text).child(element)
 }
 
-pub(in crate::app) fn codux_tooltip_container(
-    app_entity: gpui::Entity<CoduxApp>,
+pub(in crate::app) fn wecode_tooltip_container(
+    app_entity: gpui::Entity<WeCodeApp>,
     id: impl Into<ElementId>,
     text: impl Into<SharedString>,
 ) -> Stateful<gpui::Div> {
-    codux_tooltip_container_with_placement(app_entity, id, text, CoduxTooltipPlacement::Auto)
+    wecode_tooltip_container_with_placement(app_entity, id, text, WeCodeTooltipPlacement::Auto)
 }
 
-pub(in crate::app) fn codux_tooltip_container_with_placement(
-    app_entity: gpui::Entity<CoduxApp>,
+pub(in crate::app) fn wecode_tooltip_container_with_placement(
+    app_entity: gpui::Entity<WeCodeApp>,
     id: impl Into<ElementId>,
     text: impl Into<SharedString>,
-    placement: CoduxTooltipPlacement,
+    placement: WeCodeTooltipPlacement,
 ) -> Stateful<gpui::Div> {
     let text = text.into();
     let id = id.into();
@@ -40,12 +40,12 @@ pub(in crate::app) fn codux_tooltip_container_with_placement(
         .on_click({
             let app_entity = app_entity.clone();
             move |_event, _window, cx| {
-                app_entity.update(cx, |app, cx| app.clear_codux_tooltip(cx));
+                app_entity.update(cx, |app, cx| app.clear_wecode_tooltip(cx));
             }
         })
         .on_hover(move |hovered, _window, cx| {
             app_entity.update(cx, |app, cx| {
-                app.set_codux_tooltip(
+                app.set_wecode_tooltip(
                     *hovered,
                     tooltip_id.clone(),
                     text.clone(),
@@ -57,23 +57,23 @@ pub(in crate::app) fn codux_tooltip_container_with_placement(
         })
 }
 
-impl CoduxApp {
-    pub(in crate::app) fn set_codux_tooltip(
+impl WeCodeApp {
+    pub(in crate::app) fn set_wecode_tooltip(
         &mut self,
         hovered: bool,
         id: ElementId,
         text: SharedString,
         bounds: Bounds<Pixels>,
-        placement: CoduxTooltipPlacement,
+        placement: WeCodeTooltipPlacement,
         cx: &mut Context<Self>,
     ) {
         if hovered && cx.has_active_drag() {
-            self.clear_codux_tooltip(cx);
+            self.clear_wecode_tooltip(cx);
             return;
         }
 
         if !hovered {
-            self.hide_codux_tooltip(&id, cx);
+            self.hide_wecode_tooltip(&id, cx);
             return;
         }
         if self.tooltip_state.id.as_ref() == Some(&id)
@@ -83,7 +83,7 @@ impl CoduxApp {
         {
             return;
         }
-        self.tooltip_state = CoduxTooltipState {
+        self.tooltip_state = WeCodeTooltipState {
             id: Some(id),
             text,
             bounds,
@@ -92,23 +92,23 @@ impl CoduxApp {
         cx.notify();
     }
 
-    pub(in crate::app) fn hide_codux_tooltip(&mut self, id: &ElementId, cx: &mut Context<Self>) {
+    pub(in crate::app) fn hide_wecode_tooltip(&mut self, id: &ElementId, cx: &mut Context<Self>) {
         if self.tooltip_state.id.as_ref() != Some(id) {
             return;
         }
-        self.tooltip_state = CoduxTooltipState::default();
+        self.tooltip_state = WeCodeTooltipState::default();
         cx.notify();
     }
 
-    pub(in crate::app) fn clear_codux_tooltip(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::app) fn clear_wecode_tooltip(&mut self, cx: &mut Context<Self>) {
         if self.tooltip_state.id.is_none() {
             return;
         }
-        self.tooltip_state = CoduxTooltipState::default();
+        self.tooltip_state = WeCodeTooltipState::default();
         cx.notify();
     }
 
-    pub(in crate::app) fn codux_tooltip_layer(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(in crate::app) fn wecode_tooltip_layer(&self, cx: &mut Context<Self>) -> impl IntoElement {
         if cx.has_active_drag() {
             return div().hidden().into_any_element();
         }
@@ -118,10 +118,10 @@ impl CoduxApp {
         };
 
         deferred(
-            codux_tooltip_positioner(self.tooltip_state.bounds, self.tooltip_state.placement)
+            wecode_tooltip_positioner(self.tooltip_state.bounds, self.tooltip_state.placement)
                 .child(
                     div()
-                        .id("codux-tooltip-layer")
+                        .id("wecode-tooltip-layer")
                         .max_w(px(260.0))
                         .rounded(px(6.0))
                         .border_1()
@@ -134,7 +134,7 @@ impl CoduxApp {
                         .text_color(color(0xF4F6FA))
                         .whitespace_normal()
                         .on_click(cx.listener(|app, _event, _window, cx| {
-                            app.clear_codux_tooltip(cx);
+                            app.clear_wecode_tooltip(cx);
                             cx.stop_propagation();
                         }))
                         .child(self.tooltip_state.text.clone()),
@@ -145,35 +145,35 @@ impl CoduxApp {
     }
 }
 
-struct CoduxTooltipPositioner {
+struct WeCodeTooltipPositioner {
     trigger_bounds: Bounds<Pixels>,
-    placement: CoduxTooltipPlacement,
+    placement: WeCodeTooltipPlacement,
     children: Vec<AnyElement>,
 }
 
-struct CoduxTooltipPositionerState {
+struct WeCodeTooltipPositionerState {
     child_layout_ids: Vec<LayoutId>,
 }
 
-fn codux_tooltip_positioner(
+fn wecode_tooltip_positioner(
     trigger_bounds: Bounds<Pixels>,
-    placement: CoduxTooltipPlacement,
-) -> CoduxTooltipPositioner {
-    CoduxTooltipPositioner {
+    placement: WeCodeTooltipPlacement,
+) -> WeCodeTooltipPositioner {
+    WeCodeTooltipPositioner {
         trigger_bounds,
         placement,
         children: Vec::new(),
     }
 }
 
-impl ParentElement for CoduxTooltipPositioner {
+impl ParentElement for WeCodeTooltipPositioner {
     fn extend(&mut self, elements: impl IntoIterator<Item = AnyElement>) {
         self.children.extend(elements);
     }
 }
 
-impl Element for CoduxTooltipPositioner {
-    type RequestLayoutState = CoduxTooltipPositionerState;
+impl Element for WeCodeTooltipPositioner {
+    type RequestLayoutState = WeCodeTooltipPositionerState;
     type PrepaintState = ();
 
     fn id(&self) -> Option<ElementId> {
@@ -207,7 +207,7 @@ impl Element for CoduxTooltipPositioner {
             cx,
         );
 
-        (layout_id, CoduxTooltipPositionerState { child_layout_ids })
+        (layout_id, WeCodeTooltipPositionerState { child_layout_ids })
     }
 
     fn prepaint(
@@ -232,7 +232,7 @@ impl Element for CoduxTooltipPositioner {
         }
 
         let tooltip_size: gpui::Size<Pixels> = (child_max - child_min).into();
-        let offset = codux_tooltip_position(
+        let offset = wecode_tooltip_position(
             self.trigger_bounds,
             tooltip_size,
             window.viewport_size(),
@@ -264,7 +264,7 @@ impl Element for CoduxTooltipPositioner {
     }
 }
 
-impl IntoElement for CoduxTooltipPositioner {
+impl IntoElement for WeCodeTooltipPositioner {
     type Element = Self;
 
     fn into_element(self) -> Self::Element {
@@ -272,15 +272,15 @@ impl IntoElement for CoduxTooltipPositioner {
     }
 }
 
-fn codux_tooltip_position(
+fn wecode_tooltip_position(
     trigger_bounds: Bounds<Pixels>,
     tooltip_size: gpui::Size<Pixels>,
     viewport_size: gpui::Size<Pixels>,
     margin: Pixels,
-    placement: CoduxTooltipPlacement,
+    placement: WeCodeTooltipPlacement,
 ) -> gpui::Point<Pixels> {
     let gap = px(8.0);
-    if placement == CoduxTooltipPlacement::Right {
+    if placement == WeCodeTooltipPlacement::Right {
         let right_limit = (viewport_size.width - tooltip_size.width - margin).max(margin);
         let bottom_limit = (viewport_size.height - tooltip_size.height - margin).max(margin);
         let x = (trigger_bounds.right() + gap).max(margin).min(right_limit);
@@ -309,7 +309,7 @@ fn codux_tooltip_position(
 
 pub(in crate::app) fn column_header(
     content: impl IntoElement,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     div()
         .h(px(52.0))
@@ -398,8 +398,8 @@ pub(in crate::app) fn window_close_control(
 pub(in crate::app) fn header_icon_button(
     id: &'static str,
     icon: HeroIconName,
-    cx: &mut Context<CoduxApp>,
-    on_click: impl Fn(&mut CoduxApp, &gpui::ClickEvent, &mut Window, &mut Context<CoduxApp>) + 'static,
+    cx: &mut Context<WeCodeApp>,
+    on_click: impl Fn(&mut WeCodeApp, &gpui::ClickEvent, &mut Window, &mut Context<WeCodeApp>) + 'static,
 ) -> impl IntoElement {
     Button::new(id)
         .ghost()
@@ -412,8 +412,8 @@ pub(in crate::app) fn header_icon_button_loading(
     id: &'static str,
     icon: HeroIconName,
     loading: bool,
-    cx: &mut Context<CoduxApp>,
-    on_click: impl Fn(&mut CoduxApp, &gpui::ClickEvent, &mut Window, &mut Context<CoduxApp>) + 'static,
+    cx: &mut Context<WeCodeApp>,
+    on_click: impl Fn(&mut WeCodeApp, &gpui::ClickEvent, &mut Window, &mut Context<WeCodeApp>) + 'static,
 ) -> impl IntoElement {
     Button::new(id)
         .ghost()
@@ -427,8 +427,8 @@ pub(in crate::app) fn header_icon_button_loading(
 pub(in crate::app) fn assistant_header_icon_button(
     id: &'static str,
     icon: HeroIconName,
-    cx: &mut Context<CoduxApp>,
-    on_click: impl Fn(&mut CoduxApp, &gpui::ClickEvent, &mut Window, &mut Context<CoduxApp>) + 'static,
+    cx: &mut Context<WeCodeApp>,
+    on_click: impl Fn(&mut WeCodeApp, &gpui::ClickEvent, &mut Window, &mut Context<WeCodeApp>) + 'static,
 ) -> impl IntoElement {
     Button::new(id)
         .compact()
@@ -445,7 +445,7 @@ pub(in crate::app) fn assistant_header_icon_button(
 pub(in crate::app) fn centered_empty_state(
     icon: HeroIconName,
     message: impl Into<String>,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     div()
         .size_full()
@@ -505,8 +505,8 @@ pub(in crate::app) fn dialog_button_label(label: impl Into<SharedString>) -> imp
 pub(in crate::app) fn dialog_primary_button(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,
-    cx: &mut Context<CoduxApp>,
-    on_click: impl Fn(&mut CoduxApp, &gpui::ClickEvent, &mut Window, &mut Context<CoduxApp>) + 'static,
+    cx: &mut Context<WeCodeApp>,
+    on_click: impl Fn(&mut WeCodeApp, &gpui::ClickEvent, &mut Window, &mut Context<WeCodeApp>) + 'static,
 ) -> Button {
     Button::new(id)
         .primary()
@@ -519,8 +519,8 @@ pub(in crate::app) fn dialog_primary_button(
 pub(in crate::app) fn dialog_secondary_button(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,
-    cx: &mut Context<CoduxApp>,
-    on_click: impl Fn(&mut CoduxApp, &gpui::ClickEvent, &mut Window, &mut Context<CoduxApp>) + 'static,
+    cx: &mut Context<WeCodeApp>,
+    on_click: impl Fn(&mut WeCodeApp, &gpui::ClickEvent, &mut Window, &mut Context<WeCodeApp>) + 'static,
 ) -> Button {
     Button::new(id)
         .secondary()
@@ -534,8 +534,8 @@ pub(in crate::app) fn dialog_secondary_button(
 pub(in crate::app) fn dialog_cancel_button(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,
-    cx: &mut Context<CoduxApp>,
-    on_click: impl Fn(&mut CoduxApp, &gpui::ClickEvent, &mut Window, &mut Context<CoduxApp>) + 'static,
+    cx: &mut Context<WeCodeApp>,
+    on_click: impl Fn(&mut WeCodeApp, &gpui::ClickEvent, &mut Window, &mut Context<WeCodeApp>) + 'static,
 ) -> Button {
     Button::new(id)
         .ghost()
@@ -548,7 +548,7 @@ pub(in crate::app) fn dialog_cancel_button(
 /// top divider, right-aligned actions with consistent spacing.
 pub(in crate::app) fn dialog_footer_bar(
     children: impl IntoElement,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> gpui::Div {
     div()
         .h(px(56.0))

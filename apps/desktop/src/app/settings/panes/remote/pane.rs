@@ -6,15 +6,15 @@ use super::*;
 pub(in crate::app::settings) fn settings_remote_pane(
     settings: &SettingsSummary,
     remote: &RemoteSummary,
-    saved_hosts: &[codux_runtime::remote::SavedRemoteHost],
-    link_states: &std::collections::HashMap<String, codux_runtime::remote::ControllerLinkState>,
-    link_paths: &std::collections::HashMap<String, codux_runtime::remote::ControllerLinkPath>,
+    saved_hosts: &[wecode_runtime::remote::SavedRemoteHost],
+    link_states: &std::collections::HashMap<String, wecode_runtime::remote::ControllerLinkState>,
+    link_paths: &std::collections::HashMap<String, wecode_runtime::remote::ControllerLinkPath>,
     _selected_device_id: Option<&str>,
     language: &str,
     remote_reconnecting: bool,
     remote_pairing_creating: bool,
     _window: &mut Window,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     let mut device_rows: Vec<AnyElement> = remote
         .device_list
@@ -358,17 +358,17 @@ pub(in crate::app::settings) fn settings_remote_pane(
 
 pub(super) fn remote_mobile_download_banner(
     language: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     let title = settings_text(
         language,
         "settings.remote.mobile_download.title",
-        "Codux Mobile",
+        "WeCode Mobile",
     );
     let description = settings_text(
         language,
         "settings.remote.mobile_download.description",
-        "Download the mobile app to connect Codux and keep AI coding from your phone",
+        "Download the mobile app to connect WeCode and keep AI coding from your phone",
     );
     let action = settings_text(
         language,
@@ -392,7 +392,7 @@ pub(super) fn remote_mobile_download_banner(
         .cursor_pointer()
         .hover(|style| style.bg(color(theme::ACCENT).opacity(0.12)))
         .on_click(cx.listener(|app, _event, _window, _cx| {
-            let _ = app.runtime_service.open_url(CODUX_MOBILE_DOWNLOAD_URL);
+            let _ = app.runtime_service.open_url(WECODE_MOBILE_DOWNLOAD_URL);
         }))
         .child(
             div()

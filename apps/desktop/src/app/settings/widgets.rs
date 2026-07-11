@@ -19,7 +19,7 @@ pub(super) fn settings_card(
     title: Option<String>,
     description: Option<String>,
     children: Vec<AnyElement>,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     settings_card_with_actions(title, description, None, children, cx)
 }
@@ -29,7 +29,7 @@ pub(super) fn settings_card_with_actions(
     description: Option<String>,
     actions: Option<AnyElement>,
     children: Vec<AnyElement>,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let title_element = if title.is_some() || description.is_some() || actions.is_some() {
         Some(
@@ -95,7 +95,7 @@ pub(super) fn settings_card_with_actions(
     )
 }
 
-pub(super) fn settings_form_separator(cx: &mut Context<CoduxApp>) -> AnyElement {
+pub(super) fn settings_form_separator(cx: &mut Context<WeCodeApp>) -> AnyElement {
     div()
         .w_full()
         .h(px(1.0))
@@ -104,7 +104,7 @@ pub(super) fn settings_form_separator(cx: &mut Context<CoduxApp>) -> AnyElement 
         .into_any_element()
 }
 
-pub(super) fn settings_form_divider(cx: &mut Context<CoduxApp>) -> gpui::Hsla {
+pub(super) fn settings_form_divider(cx: &mut Context<WeCodeApp>) -> gpui::Hsla {
     theme::divider_for_surface(cx.theme().background)
 }
 
@@ -161,8 +161,8 @@ pub(super) fn settings_row(
 pub(super) fn settings_small_button(
     id: impl Into<String>,
     value: impl Into<String>,
-    cx: &mut Context<CoduxApp>,
-    action: impl Fn(&mut CoduxApp, &gpui::ClickEvent, &mut Window, &mut Context<CoduxApp>) + 'static,
+    cx: &mut Context<WeCodeApp>,
+    action: impl Fn(&mut WeCodeApp, &gpui::ClickEvent, &mut Window, &mut Context<WeCodeApp>) + 'static,
 ) -> AnyElement {
     settings_small_button_state(id, value, false, false, cx, action)
 }
@@ -172,8 +172,8 @@ pub(super) fn settings_small_button_state(
     value: impl Into<String>,
     loading: bool,
     disabled: bool,
-    cx: &mut Context<CoduxApp>,
-    action: impl Fn(&mut CoduxApp, &gpui::ClickEvent, &mut Window, &mut Context<CoduxApp>) + 'static,
+    cx: &mut Context<WeCodeApp>,
+    action: impl Fn(&mut WeCodeApp, &gpui::ClickEvent, &mut Window, &mut Context<WeCodeApp>) + 'static,
 ) -> AnyElement {
     Button::new(SharedString::from(id.into()))
         .secondary()
@@ -195,8 +195,8 @@ pub(super) fn settings_icon_button_state(
     id: impl Into<SharedString>,
     icon: impl Into<Icon>,
     disabled: bool,
-    cx: &mut Context<CoduxApp>,
-    action: impl Fn(&mut CoduxApp, &gpui::ClickEvent, &mut Window, &mut Context<CoduxApp>) + 'static,
+    cx: &mut Context<WeCodeApp>,
+    action: impl Fn(&mut WeCodeApp, &gpui::ClickEvent, &mut Window, &mut Context<WeCodeApp>) + 'static,
 ) -> AnyElement {
     let icon = icon.into();
     Button::new(id.into())
@@ -216,8 +216,8 @@ pub(super) fn settings_text_input(
     placeholder: impl Into<String>,
     masked: bool,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
-    action: impl Fn(&mut CoduxApp, String, &mut Window, &mut Context<CoduxApp>) + 'static,
+    cx: &mut Context<WeCodeApp>,
+    action: impl Fn(&mut WeCodeApp, String, &mut Window, &mut Context<WeCodeApp>) + 'static,
 ) -> AnyElement {
     settings_text_input_sized(id, value, placeholder, masked, false, window, cx, action)
 }
@@ -229,8 +229,8 @@ pub(super) fn settings_text_input_sized(
     masked: bool,
     full_width: bool,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
-    action: impl Fn(&mut CoduxApp, String, &mut Window, &mut Context<CoduxApp>) + 'static,
+    cx: &mut Context<WeCodeApp>,
+    action: impl Fn(&mut WeCodeApp, String, &mut Window, &mut Context<WeCodeApp>) + 'static,
 ) -> AnyElement {
     let value = value.into();
     let placeholder = placeholder.into();
@@ -269,8 +269,8 @@ pub(super) fn settings_textarea(
     rows: usize,
     placeholder: impl Into<String>,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
-    action: impl Fn(&mut CoduxApp, String, &mut Window, &mut Context<CoduxApp>) + 'static,
+    cx: &mut Context<WeCodeApp>,
+    action: impl Fn(&mut WeCodeApp, String, &mut Window, &mut Context<WeCodeApp>) + 'static,
 ) -> AnyElement {
     let value = value.to_string();
     let placeholder = placeholder.into();
@@ -311,8 +311,8 @@ pub(super) fn settings_textarea(
 pub(super) fn settings_toggle(
     id: impl Into<String>,
     checked: bool,
-    cx: &mut Context<CoduxApp>,
-    action: impl Fn(&mut CoduxApp, &mut Window, &mut Context<CoduxApp>) + 'static,
+    cx: &mut Context<WeCodeApp>,
+    action: impl Fn(&mut WeCodeApp, &mut Window, &mut Context<WeCodeApp>) + 'static,
 ) -> AnyElement {
     settings_toggle_state(id, checked, false, cx, action)
 }
@@ -321,8 +321,8 @@ pub(super) fn settings_toggle_state(
     id: impl Into<String>,
     checked: bool,
     disabled: bool,
-    cx: &mut Context<CoduxApp>,
-    action: impl Fn(&mut CoduxApp, &mut Window, &mut Context<CoduxApp>) + 'static,
+    cx: &mut Context<WeCodeApp>,
+    action: impl Fn(&mut WeCodeApp, &mut Window, &mut Context<WeCodeApp>) + 'static,
 ) -> AnyElement {
     let app_entity = cx.entity();
     Switch::new(SharedString::from(id.into()))
@@ -342,9 +342,9 @@ pub(super) fn settings_select_impl(
     value: &str,
     options: Vec<(String, SharedString)>,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
     language: &str,
-    action: impl Fn(&mut CoduxApp, String, &mut Window, &mut Context<CoduxApp>) + 'static,
+    action: impl Fn(&mut WeCodeApp, String, &mut Window, &mut Context<WeCodeApp>) + 'static,
 ) -> AnyElement {
     settings_select_state(id, value, options, false, window, cx, language, action)
 }
@@ -355,16 +355,16 @@ pub(super) fn settings_select_state(
     options: Vec<(String, SharedString)>,
     disabled: bool,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
     language: &str,
-    action: impl Fn(&mut CoduxApp, String, &mut Window, &mut Context<CoduxApp>) + 'static,
+    action: impl Fn(&mut WeCodeApp, String, &mut Window, &mut Context<WeCodeApp>) + 'static,
 ) -> AnyElement {
     let select_id = format!("settings-select-{}", id.into());
     let options = options
         .into_iter()
-        .map(|(value, label)| CoduxSelectOption::new(value, label))
+        .map(|(value, label)| WeCodeSelectOption::new(value, label))
         .collect();
-    codux_select(
+    wecode_select(
         select_id.as_str(),
         value,
         options,
@@ -395,11 +395,11 @@ pub(super) fn device_type_label(platform: &str, language: &str) -> String {
 /// Connection-status tag for a host this desktop controls, from its client link
 /// state. Absent (never connected this session) reads as disconnected.
 pub(super) fn host_link_status_tag(
-    link: Option<codux_runtime::remote::ControllerLinkState>,
-    path: Option<codux_runtime::remote::ControllerLinkPath>,
+    link: Option<wecode_runtime::remote::ControllerLinkState>,
+    path: Option<wecode_runtime::remote::ControllerLinkPath>,
     language: &str,
 ) -> AnyElement {
-    use codux_runtime::remote::{ControllerLinkPath, ControllerLinkState};
+    use wecode_runtime::remote::{ControllerLinkPath, ControllerLinkState};
     match link {
         Some(ControllerLinkState::Connected) => {
             let connected = settings_text(language, "remote.status.connected_label", "Connected");
@@ -465,8 +465,8 @@ pub(super) fn settings_selectable_tile(
     id: impl Into<String>,
     label: impl Into<String>,
     preview: AnyElement,
-    cx: &mut Context<CoduxApp>,
-    action: impl Fn(&mut CoduxApp, &gpui::ClickEvent, &mut Window, &mut Context<CoduxApp>) + 'static,
+    cx: &mut Context<WeCodeApp>,
+    action: impl Fn(&mut WeCodeApp, &gpui::ClickEvent, &mut Window, &mut Context<WeCodeApp>) + 'static,
 ) -> AnyElement {
     div()
         .id(SharedString::from(id.into()))

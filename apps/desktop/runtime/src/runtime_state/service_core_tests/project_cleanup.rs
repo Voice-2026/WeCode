@@ -1,7 +1,7 @@
 #[test]
 fn project_close_keeps_pet_baseline() {
     let support_dir = std::env::temp_dir().join(format!(
-        "codux-project-close-pet-baseline-{}",
+        "wecode-project-close-pet-baseline-{}",
         uuid::Uuid::new_v4()
     ));
     let first_dir = support_dir.join("first");
@@ -30,7 +30,7 @@ fn project_close_keeps_pet_baseline() {
     .expect("write state");
     let mut pet_snapshot = crate::pet::PetSnapshot {
         claimed_at: Some(1),
-        species: "codux".to_string(),
+        species: "wecode".to_string(),
         global_normalized_total_watermark: Some(30),
         ..crate::pet::PetSnapshot::default()
     };
@@ -70,7 +70,7 @@ fn project_close_keeps_pet_baseline() {
 #[test]
 fn project_close_cleans_workspace_cache_for_root_and_worktrees() {
     let support_dir = std::env::temp_dir().join(format!(
-        "codux-project-close-workspace-cache-{}",
+        "wecode-project-close-workspace-cache-{}",
         uuid::Uuid::new_v4()
     ));
     let project_dir = support_dir.join("project");
@@ -169,7 +169,7 @@ fn project_close_cleans_workspace_cache_for_root_and_worktrees() {
 
     let mut pet_snapshot = crate::pet::PetSnapshot {
         claimed_at: Some(1),
-        species: "codux".to_string(),
+        species: "wecode".to_string(),
         global_normalized_total_watermark: Some(30),
         ..crate::pet::PetSnapshot::default()
     };

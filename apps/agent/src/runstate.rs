@@ -23,7 +23,7 @@ pub fn acquire_instance_lock() -> Result<InstanceLock, String> {
         .map_err(|error| format!("failed to open lock file: {error}"))?;
     match FileExt::try_lock_exclusive(&file) {
         Ok(true) => Ok(InstanceLock { _file: file }),
-        Ok(false) => Err("the Codux host is already running".to_string()),
+        Ok(false) => Err("the WeCode host is already running".to_string()),
         Err(error) => Err(format!("failed to acquire lock: {error}")),
     }
 }
@@ -77,7 +77,7 @@ pub fn clear_status() {
     let _ = std::fs::remove_file(paths::status_path());
 }
 
-/// Publish the pasteable `codux://pair` ticket for `link`/`qrcode`.
+/// Publish the pasteable `wecode://pair` ticket for `link`/`qrcode`.
 pub fn write_ticket(ticket: &str) {
     let _ = std::fs::write(paths::ticket_path(), ticket);
 }

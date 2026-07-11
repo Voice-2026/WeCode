@@ -5,7 +5,7 @@ updated_at: 2026-07-04T00:00:00Z
 
 ## Why
 
-The terminal workspace shows model name and pane count but does not indicate whether a terminal's AI agent is actively working, waiting for input, or idle. Users cannot tell at a glance which panes need attention without switching to each one. Both sibling projects (cmux, daintree) solve this; codux already has the detection layer (`ScreenSignal`) but never surfaces it in the pane UI.
+The terminal workspace shows model name and pane count but does not indicate whether a terminal's AI agent is actively working, waiting for input, or idle. Users cannot tell at a glance which panes need attention without switching to each one. Both sibling projects (cmux, daintree) solve this; wecode already has the detection layer (`ScreenSignal`) but never surfaces it in the pane UI.
 
 ## What Changes
 

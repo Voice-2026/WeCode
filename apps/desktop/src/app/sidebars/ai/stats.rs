@@ -32,10 +32,10 @@ impl AIUsageLabels {
 }
 
 pub(in crate::app) fn ai_stats_sidebar(
-    stats: &codux_runtime::ai_history::AIHistoryStatsView,
+    stats: &wecode_runtime::ai_history::AIHistoryStatsView,
     language: &str,
     refreshing: bool,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let title = ai_sidebar_text(language, "ai.panel.statistics_title", "AI Statistics");
     let current_project_label =
@@ -115,7 +115,7 @@ pub(in crate::app) fn ai_stats_sidebar(
         )
 }
 
-pub(super) fn ai_stats_card(title: impl Into<String>, cx: &mut Context<CoduxApp>) -> gpui::Div {
+pub(super) fn ai_stats_card(title: impl Into<String>, cx: &mut Context<WeCodeApp>) -> gpui::Div {
     let title = title.into();
     div()
         .flex()
@@ -133,9 +133,9 @@ pub(super) fn ai_stats_card(title: impl Into<String>, cx: &mut Context<CoduxApp>
 }
 
 pub(super) fn ai_current_session_card(
-    sessions: &[codux_runtime::ai_history::AIHistoryCurrentSessionView],
+    sessions: &[wecode_runtime::ai_history::AIHistoryCurrentSessionView],
     language: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let empty_label = ai_sidebar_text(
         language,
@@ -172,9 +172,9 @@ pub(super) fn ai_current_session_card(
 }
 
 pub(super) fn ai_live_session_row(
-    session: &codux_runtime::ai_history::AIHistoryCurrentSessionView,
+    session: &wecode_runtime::ai_history::AIHistoryCurrentSessionView,
     language: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let session_total_label = ai_sidebar_text(language, "ai.metric.total", "Total");
     div()
@@ -239,7 +239,7 @@ pub(super) fn ai_live_session_row(
 }
 
 pub(super) fn current_session_usage_label(
-    session: &codux_runtime::ai_history::AIHistoryCurrentSessionView,
+    session: &wecode_runtime::ai_history::AIHistoryCurrentSessionView,
 ) -> String {
     if session.current_total_tokens > 0 || session.current_usage_amounts.is_empty() {
         return compact_token_unit(session.current_total_tokens);
@@ -248,7 +248,7 @@ pub(super) fn current_session_usage_label(
 }
 
 pub(super) fn total_session_usage_label(
-    session: &codux_runtime::ai_history::AIHistoryCurrentSessionView,
+    session: &wecode_runtime::ai_history::AIHistoryCurrentSessionView,
 ) -> String {
     if session.total_tokens > 0 || session.usage_amounts.is_empty() {
         return compact_token_unit(session.total_tokens);
@@ -258,7 +258,7 @@ pub(super) fn total_session_usage_label(
 pub(super) fn ai_metric_card(
     label: impl Into<String>,
     value: String,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let label = label.into();
     div()
@@ -287,9 +287,9 @@ pub(super) fn ai_metric_card(
 }
 
 pub(super) fn ai_today_usage_chart(
-    stats: &codux_runtime::ai_history::AIHistoryStatsView,
+    stats: &wecode_runtime::ai_history::AIHistoryStatsView,
     language: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let title = ai_sidebar_text(language, "ai.today_usage", "Today's Usage");
     let usage_labels = AIUsageLabels::load(language);
@@ -319,7 +319,7 @@ pub(super) fn ai_today_usage_chart(
                                 bucket.request_count,
                                 &usage_labels,
                             );
-                            codux_tooltip_container(
+                            wecode_tooltip_container(
                                 cx.entity(),
                                 SharedString::from(format!("ai-today-usage-{index}")),
                                 tooltip,
@@ -358,9 +358,9 @@ pub(super) fn ai_today_usage_chart(
 }
 
 pub(super) fn ai_recent_usage_heatmap(
-    stats: &codux_runtime::ai_history::AIHistoryStatsView,
+    stats: &wecode_runtime::ai_history::AIHistoryStatsView,
     language: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let title = ai_sidebar_text(language, "ai.recent_usage", "Recent Usage");
     let inactive_surface = ai_stats_track_surface(cx);
@@ -391,7 +391,7 @@ pub(super) fn ai_recent_usage_heatmap(
                                 cell.request_count,
                                 &usage_labels,
                             );
-                            codux_tooltip_container(
+                            wecode_tooltip_container(
                                 app_entity.clone(),
                                 SharedString::from(format!("ai-recent-usage-{column}-{row}")),
                                 tooltip,
@@ -414,9 +414,9 @@ pub(super) fn ai_recent_usage_heatmap(
 
 pub(super) fn ai_ranking_card(
     title: impl Into<String>,
-    rows: Vec<codux_runtime::ai_history::AIHistoryRankRow>,
+    rows: Vec<wecode_runtime::ai_history::AIHistoryRankRow>,
     language: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let track_surface = ai_stats_track_surface(cx);
     let empty_label = ai_sidebar_text(language, "ai.empty.no_stats", "No AI Stats Yet");
@@ -443,14 +443,14 @@ pub(super) fn ai_ranking_card(
 }
 
 pub(super) fn ai_ranking_row(
-    app_entity: gpui::Entity<CoduxApp>,
-    row: codux_runtime::ai_history::AIHistoryRankRow,
+    app_entity: gpui::Entity<WeCodeApp>,
+    row: wecode_runtime::ai_history::AIHistoryRankRow,
     track_surface: gpui::Hsla,
 ) -> impl IntoElement {
     let value_label = compact_number(row.value);
     let tooltip = format!("{} · {} tokens", row.label, value_label);
     let progress_id = format!("ai-ranking-progress-{}", row.label);
-    codux_tooltip_container(
+    wecode_tooltip_container(
         app_entity,
         SharedString::from(format!("ai-ranking-row-{}", row.label)),
         tooltip,

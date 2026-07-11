@@ -1,6 +1,6 @@
 use super::*;
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(super) fn show_git_action_error(
         &mut self,
         title: impl Into<String>,
@@ -45,7 +45,7 @@ impl CoduxApp {
         );
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             let worker_project_path = project_path.clone();
-            let result = codux_runtime::async_runtime::spawn_blocking(move || {
+            let result = wecode_runtime::async_runtime::spawn_blocking(move || {
                 action(service, worker_project_path)
             })
             .await
@@ -177,7 +177,7 @@ impl CoduxApp {
         let service = self.runtime_service.clone();
         let button_label = self.text("common.ok", "OK");
         cx.spawn(async move |_: gpui::WeakEntity<Self>, _cx| {
-            let _ = codux_runtime::async_runtime::spawn_blocking(move || {
+            let _ = wecode_runtime::async_runtime::spawn_blocking(move || {
                 service.localized_alert_dialog(LocalizedAlertDialogRequest {
                     title,
                     message,
@@ -203,7 +203,7 @@ impl CoduxApp {
         let timer = cx.background_executor().clone();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             timer.timer(Duration::from_millis(120)).await;
-            let result = codux_runtime::async_runtime::spawn_blocking(move || {
+            let result = wecode_runtime::async_runtime::spawn_blocking(move || {
                 service.localized_confirm_dialog(LocalizedConfirmDialogRequest {
                     title,
                     message,

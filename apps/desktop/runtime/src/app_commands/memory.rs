@@ -81,7 +81,7 @@ mod tests {
     #[test]
     fn memory_commands_delegate_to_runtime_memory_store() {
         let support_dir =
-            std::env::temp_dir().join(format!("codux-app-command-memory-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("wecode-app-command-memory-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&support_dir).expect("support dir");
         let service = RuntimeService::new(support_dir.clone());
 

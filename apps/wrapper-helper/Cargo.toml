@@ -1,11 +1,11 @@
 [package]
-name = "codux-wrapper-helper"
+name = "wecode-wrapper-helper"
 version = "2.0.0-beta.6"
 edition = "2024"
 
 [dependencies]
-codux-runtime-live = { path = "../../crates/codux-runtime-live" }
+wecode-runtime-live = { path = "../../crates/wecode-runtime-live" }
 
 [[bin]]
-name = "codux-wrapper-helper"
+name = "wecode-wrapper-helper"
 path = "src/main.rs"

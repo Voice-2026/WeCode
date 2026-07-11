@@ -10,10 +10,10 @@ const dryRun = process.argv.includes("--dry-run");
 const version = requiredEnv("RELEASE_VERSION");
 const channel = requiredEnv("RELEASE_CHANNEL");
 const tagName = process.env.RELEASE_TAG || `v${version}`;
-const repo = process.env.GITHUB_REPOSITORY || "duxweb/codux";
+const repo = process.env.GITHUB_REPOSITORY || "duxweb/wecode";
 const notesPath = process.env.RELEASE_NOTES_PATH || path.join(root, "dist", `release-notes-${version}.md`);
 const artifactsDir = process.env.RELEASE_ARTIFACTS_DIR || path.join(root, "release-artifacts");
-const notes = fs.existsSync(notesPath) ? fs.readFileSync(notesPath, "utf8") : `Codux ${version}`;
+const notes = fs.existsSync(notesPath) ? fs.readFileSync(notesPath, "utf8") : `WeCode ${version}`;
 if (!["stable", "beta"].includes(channel)) {
   throw new Error(`RELEASE_CHANNEL must be stable or beta, got ${channel}`);
 }
@@ -257,7 +257,7 @@ function upsertRelease() {
       "--repo",
       repo,
       "--title",
-      `Codux ${version}`,
+      `WeCode ${version}`,
       "--notes-file",
       notesPath,
       releaseFlag,
@@ -271,7 +271,7 @@ function upsertRelease() {
     "--repo",
     repo,
     "--title",
-    `Codux ${version}`,
+    `WeCode ${version}`,
     "--notes-file",
     notesPath,
     releaseFlag,

@@ -51,7 +51,7 @@ impl GitStatusVirtualRow {
         }
     }
 
-    pub(super) fn render(self, cx: &mut Context<CoduxApp>) -> AnyElement {
+    pub(super) fn render(self, cx: &mut Context<WeCodeApp>) -> AnyElement {
         match self {
             Self::GroupHeader {
                 id,
@@ -306,7 +306,7 @@ fn git_status_group_header(
     _files: Vec<GitFileStatus>,
     expanded: bool,
     first: bool,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     div()
         .id(SharedString::from(format!("git-status-group-{id}")))

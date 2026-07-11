@@ -1,5 +1,5 @@
 use super::*;
-use codux_runtime::{i18n::translate, settings::locale_from_language_setting};
+use wecode_runtime::{i18n::translate, settings::locale_from_language_setting};
 
 pub(in crate::app) fn workspace_i18n(language: &str, key: &str, fallback: &str) -> String {
     let locale = locale_from_language_setting(language);
@@ -8,7 +8,7 @@ pub(in crate::app) fn workspace_i18n(language: &str, key: &str, fallback: &str) 
 
 pub(in crate::app) fn workspace_header_button(
     id: &'static str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> Button {
     Button::new(id)
         .compact()
@@ -20,7 +20,7 @@ pub(in crate::app) fn workspace_header_badge_button_content(
     icon: HeroIconName,
     icon_bg: gpui::Hsla,
     label: impl Into<SharedString>,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     div()
         .h(px(20.0))

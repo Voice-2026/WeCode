@@ -1390,345 +1390,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "codux"
-version = "2.0.0-beta.6"
-dependencies = [
- "anyhow",
- "chrono",
- "cocoa 0.26.0",
- "codux-runtime",
- "codux-terminal-core",
- "core-foundation-sys",
- "flume 0.12.0",
- "gpui",
- "gpui-component",
- "gpui-component-assets",
- "gpui_platform",
- "image",
- "objc",
- "parking_lot",
- "qrcode",
- "raw-window-handle",
- "regex",
- "rust-embed",
- "rustls",
- "serde",
- "serde_json",
- "url",
- "uuid",
- "windows-sys 0.61.2",
- "winresource",
-]
-
-[[package]]
-name = "codux-agent"
-version = "2.0.0-beta.6"
-dependencies = [
- "base64 0.22.1",
- "chrono",
- "clap",
- "codux-ai-history",
- "codux-ai-sessions",
- "codux-git",
- "codux-memory",
- "codux-protocol",
- "codux-remote-transport",
- "codux-runtime-core",
- "codux-runtime-live",
- "codux-terminal-core",
- "codux-terminal-pty",
- "dialoguer",
- "fs4",
- "getrandom 0.2.17",
- "git2",
- "qrcode",
- "reqwest 0.12.28",
- "semver",
- "serde",
- "serde_json",
- "tokio",
- "toml 0.8.23",
-]
-
-[[package]]
-name = "codux-ai-history"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "rusqlite",
- "serde",
- "serde_json",
- "uuid",
-]
-
-[[package]]
-name = "codux-ai-sessions"
-version = "0.1.0"
-dependencies = [
- "codux-ai-history",
- "codux-protocol",
- "rusqlite",
- "serde",
- "serde_json",
- "uuid",
-]
-
-[[package]]
-name = "codux-gateway"
-version = "0.1.0"
-dependencies = [
- "async-stream",
- "axum",
- "base64 0.22.1",
- "bytes",
- "chrono",
- "futures",
- "hostname",
- "rand 0.8.6",
- "regex",
- "reqwest 0.12.28",
- "rusqlite",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tempfile",
- "thiserror 1.0.69",
- "tiktoken-rs",
- "tokio",
- "tokio-stream",
- "tracing",
- "tracing-subscriber",
- "uuid",
- "whoami",
-]
-
-[[package]]
-name = "codux-git"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "codux-runtime-core",
- "git2",
- "notify 8.2.0",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "codux-im-bridge"
-version = "0.1.0"
-dependencies = [
- "aes",
- "base64 0.22.1",
- "hex",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "thiserror 1.0.69",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "codux-llm"
-version = "0.1.0"
-dependencies = [
- "genai",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
-name = "codux-memory"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "codux-ai-history",
- "codux-llm",
- "llm-json-repair",
- "rusqlite",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tokio",
- "uuid",
-]
-
-[[package]]
-name = "codux-protocol"
-version = "1.8.1"
-dependencies = [
- "serde",
- "serde_json",
- "uuid",
-]
-
-[[package]]
-name = "codux-protocol-ffi"
-version = "1.8.1"
-dependencies = [
- "codux-protocol",
- "codux-remote-transport",
- "codux-terminal-core",
- "jni 0.21.1",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
-name = "codux-remote-transport"
-version = "1.8.1"
-dependencies = [
- "async-trait",
- "codux-protocol",
- "futures-util",
- "iroh",
- "iroh-blobs",
- "iroh-dns",
- "iroh-mdns-address-lookup",
- "iroh-tickets",
- "rustls",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tokio",
- "url",
-]
-
-[[package]]
-name = "codux-runtime"
-version = "2.0.0-beta.6"
-dependencies = [
- "aes-gcm",
- "anyhow",
- "async-trait",
- "base64 0.22.1",
- "bytes",
- "chrono",
- "codux-ai-history",
- "codux-ai-sessions",
- "codux-gateway",
- "codux-git",
- "codux-im-bridge",
- "codux-llm",
- "codux-memory",
- "codux-protocol",
- "codux-remote-transport",
- "codux-runtime-core",
- "codux-runtime-live",
- "codux-terminal-core",
- "codux-terminal-pty",
- "core-foundation-sys",
- "dispatch2",
- "dunce",
- "flume 0.12.0",
- "genai",
- "git2",
- "image",
- "libc",
- "llm-json-repair",
- "minisign-verify",
- "notify 8.2.0",
- "notify-rust",
- "objc2",
- "objc2-app-kit",
- "objc2-foundation",
- "parking_lot",
- "percent-encoding",
- "rand 0.8.6",
- "redb",
- "reqwest 0.13.4",
- "rfd",
- "rusqlite",
- "semver",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "socket2 0.5.10",
- "sys-locale",
- "tokio",
- "url",
- "uuid",
- "windows-sys 0.61.2",
- "zed-font-kit",
- "zip",
-]
-
-[[package]]
-name = "codux-runtime-core"
-version = "1.8.1"
-dependencies = [
- "chrono",
- "codux-protocol",
- "codux-terminal-core",
- "serde",
- "serde_json",
- "typed-path",
- "uuid",
-]
-
-[[package]]
-name = "codux-runtime-live"
-version = "1.8.1"
-dependencies = [
- "anyhow",
- "chrono",
- "codux-ai-history",
- "codux-protocol",
- "codux-terminal-core",
- "codux-terminal-pty",
- "dunce",
- "flume 0.12.0",
- "libc",
- "md-5",
- "notify 8.2.0",
- "parking_lot",
- "percent-encoding",
- "rusqlite",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "sqlx",
- "sysinfo 0.36.1",
- "tokio",
- "uuid",
-]
-
-[[package]]
-name = "codux-terminal-core"
-version = "1.8.1"
-dependencies = [
- "alacritty_terminal",
- "base64 0.22.1",
- "flate2",
- "imagesize 0.14.0",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "codux-terminal-pty"
-version = "1.8.1"
-dependencies = [
- "codux-terminal-core",
- "libc",
- "parking_lot",
- "portable-pty",
- "uuid",
-]
-
-[[package]]
-name = "codux-wrapper-helper"
-version = "2.0.0-beta.6"
-dependencies = [
- "codux-runtime-live",
-]
-
-[[package]]
 name = "collections"
 version = "0.1.0"
 source = "git+https://github.com/zed-industries/zed#b328711bbe13b09784de4f4ac5a64c1b3d3b9e2f"
@@ -11421,6 +11082,345 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "52f5ee44c96cf55f1b349600768e3ece3a8f26010c05265ab73f945bb1a2eb9d"
 dependencies = [
  "rustls-pki-types",
+]
+
+[[package]]
+name = "wecode"
+version = "2.0.0-beta.6"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "cocoa 0.26.0",
+ "core-foundation-sys",
+ "flume 0.12.0",
+ "gpui",
+ "gpui-component",
+ "gpui-component-assets",
+ "gpui_platform",
+ "image",
+ "objc",
+ "parking_lot",
+ "qrcode",
+ "raw-window-handle",
+ "regex",
+ "rust-embed",
+ "rustls",
+ "serde",
+ "serde_json",
+ "url",
+ "uuid",
+ "wecode-runtime",
+ "wecode-terminal-core",
+ "windows-sys 0.61.2",
+ "winresource",
+]
+
+[[package]]
+name = "wecode-agent"
+version = "2.0.0-beta.6"
+dependencies = [
+ "base64 0.22.1",
+ "chrono",
+ "clap",
+ "dialoguer",
+ "fs4",
+ "getrandom 0.2.17",
+ "git2",
+ "qrcode",
+ "reqwest 0.12.28",
+ "semver",
+ "serde",
+ "serde_json",
+ "tokio",
+ "toml 0.8.23",
+ "wecode-ai-history",
+ "wecode-ai-sessions",
+ "wecode-git",
+ "wecode-memory",
+ "wecode-protocol",
+ "wecode-remote-transport",
+ "wecode-runtime-core",
+ "wecode-runtime-live",
+ "wecode-terminal-core",
+ "wecode-terminal-pty",
+]
+
+[[package]]
+name = "wecode-ai-history"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
+name = "wecode-ai-sessions"
+version = "0.1.0"
+dependencies = [
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "uuid",
+ "wecode-ai-history",
+ "wecode-protocol",
+]
+
+[[package]]
+name = "wecode-gateway"
+version = "0.1.0"
+dependencies = [
+ "async-stream",
+ "axum",
+ "base64 0.22.1",
+ "bytes",
+ "chrono",
+ "futures",
+ "hostname",
+ "rand 0.8.6",
+ "regex",
+ "reqwest 0.12.28",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tiktoken-rs",
+ "tokio",
+ "tokio-stream",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+ "whoami",
+]
+
+[[package]]
+name = "wecode-git"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "git2",
+ "notify 8.2.0",
+ "serde",
+ "serde_json",
+ "wecode-runtime-core",
+]
+
+[[package]]
+name = "wecode-im-bridge"
+version = "0.1.0"
+dependencies = [
+ "aes",
+ "base64 0.22.1",
+ "hex",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "wecode-llm"
+version = "0.1.0"
+dependencies = [
+ "genai",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "wecode-memory"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "llm-json-repair",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+ "uuid",
+ "wecode-ai-history",
+ "wecode-llm",
+]
+
+[[package]]
+name = "wecode-protocol"
+version = "1.8.1"
+dependencies = [
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
+name = "wecode-protocol-ffi"
+version = "1.8.1"
+dependencies = [
+ "jni 0.21.1",
+ "serde",
+ "serde_json",
+ "tokio",
+ "wecode-protocol",
+ "wecode-remote-transport",
+ "wecode-terminal-core",
+]
+
+[[package]]
+name = "wecode-remote-transport"
+version = "1.8.1"
+dependencies = [
+ "async-trait",
+ "futures-util",
+ "iroh",
+ "iroh-blobs",
+ "iroh-dns",
+ "iroh-mdns-address-lookup",
+ "iroh-tickets",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+ "url",
+ "wecode-protocol",
+]
+
+[[package]]
+name = "wecode-runtime"
+version = "2.0.0-beta.6"
+dependencies = [
+ "aes-gcm",
+ "anyhow",
+ "async-trait",
+ "base64 0.22.1",
+ "bytes",
+ "chrono",
+ "core-foundation-sys",
+ "dispatch2",
+ "dunce",
+ "flume 0.12.0",
+ "genai",
+ "git2",
+ "image",
+ "libc",
+ "llm-json-repair",
+ "minisign-verify",
+ "notify 8.2.0",
+ "notify-rust",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
+ "parking_lot",
+ "percent-encoding",
+ "rand 0.8.6",
+ "redb",
+ "reqwest 0.13.4",
+ "rfd",
+ "rusqlite",
+ "semver",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "socket2 0.5.10",
+ "sys-locale",
+ "tokio",
+ "url",
+ "uuid",
+ "wecode-ai-history",
+ "wecode-ai-sessions",
+ "wecode-gateway",
+ "wecode-git",
+ "wecode-im-bridge",
+ "wecode-llm",
+ "wecode-memory",
+ "wecode-protocol",
+ "wecode-remote-transport",
+ "wecode-runtime-core",
+ "wecode-runtime-live",
+ "wecode-terminal-core",
+ "wecode-terminal-pty",
+ "windows-sys 0.61.2",
+ "zed-font-kit",
+ "zip",
+]
+
+[[package]]
+name = "wecode-runtime-core"
+version = "1.8.1"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "typed-path",
+ "uuid",
+ "wecode-protocol",
+ "wecode-terminal-core",
+]
+
+[[package]]
+name = "wecode-runtime-live"
+version = "1.8.1"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "dunce",
+ "flume 0.12.0",
+ "libc",
+ "md-5",
+ "notify 8.2.0",
+ "parking_lot",
+ "percent-encoding",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "sysinfo 0.36.1",
+ "tokio",
+ "uuid",
+ "wecode-ai-history",
+ "wecode-protocol",
+ "wecode-terminal-core",
+ "wecode-terminal-pty",
+]
+
+[[package]]
+name = "wecode-terminal-core"
+version = "1.8.1"
+dependencies = [
+ "alacritty_terminal",
+ "base64 0.22.1",
+ "flate2",
+ "imagesize 0.14.0",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "wecode-terminal-pty"
+version = "1.8.1"
+dependencies = [
+ "libc",
+ "parking_lot",
+ "portable-pty",
+ "uuid",
+ "wecode-terminal-core",
+]
+
+[[package]]
+name = "wecode-wrapper-helper"
+version = "2.0.0-beta.6"
+dependencies = [
+ "wecode-runtime-live",
 ]
 
 [[package]]

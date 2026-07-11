@@ -2,8 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:codux_protocol_ffi/codux_protocol_ffi.dart'
-    as codux_protocol_ffi;
+import 'package:wecode_protocol_ffi/wecode_protocol_ffi.dart'
+    as wecode_protocol_ffi;
 
 import '../models/remote_models.dart';
 import 'log_service.dart';
@@ -152,12 +152,12 @@ class RustControllerTransport implements RemoteTransport {
     await close();
     final connected = Completer<void>();
     final config = _controllerTransportConfig(device);
-    final summary = codux_protocol_ffi.controllerTransportConfigSummary(config);
+    final summary = wecode_protocol_ffi.controllerTransportConfigSummary(config);
     _kind = '${summary['transportKind'] ?? RemoteTransportKind.iroh}';
     _onState?.call('connecting');
     final handle = _handleFactory(config);
     if (handle == null) {
-      final error = codux_protocol_ffi.lastError();
+      final error = wecode_protocol_ffi.lastError();
       final detail = error.isEmpty ? 'transport-connect' : error;
       _onState?.call('failed:$detail');
       throw StateError('Failed to connect remote transport: $detail');
@@ -259,7 +259,7 @@ class RustControllerTransport implements RemoteTransport {
           _onEnvelope?.call(Map<String, dynamic>.from(decoded), data);
         }
       } else if (kind == 'log') {
-        CoduxLog.info('[codux-flutter-transport] ${event['message'] ?? ''}');
+        WeCodeLog.info('[wecode-flutter-transport] ${event['message'] ?? ''}');
       }
     }
   }
@@ -268,14 +268,14 @@ class RustControllerTransport implements RemoteTransport {
 ControllerTransportEventHandle? _connectFfiTransport(
   Map<String, dynamic> config,
 ) {
-  final handle = codux_protocol_ffi.ControllerTransportHandle.connect(config);
+  final handle = wecode_protocol_ffi.ControllerTransportHandle.connect(config);
   return handle == null ? null : _FfiControllerTransportHandle(handle);
 }
 
 class _FfiControllerTransportHandle implements ControllerTransportEventHandle {
   _FfiControllerTransportHandle(this._inner);
 
-  final codux_protocol_ffi.ControllerTransportHandle _inner;
+  final wecode_protocol_ffi.ControllerTransportHandle _inner;
 
   @override
   bool get isClosed => _inner.isClosed;

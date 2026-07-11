@@ -1,21 +1,21 @@
 pub mod ai_history;
 pub mod ai_session_metadata;
-// The AI usage-history engine lives in the shared `codux-ai-history` crate so
+// The AI usage-history engine lives in the shared `wecode-ai-history` crate so
 // the headless agent can host the same stats with full parity. Re-export it
 // under the historical module paths the desktop code already uses.
-pub use codux_ai_history::indexer as ai_history_indexer;
-pub use codux_ai_history::normalized as ai_history_normalized;
-pub use codux_ai_history::usage_store as ai_usage_store;
+pub use wecode_ai_history::indexer as ai_history_indexer;
+pub use wecode_ai_history::normalized as ai_history_normalized;
+pub use wecode_ai_history::usage_store as ai_usage_store;
 // The live AI runtime engine (supervisor, runtime state, enhanced PTY manager,
-// runtime paths) lives in the AppKit-free `codux-runtime-live` crate so the
+// runtime paths) lives in the AppKit-free `wecode-runtime-live` crate so the
 // headless agent runs the same engine without the desktop platform layer.
 // Re-exported under the historical module paths the desktop code already uses.
-pub use codux_runtime_live::{ai_runtime, ai_runtime_state, runtime_paths, terminal_pty};
+pub use wecode_runtime_live::{ai_runtime, ai_runtime_state, runtime_paths, terminal_pty};
 // Cross-platform path primitives (drive-list sentinel, Windows path detection,
 // separator-aware joins, `\\?\` stripping) live in the shared core crate so the
 // host's file.list and the desktop UI breadcrumb agree on path handling.
-// Re-exported as `codux_runtime::path`.
-pub use codux_runtime_core::path;
+// Re-exported as `wecode_runtime::path`.
+pub use wecode_runtime_core::path;
 pub mod app_commands;
 pub mod app_icon;
 pub mod app_info;
@@ -32,9 +32,9 @@ pub mod files;
 pub mod gateway_service;
 pub mod host_browser;
 // The git engine (GitService + git_* commands + GitWatchManager + the shared
-// `wire` dispatch) lives in the AppKit-free `codux-git` crate so the headless
+// `wire` dispatch) lives in the AppKit-free `wecode-git` crate so the headless
 // agent runs the exact same git logic. Re-exported as `crate::git`.
-pub use codux_git as git;
+pub use wecode_git as git;
 pub mod i18n;
 pub mod llm;
 pub mod memory;
@@ -47,7 +47,7 @@ pub mod project_activity;
 pub mod project_open;
 pub mod project_store;
 pub mod remote;
-pub use codux_protocol::{
+pub use wecode_protocol::{
     RemoteHostCpuMetrics, RemoteHostDiskMetrics, RemoteHostMemoryMetrics, RemoteHostMetrics,
     RemoteHostNetworkMetrics, RemoteHostProcessMetrics, RemoteHostSystemMetrics,
 };
@@ -67,4 +67,4 @@ pub mod tool_permissions;
 pub mod update;
 pub mod wechat_bridge_service;
 pub mod worktree;
-pub use codux_runtime_live::wrapper_helper;
+pub use wecode_runtime_live::wrapper_helper;

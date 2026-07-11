@@ -1,6 +1,6 @@
 use super::*;
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn save_selected_file_preview(
         &mut self,
         _window: &mut Window,
@@ -95,8 +95,8 @@ impl CoduxApp {
         self.invalidate_file_panel(cx);
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             let worker_entry_path = entry_path.clone();
-            let result = codux_runtime::async_runtime::run_limited_blocking_with_priority(
-                codux_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND + generation,
+            let result = wecode_runtime::async_runtime::run_limited_blocking_with_priority(
+                wecode_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND + generation,
                 move || {
                     runtime_service.read_project_file_edit_buffer(&project_path, &worker_entry_path)
                 },

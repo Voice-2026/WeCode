@@ -124,9 +124,9 @@ pub(crate) fn remote_pairing_payload(
     transports: Vec<RemoteTransportCandidate>,
 ) -> Value {
     // The QR format (ticket-free: nodeId + relayUrl, the minimum to dial) lives
-    // in codux_protocol so the desktop and headless agent hosts share ONE
+    // in wecode_protocol so the desktop and headless agent hosts share ONE
     // definition instead of each keeping a copy.
-    codux_protocol::pairing_payload(
+    wecode_protocol::pairing_payload(
         &pairing.code,
         &pairing.secret,
         &pairing.pairing_id,

@@ -8,7 +8,7 @@
 
 ### 调整
 
-- 移动端发布包同步 Codux 2.0.0-rc.5。本 RC 不包含移动端配对协议变更。
+- 移动端发布包同步 WeCode 2.0.0-rc.5。本 RC 不包含移动端配对协议变更。
 
 ### 修复
 
@@ -22,25 +22,25 @@
 
 ### 调整
 
-- 移动端发布包同步 Codux 2.0.0-rc.4。本 RC 不包含移动端配对协议变更。
+- 移动端发布包同步 WeCode 2.0.0-rc.4。本 RC 不包含移动端配对协议变更。
 
 ## [2.0.0-rc.3] - 2026-07-05
 
 ### 调整
 
-- 移动端发布包同步 Codux 2.0.0-rc.3。本 RC 不包含移动端协议变更。
+- 移动端发布包同步 WeCode 2.0.0-rc.3。本 RC 不包含移动端协议变更。
 
 ## [2.0.0-rc.2] - 2026-07-04
 
 ### 调整
 
-- 移动端发布包同步 Codux 2.0.0-rc.2。本 RC 不包含移动端协议变更。
+- 移动端发布包同步 WeCode 2.0.0-rc.2。本 RC 不包含移动端协议变更。
 
 ## [2.0.0-rc.1] - 2026-07-04
 
 ### 调整
 
-- 移动端发布包同步 Codux 2.0.0-rc.1。本 RC 不包含移动端协议变更。
+- 移动端发布包同步 WeCode 2.0.0-rc.1。本 RC 不包含移动端协议变更。
 
 ## [2.0.0-beta.8] - 2026-07-02
 
@@ -58,19 +58,19 @@
 
 ### Changed
 
-- 移动端发布包同步 Codux 2.0.0-beta.5 桌面端与 agent 发布。本 beta 不包含移动端协议变更。
+- 移动端发布包同步 WeCode 2.0.0-beta.5 桌面端与 agent 发布。本 beta 不包含移动端协议变更。
 
 ## [2.0.0-beta.4] - 2026-06-30
 
 ### Changed
 
-- 移动端发布包同步 Codux 2.0.0-beta.4 桌面端与 agent 发布。本 beta 不包含移动端协议变更。
+- 移动端发布包同步 WeCode 2.0.0-beta.4 桌面端与 agent 发布。本 beta 不包含移动端协议变更。
 
 ## [2.0.0-beta.3] - 2026-06-25
 
 ### Added
 
-- 通过 iroh mDNS 在同一网络内点对点（p2p）直连 Codux 主机,连接徽章上标明「直连 / 中继」。
+- 通过 iroh mDNS 在同一网络内点对点（p2p）直连 WeCode 主机,连接徽章上标明「直连 / 中继」。
 - 持久化远程终端:重新回到项目时挂回同一个主机 shell;手机可与桌面共享同一个 agent 终端并交接 viewport(桌面点手机徽章即可收回)。
 - 当摄像头实时扫码不顺时,可从相册照片 / 截图导入配对二维码作为兜底。
 
@@ -108,7 +108,7 @@
 
 ### Added
 
-- 可连接远程 Codux 主机（`codux-agent`），通过端到端加密的 Iroh 传输，从手机驱动它的终端、Git 与 AI 会话。（Beta）
+- 可连接远程 WeCode 主机（`wecode-agent`），通过端到端加密的 Iroh 传输，从手机驱动它的终端、Git 与 AI 会话。（Beta）
 
 ### Fixed
 
@@ -199,7 +199,7 @@
 
 - 新增 v3.1 host capability 解析、终端 buffer 分片组包、按会话维护终端 replica、终端订阅 scope 和大历史有界渲染。
 - 新增终端输入可靠发送、输出排序 / 重同步、上传元数据和协议 payload codec，为后续跨设备 runtime domain 做准备。
-- 新增移动端更新检查，优化调试日志导出，并补充 Codux Mobile 作为主控端的文档说明。
+- 新增移动端更新检查，优化调试日志导出，并补充 WeCode Mobile 作为主控端的文档说明。
 
 ### 调整
 
@@ -234,7 +234,7 @@
 
 ### 新增
 
-- 正式接入 Codux Mobile v3 远程协议，与 Codux Desktop 共用 Relay / WebRTC 模型。
+- 正式接入 WeCode Mobile v3 远程协议，与 WeCode Desktop 共用 Relay / WebRTC 模型。
 - 新增无状态二维码 ticket 配对，桌面端通过中继服务发布短期配对载荷。
 - 新增 WebRTC DataChannel 直连传输和 WebSocket 中继回退，并通过协议 ping/pong 显示延迟。
 - 新增应用内调试日志，支持复制、导出和日志等级配置，方便排查连接与终端显示问题。
@@ -253,7 +253,7 @@
 
 ### 说明
 
-- Codux Mobile 1.7.0 建议搭配 Codux Desktop 1.7.0 使用，升级后建议重新配对已有设备。
+- WeCode Mobile 1.7.0 建议搭配 WeCode Desktop 1.7.0 使用，升级后建议重新配对已有设备。
 
 ## [1.7.0-beta.1] - 2026-06-07
 
@@ -265,7 +265,7 @@
 
 ### 说明
 
-- 此测试版需要配合新版 Codux 桌面端和新版 Codux 中继服务使用，已有远程设备需要重新配对。
+- 此测试版需要配合新版 WeCode 桌面端和新版 WeCode 中继服务使用，已有远程设备需要重新配对。
 
 ## [1.6.8] - 2026-06-07
 
@@ -311,7 +311,7 @@
 
 ### 修复
 
-- 修复 iOS bridge 导出，确保 Swift 插件可以调用 `codux_iroh_add_node_addr`。
+- 修复 iOS bridge 导出，确保 Swift 插件可以调用 `wecode_iroh_add_node_addr`。
 - 为 iOS Iroh bridge 链接 `Network.framework`，并用当前构建身份重签 Flutter native asset 嵌入框架。
 
 ## [1.6.0] - 2026-06-05
@@ -339,7 +339,7 @@
 
 ### 调整
 
-- 移动端对齐 Codux 1.5.0 桌面端协议和 GPUI 终端 Host。
+- 移动端对齐 WeCode 1.5.0 桌面端协议和 GPUI 终端 Host。
 - 优化 Android 和 iOS 的共享终端恢复、尺寸同步、分屏顺序和移动端终端渲染。
 - 在 `host.info` 握手中增加远程协议版本检查，桌面端不兼容时提示用户升级应用，不再静默连接。
 
@@ -350,13 +350,13 @@
 
 ### 说明
 
-- 包含 1.5.0-beta.1 移动端测试周期中的验证内容，覆盖 Codux 1.5.0 桌面协议、共享终端恢复、分屏顺序、Android 和 iOS 终端渲染，以及 Host 协议兼容检查。
+- 包含 1.5.0-beta.1 移动端测试周期中的验证内容，覆盖 WeCode 1.5.0 桌面协议、共享终端恢复、分屏顺序、Android 和 iOS 终端渲染，以及 Host 协议兼容检查。
 
 ## [1.5.0-beta.1] - 2026-06-03
 
 ### 调整
 
-- 移动端对齐 Codux 1.5.0 桌面端协议和 GPUI 终端 Host。
+- 移动端对齐 WeCode 1.5.0 桌面端协议和 GPUI 终端 Host。
 - 优化 Android 和 iOS 的共享终端恢复、尺寸同步、分屏顺序和移动端终端渲染。
 - 在 `host.info` 握手中增加远程协议版本检查，桌面端不兼容时提示用户升级应用，不再静默连接。
 
@@ -495,15 +495,15 @@
 
 ### 新增
 
-- 新增第一版 Codux Mobile Flutter 客户端，通过 relay 服务连接 macOS 端 Codux。
+- 新增第一版 WeCode Mobile Flutter 客户端，通过 relay 服务连接 macOS 端 WeCode。
 - 支持扫码配对、设备管理、项目切换、终端分屏切换、文件浏览、图片上传和 AI 用量面板。
 - 新增基于 Termux TerminalView 的 Android 原生终端 Flutter 插件，支持远程输出、用户输入、滚动历史、文字选择、快捷键和输入法避让。
-- 新增 GitHub 更新检查，读取 `duxweb/codux-flutter` 最新 Release。
+- 新增 GitHub 更新检查，读取 `duxweb/wecode-flutter` 最新 Release。
 
 ### 调整
 
 - 移除早期 WebView / xterm 方向，移动端终端改为原生 Android 插件渲染。
-- 新增 `CODUX_LOG_LEVEL` 发布日志控制，Flutter 层和原生终端插件共用同一日志等级。
+- 新增 `WECODE_LOG_LEVEL` 发布日志控制，Flutter 层和原生终端插件共用同一日志等级。
 
 ### 修复
 

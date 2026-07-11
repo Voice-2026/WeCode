@@ -1,15 +1,15 @@
-//! `codux start` — launch the host. Idempotent: if one is already running it
+//! `wecode start` — launch the host. Idempotent: if one is already running it
 //! prints where, instead of starting a second. `--detach` re-spawns itself in
 //! the background (used by `qrcode`/`link` auto-start and the service).
 
-use crate::config_store::CoduxConfig;
+use crate::config_store::WeCodeConfig;
 use crate::{host, logo, paths, runstate};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub fn run(detach: bool) -> Result<(), String> {
     // Make sure a stable identity exists before we derive the node key from it.
-    let mut config = CoduxConfig::load();
+    let mut config = WeCodeConfig::load();
     if config.ensure_identity() {
         config.save()?;
     }
@@ -26,7 +26,7 @@ pub fn run(detach: bool) -> Result<(), String> {
     run_foreground(config)
 }
 
-fn run_foreground(config: CoduxConfig) -> Result<(), String> {
+fn run_foreground(config: WeCodeConfig) -> Result<(), String> {
     logo::print_banner(VERSION);
     let _lock = runstate::acquire_instance_lock()?;
     println!(
@@ -54,7 +54,7 @@ fn run_foreground(config: CoduxConfig) -> Result<(), String> {
 }
 
 fn print_already_running() {
-    println!("Codux host is already running.");
+    println!("WeCode host is already running.");
     if let Some(status) = runstate::read_status() {
         println!("  started: {}", status.started_at);
         println!("  device:  {}", status.device_name);
@@ -68,7 +68,7 @@ fn print_already_running() {
     println!("  config:  {}", paths::config_path().display());
 }
 
-/// Re-launch `codux start` detached, with output redirected to the log file, so
+/// Re-launch `wecode start` detached, with output redirected to the log file, so
 /// the caller (`qrcode`/`link`/the service) can return immediately.
 fn spawn_detached() -> Result<(), String> {
     use std::process::{Command, Stdio};
@@ -96,7 +96,7 @@ fn spawn_detached() -> Result<(), String> {
     // Give it a moment to acquire the lock / publish the ticket.
     std::thread::sleep(std::time::Duration::from_millis(600));
     if runstate::is_running() {
-        println!("Codux host started in the background.");
+        println!("WeCode host started in the background.");
         println!("  logs: {}", paths::log_path().display());
         Ok(())
     } else {

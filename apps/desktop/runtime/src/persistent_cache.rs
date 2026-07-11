@@ -236,7 +236,7 @@ fn spawn_debounced_writer(
     write_rx: flume::Receiver<QueuedWrite>,
 ) {
     thread::Builder::new()
-        .name("codux-redb-cache-writer".to_string())
+        .name("wecode-redb-cache-writer".to_string())
         .spawn(move || {
             while let Ok(write) = write_rx.recv() {
                 let mut pending = HashMap::new();
@@ -368,6 +368,6 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        std::env::temp_dir().join(format!("codux-persistent-cache-{label}-{nanos}.redb"))
+        std::env::temp_dir().join(format!("wecode-persistent-cache-{label}-{nanos}.redb"))
     }
 }

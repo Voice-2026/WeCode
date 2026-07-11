@@ -7,7 +7,7 @@ pub(super) fn pet_dex_spotlight_overlay(
     support_dir: &Path,
     language: &str,
     sprite_frame: usize,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     if spotlight == PetDexSpotlight::ArchiveConfirm {
         return pet_dex_archive_confirm_overlay(language, cx);
@@ -129,7 +129,7 @@ pub(super) fn pet_dex_spotlight_overlay(
 
 pub(super) fn pet_dex_archive_confirm_overlay(
     language: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     div()
         .id("pet-dex-archive-overlay")

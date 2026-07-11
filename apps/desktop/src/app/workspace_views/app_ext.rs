@@ -1,6 +1,6 @@
 use super::*;
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(super) fn empty_project_workspace(
         &mut self,
         window: &mut Window,
@@ -8,7 +8,7 @@ impl CoduxApp {
     ) -> impl IntoElement {
         let locale = locale_from_language_setting(&self.state.settings.language);
         let title =
-            translate(&locale, "welcome.title_format", "Welcome to %@").replace("%@", "Codux");
+            translate(&locale, "welcome.title_format", "Welcome to %@").replace("%@", "WeCode");
         let subtitle = translate(
             &locale,
             "welcome.subtitle",
@@ -36,7 +36,7 @@ impl CoduxApp {
                     .px_4()
                     .text_center()
                     .child(
-                        img("app-icons/codux-default.svg")
+                        img("app-icons/wecode-default.svg")
                             .size(px(72.0))
                             .object_fit(ObjectFit::Contain),
                     )
@@ -103,7 +103,7 @@ impl CoduxApp {
             )
     }
 }
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn workspace_toolbar_snapshot(&self) -> WorkspaceToolbarSnapshot {
         WorkspaceToolbarSnapshot {
             fingerprint: workspace_toolbar_fingerprint(self),
@@ -183,7 +183,7 @@ impl CoduxApp {
         view
     }
 }
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn update_file_editor_workspace_view(
         &mut self,
         cx: &mut Context<Self>,

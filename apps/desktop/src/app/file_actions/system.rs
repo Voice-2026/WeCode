@@ -1,6 +1,6 @@
 use super::*;
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn reveal_selected_file_entry(
         &mut self,
         _window: &mut Window,

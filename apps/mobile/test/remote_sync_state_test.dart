@@ -1,4 +1,4 @@
-import 'package:codux_flutter/services/remote_sync_state.dart';
+import 'package:wecode_flutter/services/remote_sync_state.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

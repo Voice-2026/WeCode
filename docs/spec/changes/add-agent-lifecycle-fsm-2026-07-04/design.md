@@ -1,6 +1,6 @@
 ## Context
 
-Codux's runtime already detects whether a terminal's AI agent is working or waiting via `ScreenSignal` (`crates/codux-runtime-live/src/ai_runtime/screen_signal.rs`), which reads the rendered terminal tail and matches "esc to interrupt" / "Thinking…" / approval prompts. The supervisor applies this signal to session state in `AIRuntimeStateStore`, and `AISessionSnapshot.state` carries exactly three values: `"idle"`, `"responding"`, `"needsInput"` (`runtime_state_for_hook_kind` in `crates/codux-runtime-live/src/ai_runtime/state.rs`). **However, the desktop never sees those raw strings**: `summary_from_runtime_snapshot` re-maps them via `runtime_snapshot_session_state` (`crates/codux-runtime-live/src/ai_runtime_state.rs`) into the summary domain `"running"`, `"needs-input"`, `"completed"`, `"idle"` — and `AIRuntimeSessionSummary.state` is what the app consumes. The FSM input mapping keys on the summary domain (with the raw strings kept as aliases). This mismatch shipped in v1–v3 and made the FSM inert in the live app; the spec originally documented only the raw domain.
+WeCode's runtime already detects whether a terminal's AI agent is working or waiting via `ScreenSignal` (`crates/wecode-runtime-live/src/ai_runtime/screen_signal.rs`), which reads the rendered terminal tail and matches "esc to interrupt" / "Thinking…" / approval prompts. The supervisor applies this signal to session state in `AIRuntimeStateStore`, and `AISessionSnapshot.state` carries exactly three values: `"idle"`, `"responding"`, `"needsInput"` (`runtime_state_for_hook_kind` in `crates/wecode-runtime-live/src/ai_runtime/state.rs`). **However, the desktop never sees those raw strings**: `summary_from_runtime_snapshot` re-maps them via `runtime_snapshot_session_state` (`crates/wecode-runtime-live/src/ai_runtime_state.rs`) into the summary domain `"running"`, `"needs-input"`, `"completed"`, `"idle"` — and `AIRuntimeSessionSummary.state` is what the app consumes. The FSM input mapping keys on the summary domain (with the raw strings kept as aliases). This mismatch shipped in v1–v3 and made the FSM inert in the live app; the spec originally documented only the raw domain.
 
 The desktop app has a coarse `AIActivityState { Idle, Running, Review, Done }` mapping (`apps/desktop/src/app/ai_runtime_status.rs`) that converts `session.state` to a per-project activity level — but this is project-scoped (not per-pane), has no hysteresis, and is never rendered in the terminal pane chrome.
 
@@ -14,7 +14,7 @@ Sibling projects solve this differently:
   - Per-terminal-pane agent lifecycle state with a proper FSM and hysteresis (no flicker)
   - Status dot on each task-column terminal row (agent name + model already shown as the row subtitle)
   - Zero runtime crate changes (desktop-only feature)
-  - Works for all agents codux already supports (Claude Code, Codex, Kiro, etc.)
+  - Works for all agents wecode already supports (Claude Code, Codex, Kiro, etc.)
 
 - Non-Goals:
   - OSC 9;4 shell-integration parsing (future enhancement)

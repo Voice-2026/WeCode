@@ -5,7 +5,7 @@ use super::*;
 pub(super) fn settings_developer_pane(
     settings: &SettingsSummary,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     let language = settings.language.as_str();
     settings_form(vec![
@@ -66,7 +66,7 @@ pub(super) fn settings_runtime_tool_block(
     codex_effort: &str,
     language: &str,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     let mut children = vec![
         div()

@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn ai_stats_watcher_tracks_one_project_per_device_and_clears_on_disconnect() {
-    let support_dir = temp_support_dir("codux-remote-ai-stats-watcher");
+    let support_dir = temp_support_dir("wecode-remote-ai-stats-watcher");
     let runtime = RemoteHostRuntime::new(support_dir.clone());
 
     runtime.register_ai_stats_watcher("project-a", "device-1", "project-a");

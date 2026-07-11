@@ -20,7 +20,7 @@ pub(super) fn git_branch_dropdown_menu(
     changed_paths: Vec<String>,
     has_staged: bool,
     language: String,
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
 ) -> PopupMenu {
     let labels = Rc::new(GitBranchMenuLabels::load(&language));
     let has_remotes = !remotes.is_empty();

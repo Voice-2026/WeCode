@@ -3,24 +3,24 @@
 //! has a richer ProjectStore (worktrees, badges, …); the agent only needs the
 //! list so a controller can pick a project to run terminals/files against.
 
-use codux_runtime_core::project::ProjectListItem;
 use std::{
     collections::hash_map::DefaultHasher,
     fs,
     hash::{Hash, Hasher},
     path::PathBuf,
 };
+use wecode_runtime_core::project::ProjectListItem;
 
 /// The agent's persistent data directory (projects list, AI usage cache, …).
-/// `CODUX_AGENT_DATA_DIR` overrides the default `~/.codux-agent`.
+/// `WECODE_AGENT_DATA_DIR` overrides the default `~/.wecode-agent`.
 pub fn agent_data_dir() -> PathBuf {
-    std::env::var("CODUX_AGENT_DATA_DIR")
+    std::env::var("WECODE_AGENT_DATA_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|_| {
             let home = std::env::var("HOME")
                 .or_else(|_| std::env::var("USERPROFILE"))
                 .unwrap_or_else(|_| ".".to_string());
-            PathBuf::from(home).join(".codux-agent")
+            PathBuf::from(home).join(".wecode-agent")
         })
 }
 

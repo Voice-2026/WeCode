@@ -15,7 +15,7 @@ if (keystorePropertiesFile.exists()) {
 }
 
 android {
-    namespace = "com.duxweb.codux"
+    namespace = "com.duxweb.wecode"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -29,12 +29,12 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.duxweb.codux"
+        applicationId = "com.duxweb.wecode"
         minSdk = 26
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
-        manifestPlaceholders["appLabel"] = "Codux"
+        manifestPlaceholders["appLabel"] = "WeCode"
         ndk {
             abiFilters += listOf("arm64-v8a")
         }
@@ -66,7 +66,7 @@ android {
         debug {
             applicationIdSuffix = ".dev"
             versionNameSuffix = "-dev"
-            manifestPlaceholders["appLabel"] = "Codux Dev"
+            manifestPlaceholders["appLabel"] = "WeCode Dev"
         }
 
         release {

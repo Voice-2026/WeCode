@@ -1,7 +1,7 @@
 part of 'home_page.dart';
 
 /// Owns the home screen's state + logic as a [ChangeNotifier] store, fully
-/// separated from the [_CoduxHomePageState] view. The view observes this and
+/// separated from the [_WeCodeHomePageState] view. The view observes this and
 /// only renders; all mutation flows through [_applyState] (notifyListeners).
 /// Concern logic lives in the `state/` part extensions on this class.
 const double _padLayoutMinWidth = 900;
@@ -15,11 +15,11 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
   // ignore: library_private_types_in_public_api
   HomeController(this._view);
 
-  final _CoduxHomePageState _view;
+  final _WeCodeHomePageState _view;
 
   BuildContext get context => _view.context;
   bool get mounted => _view.mounted;
-  CoduxHomePage get widget => _view.widget;
+  WeCodeHomePage get widget => _view.widget;
 
   final _storage = StorageService();
   final _deviceSelection = const DeviceSelectionService();
@@ -75,7 +75,7 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
       TerminalBufferCapability.fallback;
   String? _hostRuntimeInstanceId;
   MobileSettings _settings = const MobileSettings(localName: '');
-  String _detectedDeviceName = 'Codux Mobile';
+  String _detectedDeviceName = 'WeCode Mobile';
   String _status = '';
   String? _selectedProjectId;
   String? _sessionId;
@@ -419,22 +419,22 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
         _refreshTransportRoute(reason: reason);
       },
       onInitialSignature: (signature) {
-        CoduxLog.info('[codux-flutter-network] initial state=$signature');
+        WeCodeLog.info('[wecode-flutter-network] initial state=$signature');
       },
       onSignatureChanged: (previous, next) {
-        CoduxLog.info(
-          '[codux-flutter-network] changed from=$previous to=$next path=$_connectionPath',
+        WeCodeLog.info(
+          '[wecode-flutter-network] changed from=$previous to=$next path=$_connectionPath',
         );
       },
       onInitialCheckFailed: (error) {
-        CoduxLog.warn('[codux-flutter-network] initial check failed $error');
+        WeCodeLog.warn('[wecode-flutter-network] initial check failed $error');
       },
       onListenError: (error) {
-        CoduxLog.warn('[codux-flutter-network] listen failed $error');
+        WeCodeLog.warn('[wecode-flutter-network] listen failed $error');
       },
     );
     _voiceService = LocalVoiceRecognitionService(
-      onLog: (message) => CoduxLog.info('[codux-flutter-voice] $message'),
+      onLog: (message) => WeCodeLog.info('[wecode-flutter-voice] $message'),
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -488,21 +488,21 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    CoduxLog.info('[codux-flutter-lifecycle] state=${state.name}');
+    WeCodeLog.info('[wecode-flutter-lifecycle] state=${state.name}');
     if (state == AppLifecycleState.resumed) {
       _appInForeground = true;
       _appSuspended = false;
       final device = _activeDevice;
       if (device == null) return;
       if (_transportConnected) {
-        CoduxLog.info(
-          '[codux-flutter-lifecycle] resume keep existing transport host=${device.hostId} device=${device.deviceId}',
+        WeCodeLog.info(
+          '[wecode-flutter-lifecycle] resume keep existing transport host=${device.hostId} device=${device.deviceId}',
         );
         _recoverForegroundState();
         return;
       }
-      CoduxLog.info(
-        '[codux-flutter-lifecycle] resume reconnect host=${device.hostId} device=${device.deviceId}',
+      WeCodeLog.info(
+        '[wecode-flutter-lifecycle] resume reconnect host=${device.hostId} device=${device.deviceId}',
       );
       _connect(device, true);
       return;
@@ -511,7 +511,7 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
       return;
     }
     if (state == AppLifecycleState.paused && _showVoiceOverlay) {
-      CoduxLog.info('[codux-flutter-lifecycle] pause ignored for voice input');
+      WeCodeLog.info('[wecode-flutter-lifecycle] pause ignored for voice input');
       return;
     }
     if (state == AppLifecycleState.detached) {
@@ -541,8 +541,8 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
       if (_transportConnected) {
         _releaseTerminalViewport();
       }
-      CoduxLog.info(
-        '[codux-flutter-lifecycle] background keep transport state=${state.name}',
+      WeCodeLog.info(
+        '[wecode-flutter-lifecycle] background keep transport state=${state.name}',
       );
     }
   }

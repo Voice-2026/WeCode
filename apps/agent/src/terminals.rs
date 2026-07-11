@@ -8,27 +8,27 @@
 //! the `TerminalManager` lease + viewport-owner resolver) rather than a private
 //! copy of the desktop host's batching/baseline machinery.
 
-use codux_protocol::{
+use serde_json::{Value, json};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use wecode_protocol::{
     REMOTE_ERROR, REMOTE_RESOURCE_SUBSCRIBE, REMOTE_RESOURCE_TERMINALS,
     REMOTE_RESOURCE_UNSUBSCRIBE, REMOTE_TERMINAL_BUFFER_MAX_CHARS, REMOTE_TERMINAL_CLOSED,
     REMOTE_TERMINAL_CREATED, REMOTE_TERMINAL_INPUT_ACK, REMOTE_TERMINAL_LIST,
     REMOTE_TERMINAL_OUTPUT, REMOTE_TERMINAL_VIEWPORT_STATE, RemoteTerminalBufferWindow,
     RemoteTerminalSubscriptions, terminal_buffer_payloads, terminal_live_output_payload,
 };
-use codux_remote_transport::RemoteTransport;
-use codux_runtime_core::terminal::terminal_snapshot_payload;
-use codux_runtime_live::remote_terminal_dispatch::{
+use wecode_remote_transport::RemoteTransport;
+use wecode_runtime_core::terminal::terminal_snapshot_payload;
+use wecode_runtime_live::remote_terminal_dispatch::{
     self, RemoteTerminalDispatch, TerminalMessage, finish_terminal_create_viewer_lifecycle,
     prepare_terminal_create_lifecycle,
 };
-use codux_runtime_live::terminal_pty::{TerminalManager, TerminalPtyConfig};
-use codux_runtime_live::terminal_pty::{
+use wecode_runtime_live::terminal_pty::{TerminalManager, TerminalPtyConfig};
+use wecode_runtime_live::terminal_pty::{
     TerminalViewportState, terminal_viewport_local_owner, terminal_viewport_remote_owner,
 };
-use codux_terminal_core::TerminalEvent;
-use serde_json::{Value, json};
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use wecode_terminal_core::TerminalEvent;
 
 type TransportSlot = Arc<Mutex<Option<Arc<dyn RemoteTransport>>>>;
 const STALE_OUTPUT_SEQ_LAG: i64 = 8;
@@ -611,7 +611,7 @@ impl RemoteTerminalDispatch for AgentTerminalCtx<'_> {
                 .and_then(Value::as_str)
                 .map(str::to_string),
             support_dir: Some(crate::projects::agent_data_dir()),
-            runtime_root: Some(codux_runtime_live::runtime_paths::runtime_root_dir()),
+            runtime_root: Some(wecode_runtime_live::runtime_paths::runtime_root_dir()),
             tool_permissions_file: Some(
                 crate::projects::agent_data_dir().join("tool_permissions.json"),
             ),

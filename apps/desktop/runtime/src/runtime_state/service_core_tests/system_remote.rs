@@ -1,7 +1,7 @@
 #[test]
 fn file_watch_events_are_queued_and_drained_for_gpui() {
     let support_dir =
-        std::env::temp_dir().join(format!("codux-file-watch-events-{}", uuid::Uuid::new_v4()));
+        std::env::temp_dir().join(format!("wecode-file-watch-events-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(&support_dir).expect("create support dir");
     let service = RuntimeService::new(PathBuf::from(&support_dir));
 
@@ -25,7 +25,7 @@ fn file_watch_events_are_queued_and_drained_for_gpui() {
 #[test]
 fn revoke_remote_device_preserves_connected_host_snapshot() {
     let support_dir =
-        std::env::temp_dir().join(format!("codux-revoke-remote-{}", uuid::Uuid::new_v4()));
+        std::env::temp_dir().join(format!("wecode-revoke-remote-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(&support_dir).expect("create support dir");
     fs::write(
         support_dir.join("settings.json"),

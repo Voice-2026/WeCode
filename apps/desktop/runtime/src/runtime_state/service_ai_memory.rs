@@ -116,10 +116,10 @@ impl RuntimeService {
     ) -> Option<crate::memory::MemoryLaunchArtifacts> {
         // Launch artifacts are the shared AI CLI entry context. Memory settings
         // only decide whether stored memory entries are included; tool context
-        // such as codux-ssh/codux-db must remain available even when memory is
+        // such as wecode-ssh/wecode-db must remain available even when memory is
         // disabled.
         let settings = SettingsService::new(self.support_dir.clone()).ai_settings();
-        let extra_context = std::iter::once(Some(codux_environment_directive().to_string()))
+        let extra_context = std::iter::once(Some(wecode_environment_directive().to_string()))
             .chain([
             render_ssh_launch_context_from_support_dir(self.support_dir.clone(), None),
             render_db_launch_context_from_support_dir(
@@ -543,12 +543,12 @@ impl RuntimeService {
     }
 }
 
-fn codux_environment_directive() -> &'static str {
-    "# Codux Environment Directive\n\n\
-You are running inside a Codux-managed terminal.\n\n\
+fn wecode_environment_directive() -> &'static str {
+    "# WeCode Environment Directive\n\n\
+You are running inside a WeCode-managed terminal.\n\n\
 ## Saved Connections\n\
-- SSH: use `codux-ssh list` first to discover saved hosts, then `codux-ssh <profile-id> -- '<remote-command>'` for one-off remote commands, or `codux-ssh scp <profile-id> <src> <dst>` (mark the remote path with a leading ':') to transfer files.\n\
-- Database: use `codux-db list` first to discover saved databases for the current root project, then run `codux-db <profile-id> -- '<SQL>'`.\n\
+- SSH: use `wecode-ssh list` first to discover saved hosts, then `wecode-ssh <profile-id> -- '<remote-command>'` for one-off remote commands, or `wecode-ssh scp <profile-id> <src> <dst>` (mark the remote path with a leading ':') to transfer files.\n\
+- Database: use `wecode-db list` first to discover saved databases for the current root project, then run `wecode-db <profile-id> -- '<SQL>'`.\n\
 - Do not grep the repository to discover saved SSH or database connections.\n\
-- Do not ask the user for saved credentials. Codux injects credentials into the wrappers; you cannot see them and must not print, infer, or hardcode them."
+- Do not ask the user for saved credentials. WeCode injects credentials into the wrappers; you cannot see them and must not print, infer, or hardcode them."
 }

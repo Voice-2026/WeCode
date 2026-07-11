@@ -3,8 +3,8 @@ use super::{
     ProjectWorkspaceRecord,
 };
 use crate::project_store::helpers::{normalize_path, project_summary, worktree_summary};
-use codux_runtime_core::worktree::{RuntimeWorktreeItem, selected_runtime_worktree_id};
 use serde_json::Value;
+use wecode_runtime_core::worktree::{RuntimeWorktreeItem, selected_runtime_worktree_id};
 
 impl ProjectStore {
     pub fn snapshot(&self) -> AppSnapshot {

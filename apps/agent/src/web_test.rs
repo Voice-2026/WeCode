@@ -1,4 +1,4 @@
-//! Built-in host-local HTTP page for validating Codux Web Tunnel.
+//! Built-in host-local HTTP page for validating WeCode Web Tunnel.
 
 use std::{
     io::{Read, Write},
@@ -25,7 +25,7 @@ pub fn start_background() -> Result<WebTestServer, String> {
         .map_err(|error| format!("failed to read web test listener address: {error}"))?;
     STARTED_AT.get_or_init(Instant::now);
     thread::Builder::new()
-        .name("codux-web-test".to_string())
+        .name("wecode-web-test".to_string())
         .spawn(move || serve(listener, address.port()))
         .map_err(|error| format!("failed to start web test thread: {error}"))?;
     Ok(WebTestServer { address })
@@ -104,7 +104,7 @@ fn ping_payload() -> String {
         .get()
         .map(|started| started.elapsed().as_millis())
         .unwrap_or_default();
-    format!(r#"{{"ok":true,"serverTimeMs":{now_ms},"uptimeMs":{uptime_ms},"agent":"codux"}}"#)
+    format!(r#"{{"ok":true,"serverTimeMs":{now_ms},"uptimeMs":{uptime_ms},"agent":"wecode"}}"#)
 }
 
 fn unix_millis() -> u128 {
@@ -122,7 +122,7 @@ fn test_page(port: u16) -> String {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Codux Web Tunnel Test</title>
+  <title>WeCode Web Tunnel Test</title>
   <style>
     :root {{ color-scheme: dark; }}
     * {{ box-sizing: border-box; }}
@@ -172,9 +172,9 @@ fn test_page(port: u16) -> String {
 </head>
 <body>
   <main>
-    <h1><span class="ok">OK</span> Codux Web Tunnel works</h1>
-    <p>This diagnostic page is served by the running Codux host.</p>
-    <p>Open it through Codux Desktop's Web Tunnel Browser at <code>http://127.0.0.1:{port}/</code>.</p>
+    <h1><span class="ok">OK</span> WeCode Web Tunnel works</h1>
+    <p>This diagnostic page is served by the running WeCode host.</p>
+    <p>Open it through WeCode Desktop's Web Tunnel Browser at <code>http://127.0.0.1:{port}/</code>.</p>
     <div class="grid">
       <div class="metric"><div class="label">Last round trip</div><div class="value" id="rtt">—</div></div>
       <div class="metric"><div class="label">Server clock drift</div><div class="value" id="drift">—</div></div>

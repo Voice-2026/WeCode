@@ -77,7 +77,7 @@ mod tests {
     #[test]
     fn project_commands_select_and_mark_active_project() {
         let support_dir =
-            std::env::temp_dir().join(format!("codux-app-command-projects-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("wecode-app-command-projects-{}", Uuid::new_v4()));
         let first = support_dir.join("first");
         let second = support_dir.join("second");
         std::fs::create_dir_all(&first).expect("first project dir");
@@ -128,7 +128,7 @@ mod tests {
     #[test]
     fn project_management_commands_match_tauri_facade_shape() {
         let support_dir = std::env::temp_dir().join(format!(
-            "codux-app-command-project-management-{}",
+            "wecode-app-command-project-management-{}",
             Uuid::new_v4()
         ));
         let first = support_dir.join("first");

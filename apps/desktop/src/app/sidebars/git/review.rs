@@ -287,7 +287,7 @@ fn review_cell(
 }
 
 pub(in crate::app) fn git_review_file_list(
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     review: &GitReviewSummary,
     selected_path: Option<&str>,
     expanded_dirs: &HashSet<String>,
@@ -374,7 +374,7 @@ fn git_review_directory_rows(
     selected_path: Option<&str>,
     expanded_dirs: &HashSet<String>,
     labels: Rc<GitSidebarLabels>,
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     cx: &mut Context<workspace_views::ReviewFileListView>,
 ) -> Vec<AnyElement> {
     let (dirs, direct_files) = collect_immediate_git_review_entries(base_path, files);
@@ -437,7 +437,7 @@ fn git_review_file_row(
     file: GitReviewFile,
     selected: bool,
     depth: usize,
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     cx: &mut Context<workspace_views::ReviewFileListView>,
 ) -> impl IntoElement {
     let path = file.path.clone();
@@ -513,7 +513,7 @@ fn git_review_dir_row(
     dir: &GitReviewDirSummary,
     expanded: bool,
     depth: usize,
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     cx: &mut Context<workspace_views::ReviewFileListView>,
 ) -> impl IntoElement {
     let path = dir.path.clone();

@@ -143,7 +143,7 @@ fn replace_three_placeholders(template: String, first: &str, second: &str, third
 }
 
 pub(in crate::app) fn desktop_pet_runtime_activity_line(
-    runtime: &codux_runtime::ai_runtime_state::AIRuntimeStateSummary,
+    runtime: &wecode_runtime::ai_runtime_state::AIRuntimeStateSummary,
     language: &str,
 ) -> DesktopPetActivityLine {
     let locale = locale_from_language_setting(language);
@@ -289,7 +289,7 @@ pub(in crate::app) fn desktop_pet_runtime_activity_line(
 }
 
 fn desktop_pet_session_project_label(
-    session: &codux_runtime::ai_runtime_state::AIRuntimeSessionSummary,
+    session: &wecode_runtime::ai_runtime_state::AIRuntimeSessionSummary,
 ) -> String {
     normalized_desktop_pet_preview(Some(&session.project_name))
         .filter(|name| !name.trim().is_empty())
@@ -305,7 +305,7 @@ fn desktop_pet_session_project_label(
 }
 
 fn desktop_pet_plan_items(
-    session: &codux_runtime::ai_runtime_state::AIRuntimeSessionSummary,
+    session: &wecode_runtime::ai_runtime_state::AIRuntimeSessionSummary,
     now: f64,
 ) -> Option<Vec<DesktopPetPlanItem>> {
     let plan = session.plan.as_ref()?;
@@ -333,7 +333,7 @@ fn desktop_pet_plan_items(
 }
 
 pub(in crate::app) fn desktop_pet_llm_context(
-    runtime: &codux_runtime::ai_runtime_state::AIRuntimeStateSummary,
+    runtime: &wecode_runtime::ai_runtime_state::AIRuntimeStateSummary,
     language: &str,
 ) -> Option<DesktopPetLlmContext> {
     let locale = locale_from_language_setting(language);
@@ -487,7 +487,7 @@ pub(in crate::app) fn desktop_pet_llm_context(
 }
 
 fn desktop_pet_completion_is_visible(
-    session: &codux_runtime::ai_runtime_state::AIRuntimeSessionSummary,
+    session: &wecode_runtime::ai_runtime_state::AIRuntimeSessionSummary,
     now: f64,
     has_running_session: bool,
 ) -> bool {
@@ -813,7 +813,7 @@ pub(in crate::app) fn desktop_pet_sprite(
     sprite_path: ImageSource,
     frame: usize,
     row: usize,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     pet_sprite_element(
         sprite_path,
@@ -1145,8 +1145,8 @@ pub(in crate::app) fn pet_sprite_element(
 mod tests {
     use super::*;
 
-    fn runtime_session(state: &str) -> codux_runtime::ai_runtime_state::AIRuntimeSessionSummary {
-        codux_runtime::ai_runtime_state::AIRuntimeSessionSummary {
+    fn runtime_session(state: &str) -> wecode_runtime::ai_runtime_state::AIRuntimeSessionSummary {
+        wecode_runtime::ai_runtime_state::AIRuntimeSessionSummary {
             terminal_id: "term-a".to_string(),
             project_id: "project-a".to_string(),
             project_path: None,
@@ -1154,7 +1154,7 @@ mod tests {
             ai_session_id: None,
             model: None,
             state: state.to_string(),
-            project_name: "Codux".to_string(),
+            project_name: "WeCode".to_string(),
             session_title: "Session".to_string(),
             started_at: Some(1.0),
             updated_at: 2.0,
@@ -1183,7 +1183,7 @@ mod tests {
     fn runtime_activity_line_uses_running_assistant_preview() {
         let mut session = runtime_session("running");
         session.latest_assistant_preview = Some("Analyzing files\n\nPreparing patch".to_string());
-        let runtime = codux_runtime::ai_runtime_state::AIRuntimeStateSummary {
+        let runtime = wecode_runtime::ai_runtime_state::AIRuntimeStateSummary {
             sessions: vec![session],
             ..Default::default()
         };
@@ -1202,31 +1202,31 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .map(|duration| duration.as_secs_f64())
             .unwrap_or(0.0);
-        session.plan = Some(codux_runtime::ai_runtime::AIPlanSnapshot {
+        session.plan = Some(wecode_runtime::ai_runtime::AIPlanSnapshot {
             source: "codex".to_string(),
             session_id: "session-a".to_string(),
             updated_at: now,
             items: vec![
-                codux_runtime::ai_runtime::AIPlanItem {
+                wecode_runtime::ai_runtime::AIPlanItem {
                     text: "Read logs".to_string(),
                     status: "completed".to_string(),
                     priority: None,
                 },
-                codux_runtime::ai_runtime::AIPlanItem {
+                wecode_runtime::ai_runtime::AIPlanItem {
                     text: "Patch parser".to_string(),
                     status: "in_progress".to_string(),
                     priority: None,
                 },
             ],
         });
-        let runtime = codux_runtime::ai_runtime_state::AIRuntimeStateSummary {
+        let runtime = wecode_runtime::ai_runtime_state::AIRuntimeStateSummary {
             sessions: vec![session],
             ..Default::default()
         };
 
         let line = desktop_pet_runtime_activity_line(&runtime, "english");
 
-        assert!(line.text.contains("Codux"));
+        assert!(line.text.contains("WeCode"));
         assert!(!line.text.contains("codex"));
         assert_eq!(line.tone, DesktopPetActivityTone::Normal);
         assert_eq!(line.plan_items.len(), 2);
@@ -1240,17 +1240,17 @@ mod tests {
     fn runtime_activity_line_ignores_stale_plan() {
         let mut session = runtime_session("running");
         session.latest_assistant_preview = Some("Fallback text".to_string());
-        session.plan = Some(codux_runtime::ai_runtime::AIPlanSnapshot {
+        session.plan = Some(wecode_runtime::ai_runtime::AIPlanSnapshot {
             source: "codex".to_string(),
             session_id: "session-a".to_string(),
             updated_at: 10.0,
-            items: vec![codux_runtime::ai_runtime::AIPlanItem {
+            items: vec![wecode_runtime::ai_runtime::AIPlanItem {
                 text: "Patch parser".to_string(),
                 status: "in_progress".to_string(),
                 priority: None,
             }],
         });
-        let runtime = codux_runtime::ai_runtime_state::AIRuntimeStateSummary {
+        let runtime = wecode_runtime::ai_runtime_state::AIRuntimeStateSummary {
             sessions: vec![session],
             ..Default::default()
         };
@@ -1270,7 +1270,7 @@ mod tests {
         permission.updated_at = 10.0;
         permission.notification_type = Some("PermissionRequest".to_string());
         permission.target_tool_name = Some("Write".to_string());
-        let runtime = codux_runtime::ai_runtime_state::AIRuntimeStateSummary {
+        let runtime = wecode_runtime::ai_runtime_state::AIRuntimeStateSummary {
             sessions: vec![running, permission],
             ..Default::default()
         };
@@ -1286,7 +1286,7 @@ mod tests {
     fn runtime_activity_line_uses_needs_input_message() {
         let mut session = runtime_session("needs-input");
         session.message = Some("Choose an option\n\nthen continue".to_string());
-        let runtime = codux_runtime::ai_runtime_state::AIRuntimeStateSummary {
+        let runtime = wecode_runtime::ai_runtime_state::AIRuntimeStateSummary {
             sessions: vec![session],
             ..Default::default()
         };
@@ -1305,7 +1305,7 @@ mod tests {
             .map(|duration| duration.as_secs_f64())
             .unwrap_or(0.0);
         session.has_completed_turn = true;
-        let runtime = codux_runtime::ai_runtime_state::AIRuntimeStateSummary {
+        let runtime = wecode_runtime::ai_runtime_state::AIRuntimeStateSummary {
             sessions: vec![session],
             ..Default::default()
         };
@@ -1327,7 +1327,7 @@ mod tests {
         let mut running = runtime_session("running");
         running.terminal_id = "term-running".to_string();
         running.updated_at = completed.updated_at + 1.0;
-        let runtime = codux_runtime::ai_runtime_state::AIRuntimeStateSummary {
+        let runtime = wecode_runtime::ai_runtime_state::AIRuntimeStateSummary {
             sessions: vec![completed, running],
             ..Default::default()
         };
@@ -1348,7 +1348,7 @@ mod tests {
             - DESKTOP_PET_COMPLETION_VISIBLE_SECONDS
             - 1.0;
         session.has_completed_turn = true;
-        let runtime = codux_runtime::ai_runtime_state::AIRuntimeStateSummary {
+        let runtime = wecode_runtime::ai_runtime_state::AIRuntimeStateSummary {
             sessions: vec![session],
             ..Default::default()
         };
@@ -1368,7 +1368,7 @@ mod tests {
             .unwrap_or(0.0);
         session.has_completed_turn = true;
         session.was_interrupted = true;
-        let runtime = codux_runtime::ai_runtime_state::AIRuntimeStateSummary {
+        let runtime = wecode_runtime::ai_runtime_state::AIRuntimeStateSummary {
             sessions: vec![session],
             ..Default::default()
         };

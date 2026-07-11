@@ -18,7 +18,7 @@ fn terminal_layout_key_for_element_id(key: &str) -> String {
 }
 
 pub(super) fn terminal_main_split_area(
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     language: &str,
     panes: Vec<TerminalPaneViewSnapshot>,
     layout_key: &str,
@@ -80,7 +80,7 @@ pub(super) fn terminal_main_split_area(
 }
 
 fn terminal_pane_drag_overlay(
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     split_tree: TerminalSplitNode,
     pane_count: usize,
     pane_drop_preview: Option<TerminalPaneDropPreview>,
@@ -253,7 +253,7 @@ fn terminal_pane_rect_in_node(
             ratios,
             children,
         } => {
-            let ratios = codux_runtime::terminal_layout::normalize_split_ratios(
+            let ratios = wecode_runtime::terminal_layout::normalize_split_ratios(
                 ratios.clone(),
                 children.len(),
             );
@@ -357,7 +357,7 @@ fn terminal_pane_drop_target_in_node(
             ratios,
             children,
         } => {
-            let ratios = codux_runtime::terminal_layout::normalize_split_ratios(
+            let ratios = wecode_runtime::terminal_layout::normalize_split_ratios(
                 ratios.clone(),
                 children.len(),
             );
@@ -396,7 +396,7 @@ fn terminal_pane_drop_target_in_node(
 }
 
 fn terminal_split_node_element(
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     layout_key: &str,
     language: &str,
     panes: Vec<TerminalPaneViewSnapshot>,
@@ -442,7 +442,7 @@ fn terminal_split_node_element(
             let resize_app_entity = app_entity.clone();
             let resize_layout_key = layout_key.to_string();
             let resize_path = path.clone();
-            let ratios = codux_runtime::terminal_layout::normalize_split_ratios(
+            let ratios = wecode_runtime::terminal_layout::normalize_split_ratios(
                 ratios.clone(),
                 children.len(),
             );
@@ -570,7 +570,7 @@ fn terminal_top_ratios_from_sizes(sizes: &[Pixels]) -> Option<Vec<f64>> {
 }
 
 fn terminal_pane(
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     index: usize,
     language: &str,
     pane_count: usize,
@@ -697,7 +697,7 @@ fn terminal_pane(
                             "terminal.split.close",
                             "Close Split",
                         )),
-                        pane_count > 1,
+                        true,
                         cx,
                         move |app, window, cx| app.close_terminal_pane(index, window, cx),
                     )),
@@ -746,7 +746,7 @@ fn terminal_pane(
 }
 
 fn terminal_pane_drag_handle(
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     pane_index: usize,
     cx: &mut Context<TerminalWorkspaceView>,
 ) -> AnyElement {
@@ -789,7 +789,7 @@ fn terminal_pane_drag_handle(
         })
         .child(drag_icon)
         .map(|this| {
-            codux_tooltip_container(
+            wecode_tooltip_container(
                 app_entity,
                 SharedString::from(format!("terminal-pane-drag-tooltip-{pane_index}")),
                 "拖动分屏",
@@ -800,7 +800,7 @@ fn terminal_pane_drag_handle(
 }
 
 fn terminal_pane_split_button(
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     id: SharedString,
     pane_index: usize,
     open_split_menu_pane: Option<usize>,
@@ -860,7 +860,7 @@ fn terminal_pane_split_button(
             // Icon-only grid: row 1 = split inside the current pane (dashed
             // frame), row 2 = split the whole layout (solid frame, edge slice).
             let row = |scope: TerminalSplitScope,
-                       app_entity: &gpui::Entity<CoduxApp>,
+                       app_entity: &gpui::Entity<WeCodeApp>,
                        view: &gpui::Entity<TerminalWorkspaceView>| {
                 div()
                     .flex()
@@ -909,7 +909,7 @@ fn split_menu_hover_listener(
 }
 
 fn terminal_split_direction_menu_button(
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     view: gpui::Entity<TerminalWorkspaceView>,
     pane_index: usize,
     direction: TerminalSplitDirection,
@@ -1020,7 +1020,7 @@ fn terminal_split_direction_icon(
 }
 
 fn terminal_pane_agent_button(
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     id: SharedString,
     language: &str,
     enabled: bool,
@@ -1054,6 +1054,11 @@ fn terminal_pane_agent_button(
         .h(px(28.0))
         .w(px(30.0))
         .disabled(!enabled)
+        .tooltip(workspace_i18n(
+            language,
+            "terminal.agent.switch_current",
+            "Switch AI tool in current terminal",
+        ))
         .text_color(text_color)
         .child(
             Icon::new(HeroIconName::Sparkles)
@@ -1164,7 +1169,7 @@ fn terminal_pane_agent_button(
 }
 
 fn quick_agent_menu_item(
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     label: &'static str,
     icon: HeroIconName,
     target: &'static str,
@@ -1179,13 +1184,13 @@ fn quick_agent_menu_item(
 }
 
 fn terminal_pane_control_button(
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     id: SharedString,
     icon: HeroIconName,
     tooltip: SharedString,
     enabled: bool,
     cx: &mut Context<TerminalWorkspaceView>,
-    on_click: impl Fn(&mut CoduxApp, &mut Window, &mut Context<CoduxApp>) + 'static,
+    on_click: impl Fn(&mut WeCodeApp, &mut Window, &mut Context<WeCodeApp>) + 'static,
 ) -> AnyElement {
     let text_color = if enabled {
         cx.theme().secondary_foreground
@@ -1204,7 +1209,7 @@ fn terminal_pane_control_button(
     } else {
         inner
     };
-    let button = codux_tooltip_container(app_entity.clone(), id, tooltip)
+    let button = wecode_tooltip_container(app_entity.clone(), id, tooltip)
         .size(px(28.0))
         .flex()
         .flex_none()
@@ -1235,10 +1240,10 @@ fn terminal_pane_control_button(
 }
 
 fn defer_terminal_workspace_app_update(
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     window: &mut Window,
     cx: &mut Context<TerminalWorkspaceView>,
-    update: impl FnOnce(&mut CoduxApp, &mut Window, &mut Context<CoduxApp>) + 'static,
+    update: impl FnOnce(&mut WeCodeApp, &mut Window, &mut Context<WeCodeApp>) + 'static,
 ) {
-    defer_codux_app_update(app_entity, window, cx, update);
+    defer_wecode_app_update(app_entity, window, cx, update);
 }

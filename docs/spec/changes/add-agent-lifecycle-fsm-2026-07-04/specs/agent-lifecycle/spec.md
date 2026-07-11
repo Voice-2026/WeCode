@@ -49,7 +49,7 @@ All other (state, input) pairs SHALL be no-ops.
 - **THEN** the state SHALL transition to `Completed`
 
 ### Requirement: Session State Mapping
-The system SHALL map the desktop session summary `AIRuntimeSessionSummary.state` string to an `AgentLifecycleInput` event so the FSM can consume existing runtime data without new IPC. The desktop does NOT see the raw runtime states: `summary_from_runtime_snapshot` re-maps them via `runtime_snapshot_session_state` (`crates/codux-runtime-live/src/ai_runtime_state.rs`) to the summary domain `"running"`, `"needs-input"`, `"completed"`, `"idle"` (raw `"responding"` → `"running"`, raw `"needsInput"` or a pending notification → `"needs-input"`, completed turn while not running → `"completed"`). The mapping SHALL cover both domains for robustness:
+The system SHALL map the desktop session summary `AIRuntimeSessionSummary.state` string to an `AgentLifecycleInput` event so the FSM can consume existing runtime data without new IPC. The desktop does NOT see the raw runtime states: `summary_from_runtime_snapshot` re-maps them via `runtime_snapshot_session_state` (`crates/wecode-runtime-live/src/ai_runtime_state.rs`) to the summary domain `"running"`, `"needs-input"`, `"completed"`, `"idle"` (raw `"responding"` → `"running"`, raw `"needsInput"` or a pending notification → `"needs-input"`, completed turn while not running → `"completed"`). The mapping SHALL cover both domains for robustness:
 - `"running"` or raw `"responding"` → `Busy`
 - `"needs-input"` or raw `"needsInput"` → `Prompt`
 - `"idle"` → `Settle`

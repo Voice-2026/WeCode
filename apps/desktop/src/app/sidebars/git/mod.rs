@@ -1,8 +1,7 @@
 use super::*;
 use crate::app::quick_input::show_quick_input;
 use crate::app::quick_pick::{QuickPickItem, show_quick_pick};
-use crate::app::ui_helpers::codux_tooltip_container;
-use codux_runtime::git::{GitReviewFile, GitStashSummary};
+use crate::app::ui_helpers::wecode_tooltip_container;
 use gpui::{ClickEvent, Div, ListSizingBehavior, Pixels, Stateful};
 use gpui_component::{
     Size,
@@ -10,6 +9,7 @@ use gpui_component::{
     progress::Progress,
 };
 use std::ops::Range;
+use wecode_runtime::git::{GitReviewFile, GitStashSummary};
 
 mod branch_menu;
 mod clone_ui;
@@ -51,7 +51,7 @@ pub(in crate::app) struct GitFilesPanelSnapshot {
 }
 
 pub(in crate::app) struct GitFilesPanelView {
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     snapshot: GitFilesPanelSnapshot,
 }
 
@@ -120,7 +120,7 @@ pub(in crate::app) struct GitHistoryPanelSnapshot {
 }
 
 pub(in crate::app) struct GitHistoryPanelView {
-    app_entity: gpui::Entity<CoduxApp>,
+    app_entity: gpui::Entity<WeCodeApp>,
     snapshot: GitHistoryPanelSnapshot,
 }
 
@@ -150,7 +150,7 @@ impl Render for GitHistoryPanelView {
     }
 }
 
-impl CoduxApp {
+impl WeCodeApp {
     pub(in crate::app) fn git_files_panel_view(
         &mut self,
         cx: &mut Context<Self>,

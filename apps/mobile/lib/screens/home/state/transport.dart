@@ -1,10 +1,10 @@
 part of '../home_page.dart';
 
-/// Transport state-machine handling for [_CoduxHomePageState]: connection
+/// Transport state-machine handling for [_WeCodeHomePageState]: connection
 /// state transitions, latency-state updates, queued/closed envelopes and
 /// transport teardown. Split into a part + extension to keep the State class
 /// navigable; behaviour is unchanged. Rebuilds route through
-/// [_CoduxHomePageState._applyState] (`setState` is `@protected`).
+/// [_WeCodeHomePageState._applyState] (`setState` is `@protected`).
 extension _HomePageTransport on HomeController {
   void _handleTransportState(String rawState) {
     final event = RemoteTransportStateEvent.parse(rawState);
@@ -15,10 +15,10 @@ extension _HomePageTransport on HomeController {
       _handleTransportLatencyState(detail);
       return;
     }
-    CoduxLog.info(
+    WeCodeLog.info(
       detail.isEmpty
-          ? '[codux-flutter-remote] state=$state'
-          : '[codux-flutter-remote] state=$state detail=$detail',
+          ? '[wecode-flutter-remote] state=$state'
+          : '[wecode-flutter-remote] state=$state detail=$detail',
     );
     if (!mounted || _disposing) return;
     if (event.isPathUpdate) {
@@ -98,8 +98,8 @@ extension _HomePageTransport on HomeController {
     if (rttValue != null) {
       final nextLatency = int.tryParse(rttValue);
       if (nextLatency == null) return;
-      CoduxLog.debug(
-        '[codux-flutter-remote] route rtt=${nextLatency}ms path=$_connectionPath',
+      WeCodeLog.debug(
+        '[wecode-flutter-remote] route rtt=${nextLatency}ms path=$_connectionPath',
       );
       if (_latencyMs != nextLatency) {
         _applyState(() => _latencyMs = nextLatency);
@@ -107,8 +107,8 @@ extension _HomePageTransport on HomeController {
       return;
     }
     if (timeoutValue != null || detail == 'lost') {
-      CoduxLog.warn(
-        '[codux-flutter-remote] latency ${detail.isEmpty ? 'timeout' : detail}',
+      WeCodeLog.warn(
+        '[wecode-flutter-remote] latency ${detail.isEmpty ? 'timeout' : detail}',
       );
       if (detail == 'lost') {
         if (_latencyMs != null) _applyState(() => _latencyMs = null);
@@ -125,8 +125,8 @@ extension _HomePageTransport on HomeController {
     required int generation,
     required RemoteTransport transport,
   }) {
-    CoduxLog.debug(
-      '[codux-flutter-remote] envelope type=${message.type} session=${message.sessionId ?? ''}',
+    WeCodeLog.debug(
+      '[wecode-flutter-remote] envelope type=${message.type} session=${message.sessionId ?? ''}',
     );
     final target = _activeDevice;
     if (target == null) return;
@@ -136,14 +136,14 @@ extension _HomePageTransport on HomeController {
         .then((_) {
           if (generation != _transportGeneration ||
               !identical(_activeTransport, transport)) {
-            CoduxLog.debug(
-              '[codux-flutter-remote] drop stale queued envelope gen=$generation current=$_transportGeneration type=${message.type} session=${message.sessionId ?? ''}',
+            WeCodeLog.debug(
+              '[wecode-flutter-remote] drop stale queued envelope gen=$generation current=$_transportGeneration type=${message.type} session=${message.sessionId ?? ''}',
             );
             return Future<void>.value();
           }
           if (runtimeEpoch != _remoteRuntimeEpoch) {
-            CoduxLog.debug(
-              '[codux-flutter-remote] drop stale envelope epoch=$runtimeEpoch current=$_remoteRuntimeEpoch type=${message.type} session=${message.sessionId ?? ''}',
+            WeCodeLog.debug(
+              '[wecode-flutter-remote] drop stale envelope epoch=$runtimeEpoch current=$_remoteRuntimeEpoch type=${message.type} session=${message.sessionId ?? ''}',
             );
             return Future<void>.value();
           }
@@ -156,7 +156,7 @@ extension _HomePageTransport on HomeController {
           );
         })
         .catchError((Object error) {
-          CoduxLog.error('[codux-flutter-remote] receive queue failed: $error');
+          WeCodeLog.error('[wecode-flutter-remote] receive queue failed: $error');
         });
     _receiveChain = task;
   }

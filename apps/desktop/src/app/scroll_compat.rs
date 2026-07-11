@@ -11,7 +11,7 @@ use gpui_component::{
     scroll::{Scrollbar, ScrollbarAxis, ScrollbarHandle, ScrollbarShow},
 };
 
-pub(super) fn codux_uniform_list<V, T, F>(
+pub(super) fn wecode_uniform_list<V, T, F>(
     id: &'static str,
     rows: Rc<Vec<T>>,
     scroll_handle: UniformListScrollHandle,
@@ -24,7 +24,7 @@ where
     T: Clone + 'static,
     F: Fn(T, usize, &mut Window, &mut Context<V>) -> AnyElement + 'static,
 {
-    codux_uniform_list_with_sizing(
+    wecode_uniform_list_with_sizing(
         id,
         rows,
         scroll_handle,
@@ -35,7 +35,7 @@ where
     )
 }
 
-pub(super) fn codux_uniform_list_with_sizing<V, T, F>(
+pub(super) fn wecode_uniform_list_with_sizing<V, T, F>(
     id: &'static str,
     rows: Rc<Vec<T>>,
     scroll_handle: UniformListScrollHandle,

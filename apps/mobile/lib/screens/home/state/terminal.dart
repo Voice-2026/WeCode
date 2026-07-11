@@ -2,11 +2,11 @@ part of '../home_page.dart';
 
 const int _terminalStaleOutputSeqTolerance = 8;
 
-/// Terminal session handling for [_CoduxHomePageState]: output/upload
+/// Terminal session handling for [_WeCodeHomePageState]: output/upload
 /// effects, buffer-resync bookkeeping, viewport claim/release, resize, input
 /// send, and terminal create/lookup. Split into a part + extension to keep the
 /// State class navigable; behaviour is unchanged. Rebuilds route through
-/// [_CoduxHomePageState._applyState] (`setState` is `@protected`).
+/// [_WeCodeHomePageState._applyState] (`setState` is `@protected`).
 extension _HomePageTerminal on HomeController {
   void _handleTerminalViewportState(RelayEnvelope message) {
     final sessionId = message.sessionId?.trim();
@@ -207,8 +207,8 @@ extension _HomePageTerminal on HomeController {
     if (sessionId != _sessionId) return;
     if (_terminalOutputController.hasActiveBufferRequest(sessionId)) return;
     if (!_terminalBaselineResyncAllowed(sessionId)) return;
-    CoduxLog.warn(
-      '[codux-flutter-terminal] sequence gap resync session=$sessionId',
+    WeCodeLog.warn(
+      '[wecode-flutter-terminal] sequence gap resync session=$sessionId',
     );
     final requested = _terminalBindingCoordinator.subscribeSessionBaseline(
       sessionId: sessionId,
@@ -300,7 +300,7 @@ extension _HomePageTerminal on HomeController {
 
   bool _retryTerminalBaseline(String sessionId) {
     if (!mounted || _sessionId != sessionId) return false;
-    CoduxLog.info('[codux-flutter-terminal] baseline retry session=$sessionId');
+    WeCodeLog.info('[wecode-flutter-terminal] baseline retry session=$sessionId');
     return _terminalBindingCoordinator.subscribeSessionBaseline(
       sessionId: sessionId,
       reason: 'baseline-retry',
@@ -356,8 +356,8 @@ extension _HomePageTerminal on HomeController {
     if (_terminalBufferLoading && mounted) {
       _applyState(() => _setTerminalBufferLoading(false));
     }
-    CoduxLog.info(
-      '[codux-flutter-terminal] terminal.buffer received session=${sessionId ?? ''}',
+    WeCodeLog.info(
+      '[wecode-flutter-terminal] terminal.buffer received session=${sessionId ?? ''}',
     );
     if (sessionId != null) {
       _closeTerminalSwitcherAfterPendingWorktreeBuffer(sessionId);
@@ -431,13 +431,13 @@ extension _HomePageTerminal on HomeController {
     final terminal = _terminalById(id);
     if (!_canResizeTerminal(terminal)) return;
     if (resize == null) {
-      CoduxLog.debug(
-        '[codux-flutter-terminal] resize skip duplicate measured=${cols}x$rows keyboard=$_keyboardVisible session=$id',
+      WeCodeLog.debug(
+        '[wecode-flutter-terminal] resize skip duplicate measured=${cols}x$rows keyboard=$_keyboardVisible session=$id',
       );
       return;
     }
-    CoduxLog.info(
-      '[codux-flutter-terminal] send viewport.resize size=${resize.cols}x${resize.rows} measured=${cols}x$rows keyboard=$_keyboardVisible session=$id',
+    WeCodeLog.info(
+      '[wecode-flutter-terminal] send viewport.resize size=${resize.cols}x${resize.rows} measured=${cols}x$rows keyboard=$_keyboardVisible session=$id',
     );
     _sendTerminalEnvelope(
       RelayEnvelope(
@@ -463,8 +463,8 @@ extension _HomePageTerminal on HomeController {
       force: force,
     );
     if (resize == null) return;
-    CoduxLog.info(
-      '[codux-flutter-terminal] flush viewport.resize size=${resize.cols}x${resize.rows} force=$force session=$id',
+    WeCodeLog.info(
+      '[wecode-flutter-terminal] flush viewport.resize size=${resize.cols}x${resize.rows} force=$force session=$id',
     );
     _sendTerminalEnvelope(
       RelayEnvelope(
@@ -564,7 +564,7 @@ extension _HomePageTerminal on HomeController {
     if (text.isEmpty) return;
     _terminalInputBatcher.flush();
     _sendInputNow(
-      codux_terminal_core.terminalInsertInput(text),
+      wecode_terminal_core.terminalInsertInput(text),
       source: 'insert',
     );
   }
@@ -573,8 +573,8 @@ extension _HomePageTerminal on HomeController {
     if (data.isEmpty) return;
     var id = _sessionId;
     if (id == null) {
-      CoduxLog.debug(
-        '[codux-flutter-input] no session, ensure terminal before input',
+      WeCodeLog.debug(
+        '[wecode-flutter-input] no session, ensure terminal before input',
       );
       _ensureTerminalForSelectedProject();
       id = _sessionId;
@@ -715,8 +715,8 @@ extension _HomePageTerminal on HomeController {
     if (sessionId == null || sessionId.isEmpty) return message;
     final scope = _terminalScopeForSession(sessionId, terminal: terminal);
     if (scope == null) {
-      CoduxLog.warn(
-        '[codux-flutter-terminal] drop ${message.type} reason=missing-scope session=$sessionId',
+      WeCodeLog.warn(
+        '[wecode-flutter-terminal] drop ${message.type} reason=missing-scope session=$sessionId',
       );
       return null;
     }

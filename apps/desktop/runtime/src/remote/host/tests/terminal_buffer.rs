@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn remote_terminal_output_sequence_is_session_scoped() {
-    let support_dir = temp_support_dir("codux-remote-terminal-output-seq");
+    let support_dir = temp_support_dir("wecode-remote-terminal-output-seq");
     let runtime = RemoteHostRuntime::new(support_dir.clone());
 
     assert_eq!(runtime.current_terminal_output_seq("terminal-a"), 0);
@@ -21,7 +21,7 @@ fn remote_terminal_output_sequence_is_session_scoped() {
 
 #[test]
 fn remote_terminal_buffer_window_returns_retained_history_window() {
-    let support_dir = temp_support_dir("codux-remote-terminal-buffer-window");
+    let support_dir = temp_support_dir("wecode-remote-terminal-buffer-window");
     let terminals = Arc::new(TerminalManager::new());
     let runtime = RemoteHostRuntime::new_with_ai_history_and_terminals(
         support_dir.clone(),
@@ -72,7 +72,7 @@ fn remote_terminal_buffer_window_returns_retained_history_window() {
 
 #[test]
 fn remote_terminal_buffer_window_freezes_pages_for_request_id() {
-    let support_dir = temp_support_dir("codux-remote-terminal-buffer-frozen-pages");
+    let support_dir = temp_support_dir("wecode-remote-terminal-buffer-frozen-pages");
     let terminals = Arc::new(TerminalManager::new());
     let runtime = RemoteHostRuntime::new_with_ai_history_and_terminals(
         support_dir.clone(),
@@ -147,7 +147,7 @@ fn remote_terminal_buffer_window_freezes_pages_for_request_id() {
 
 #[test]
 fn remote_terminal_buffer_window_tail_returns_history_tail() {
-    let support_dir = temp_support_dir("codux-remote-terminal-buffer-tail-window");
+    let support_dir = temp_support_dir("wecode-remote-terminal-buffer-tail-window");
     let terminals = Arc::new(TerminalManager::new());
     let runtime = RemoteHostRuntime::new_with_ai_history_and_terminals(
         support_dir.clone(),
@@ -198,7 +198,7 @@ fn remote_terminal_buffer_window_tail_ships_keyframe_for_normal_screen() {
     // keyframe; its home+2J wipe replaces the tail's on-screen result, and
     // since the single-owner grid model viewers render the host grid 1:1, so
     // the keyframe cannot land at reflowed rows (the old ghost-prompt bug).
-    let support_dir = temp_support_dir("codux-remote-terminal-buffer-screen-baseline");
+    let support_dir = temp_support_dir("wecode-remote-terminal-buffer-screen-baseline");
     let terminals = Arc::new(TerminalManager::new());
     let runtime = RemoteHostRuntime::new_with_ai_history_and_terminals(
         support_dir.clone(),
@@ -246,7 +246,7 @@ fn remote_terminal_buffer_window_tail_ships_keyframe_for_normal_screen() {
 
 #[test]
 fn remote_terminal_buffer_window_tail_includes_target_viewport_keyframe() {
-    let support_dir = temp_support_dir("codux-remote-terminal-buffer-viewport-keyframe");
+    let support_dir = temp_support_dir("wecode-remote-terminal-buffer-viewport-keyframe");
     write_paired_remote_settings(&support_dir);
     let terminals = Arc::new(TerminalManager::new());
     let runtime = Arc::new(RemoteHostRuntime::new_with_ai_history_and_terminals(
@@ -333,7 +333,7 @@ fn terminal_resource_subscribe_baseline_keyframe_for_alt_screen() {
     // reconstruct an alt-screen TUI from the raw history alone -- the baseline
     // MUST carry the screen keyframe. (Normal screens ship it too; see
     // remote_terminal_buffer_window_tail_ships_keyframe_for_normal_screen.)
-    let support_dir = temp_support_dir("codux-resource-subscribe-terminal-screen-baseline");
+    let support_dir = temp_support_dir("wecode-resource-subscribe-terminal-screen-baseline");
     write_paired_remote_settings(&support_dir);
     let terminals = Arc::new(TerminalManager::new());
     let runtime = Arc::new(RemoteHostRuntime::new_with_ai_history_and_terminals(
@@ -421,7 +421,7 @@ fn terminal_resource_subscribe_baseline_keyframe_for_alt_screen() {
 
 #[test]
 fn remote_terminal_live_output_is_data_only_without_screen_keyframe() {
-    let support_dir = temp_support_dir("codux-remote-terminal-live-screen-keyframe");
+    let support_dir = temp_support_dir("wecode-remote-terminal-live-screen-keyframe");
     write_paired_remote_settings(&support_dir);
     let terminals = Arc::new(TerminalManager::new());
     let runtime = Arc::new(RemoteHostRuntime::new_with_ai_history_and_terminals(
@@ -493,7 +493,7 @@ fn remote_terminal_live_output_is_data_only_without_screen_keyframe() {
 
 #[test]
 fn terminal_buffer_request_does_not_resize_remote_pty() {
-    let support_dir = temp_support_dir("codux-remote-terminal-buffer-readonly");
+    let support_dir = temp_support_dir("wecode-remote-terminal-buffer-readonly");
     let terminals = Arc::new(TerminalManager::new());
     let runtime = Arc::new(RemoteHostRuntime::new_with_ai_history_and_terminals(
         support_dir.clone(),
@@ -539,7 +539,7 @@ fn terminal_buffer_request_does_not_resize_remote_pty() {
 
 #[test]
 fn terminal_subscribe_does_not_push_screen_keyframe() {
-    let support_dir = temp_support_dir("codux-remote-terminal-subscribe-keyframe");
+    let support_dir = temp_support_dir("wecode-remote-terminal-subscribe-keyframe");
     write_paired_remote_settings(&support_dir);
     let terminals = Arc::new(TerminalManager::new());
     let runtime = Arc::new(RemoteHostRuntime::new_with_ai_history_and_terminals(

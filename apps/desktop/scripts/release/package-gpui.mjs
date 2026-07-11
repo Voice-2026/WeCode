@@ -10,9 +10,9 @@ import { spawnSync } from "node:child_process";
 const root = process.cwd();
 const desktopRoot = path.join(root, "apps", "desktop");
 const desktopAssetsRoot = path.join(desktopRoot, "runtime-assets");
-const appName = process.env.CODUX_APP_NAME || "Codux";
-const bundleId = process.env.CODUX_BUNDLE_ID || "com.duxweb.codux";
-const binaryName = process.env.CODUX_BINARY_NAME || "codux";
+const appName = process.env.WECODE_APP_NAME || "WeCode";
+const bundleId = process.env.WECODE_BUNDLE_ID || "com.duxweb.wecode";
+const binaryName = process.env.WECODE_BINARY_NAME || "wecode";
 const buildId = process.env.RELEASE_BUILD_ID || `${process.platform}-${process.arch}`;
 const target = process.env.CARGO_BUILD_TARGET || "";
 const profile = process.env.CARGO_PROFILE || "release";
@@ -28,7 +28,7 @@ const writeStableAlias = !artifactSuffix && process.env.RELEASE_WRITE_STABLE_ALI
 fs.rmSync(outputDir, { recursive: true, force: true });
 fs.mkdirSync(outputDir, { recursive: true });
 
-if (process.env.CODUX_PACKAGE_GPUI_TEST_MODE !== "true") {
+if (process.env.WECODE_PACKAGE_GPUI_TEST_MODE !== "true") {
   if (process.platform === "darwin") {
     packageMacos();
   } else if (process.platform === "win32") {
@@ -78,7 +78,7 @@ function packageMacos() {
 }
 
 function createMacosDmg(appDir, dmgPath) {
-  withTempDir("codux-dmg-", (tempDir) => {
+  withTempDir("wecode-dmg-", (tempDir) => {
     run("npx", [
       "--yes",
       "create-dmg@8.1.0",
@@ -154,8 +154,8 @@ function appleNotaryConfigured() {
 
 function packageWindows() {
   const exePath = releaseBinaryPath(".exe");
-  const helperPath = releaseBinaryPath(".exe", "codux-wrapper-helper");
-  withTempDir("codux-windows-", (tempDir) => {
+  const helperPath = releaseBinaryPath(".exe", "wecode-wrapper-helper");
+  withTempDir("wecode-windows-", (tempDir) => {
     const packageDir = path.join(tempDir, appName);
     fs.mkdirSync(packageDir, { recursive: true });
     fs.copyFileSync(exePath, path.join(packageDir, `${appName}.exe`));
@@ -163,11 +163,11 @@ function packageWindows() {
     stageRuntimeAssets(path.join(packageDir, "runtime-root"));
     fs.copyFileSync(
       helperPath,
-      path.join(packageDir, "runtime-root", "scripts", "wrappers", "codux-wrapper-helper.exe"),
+      path.join(packageDir, "runtime-root", "scripts", "wrappers", "wecode-wrapper-helper.exe"),
     );
-    if (process.env.CODUX_TEST_PACKAGE_DIR) {
-      fs.rmSync(process.env.CODUX_TEST_PACKAGE_DIR, { recursive: true, force: true });
-      fs.cpSync(packageDir, process.env.CODUX_TEST_PACKAGE_DIR, {
+    if (process.env.WECODE_TEST_PACKAGE_DIR) {
+      fs.rmSync(process.env.WECODE_TEST_PACKAGE_DIR, { recursive: true, force: true });
+      fs.cpSync(packageDir, process.env.WECODE_TEST_PACKAGE_DIR, {
         recursive: true,
         dereference: true,
       });
@@ -177,7 +177,7 @@ function packageWindows() {
     const installerPath = path.join(outputDir, `${artifactBaseName("windows")}-setup.exe`);
     // BOM so makensis reads the localized LangStrings as UTF-8.
     fs.writeFileSync(installerScriptPath, "\ufeff" + windowsNsisScript(packageDir, installerPath), "utf8");
-    if (process.env.CODUX_TEST_SKIP_MAKENSIS === "true") {
+    if (process.env.WECODE_TEST_SKIP_MAKENSIS === "true") {
       fs.writeFileSync(installerPath, "");
     } else {
       run(windowsMakensisCommand(), [installerScriptPath]);
@@ -192,7 +192,7 @@ function packageGenericUnix() {
   const binaryPath = releaseBinaryPath("");
   const packageDir = path.join(outputDir, appName);
   fs.mkdirSync(packageDir, { recursive: true });
-  fs.copyFileSync(binaryPath, path.join(packageDir, "codux"));
+  fs.copyFileSync(binaryPath, path.join(packageDir, "wecode"));
   stageRuntimeAssets(path.join(packageDir, "runtime-root"));
   const tarPath = path.join(outputDir, `${artifactBaseName("linux")}.tar.gz`);
   run("tar", ["-czf", tarPath, "-C", outputDir, appName]);
@@ -249,13 +249,13 @@ function assertRuntimeBootstrapAssets(runtimeRoot) {
     "scripts/shell-hooks/zsh/.zshrc",
     "scripts/wrappers/tool-wrapper.sh",
     "scripts/wrappers/dmux-ai-state.sh",
-    "scripts/wrappers/codux-ssh.ps1",
-    "scripts/wrappers/codux-db.ps1",
+    "scripts/wrappers/wecode-ssh.ps1",
+    "scripts/wrappers/wecode-db.ps1",
     "scripts/wrappers/bin/codex",
-    "scripts/wrappers/bin/codux-ssh",
-    "scripts/wrappers/bin/codux-ssh.ps1",
-    "scripts/wrappers/bin/codux-db",
-    "scripts/wrappers/bin/codux-db.ps1",
+    "scripts/wrappers/bin/wecode-ssh",
+    "scripts/wrappers/bin/wecode-ssh.ps1",
+    "scripts/wrappers/bin/wecode-db",
+    "scripts/wrappers/bin/wecode-db.ps1",
   ];
   const missing = required.filter((relativePath) => !fs.existsSync(path.join(runtimeRoot, relativePath)));
   if (missing.length > 0) {
@@ -264,7 +264,7 @@ function assertRuntimeBootstrapAssets(runtimeRoot) {
 }
 
 function releaseBinaryPath(extension, name = binaryName) {
-  const releaseBinaryOverrideDir = process.env.CODUX_RELEASE_BINARY_DIR?.trim() || "";
+  const releaseBinaryOverrideDir = process.env.WECODE_RELEASE_BINARY_DIR?.trim() || "";
   if (releaseBinaryOverrideDir) {
     const binaryPath = path.join(releaseBinaryOverrideDir, `${name}${extension}`);
     if (!fs.existsSync(binaryPath)) {
@@ -285,11 +285,11 @@ function releaseBinaryPath(extension, name = binaryName) {
 function artifactBaseName(platform) {
   const version = readCargoVersion();
   const arch = targetArchLabel();
-  return `codux-${version}-${platform}-${arch}${artifactSuffix}`;
+  return `wecode-${version}-${platform}-${arch}${artifactSuffix}`;
 }
 
 function stableArtifactBaseName(platform) {
-  return `codux-${platform}-${targetArchLabel()}`;
+  return `wecode-${platform}-${targetArchLabel()}`;
 }
 
 function writeStableAliasCopy(sourcePath, stableName) {
@@ -485,7 +485,7 @@ Function .onInstSuccess
   Exec '"$INSTDIR\\${escapeNsis(appName)}.exe"'
 FunctionEnd
 
-Function EnsureCoduxCanBeUpdated
+Function EnsureWeCodeCanBeUpdated
   StrCpy $1 0
   check:
   IfFileExists "$INSTDIR\\${escapeNsis(appName)}.exe" 0 done
@@ -510,7 +510,7 @@ Function EnsureCoduxCanBeUpdated
 FunctionEnd
 
 Section "Install"
-  Call EnsureCoduxCanBeUpdated
+  Call EnsureWeCodeCanBeUpdated
   SetOutPath "$INSTDIR"
   File /r "${escapeNsis(packageDir)}\\*"
   CreateDirectory "$SMPROGRAMS\\${escapeNsis(appName)}"

@@ -7,7 +7,7 @@ pub(super) fn git_panel_header(
     default_push_remote: Option<&str>,
     language: &str,
     running_operation: Option<&GitRunningOperation>,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let branches = git.branches.clone();
     let remote_branches = git.remote_branches.clone();
@@ -140,7 +140,7 @@ pub(super) fn git_repository_panel(
     files_panel_view: gpui::Entity<GitFilesPanelView>,
     history_panel_view: gpui::Entity<GitHistoryPanelView>,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     div()
         .flex()
@@ -175,7 +175,7 @@ pub(super) fn git_commit_panel(
     commit_message_revision: u64,
     labels: Rc<GitSidebarLabels>,
     window: &mut Window,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let button_bg = color(theme::ACCENT).opacity(0.70);
     let app_entity = cx.entity();
@@ -323,7 +323,7 @@ pub(super) fn git_files_panel(
     selected_files: &HashSet<String>,
     labels: Rc<GitSidebarLabels>,
     scroll_handle: VirtualListScrollHandle,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let rows = Rc::new(git_status_virtual_rows(
         staged,
