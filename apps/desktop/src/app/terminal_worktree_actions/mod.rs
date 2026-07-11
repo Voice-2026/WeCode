@@ -9,4 +9,6 @@ mod worktree_actions;
 
 #[cfg(test)]
 pub(in crate::app) use terminal_layout::restored_live_active_terminal_id;
-pub(in crate::app) use terminal_layout::{TerminalLayoutSnapshot, active_terminal_slot_indices};
+pub(in crate::app) use terminal_layout::{
+    TerminalLayoutSnapshot, active_terminal_slot_indices, terminal_runtime_summary_from_inputs,
+};

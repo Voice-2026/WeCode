@@ -461,6 +461,10 @@ impl CoduxApp {
             active_tab,
             active_editor,
             active_loading,
+            markdown_preview: self
+                .active_file_editor_tab
+                .as_ref()
+                .is_some_and(|path| self.file_editor_markdown_preview_paths.contains(path)),
             split_active: self.workspace_view == WorkspaceView::Terminal
                 && self.workspace_split == Some(WorkspaceSplitKind::FileEditor),
         }

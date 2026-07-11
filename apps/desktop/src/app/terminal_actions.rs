@@ -198,6 +198,8 @@ impl CoduxApp {
                 title: pane.title.clone(),
                 restored_output_bytes: 0,
                 restored_output_tail: String::new(),
+                restore_command: None,
+                restore_env: None,
             };
             let Some(pane_terminal_id) =
                 terminal_pane_terminal_id(Some(&launch_context), &pane_plan)
@@ -225,6 +227,8 @@ impl CoduxApp {
                     pane: Some(terminal_pane),
                     restored_output_bytes: 0,
                     restored_output_tail: String::new(),
+                    restore_command: None,
+                    restore_env: None,
                 });
             }
             pending.push((pty_config, attach));
@@ -380,6 +384,8 @@ impl CoduxApp {
             title: title.clone(),
             restored_output_bytes: 0,
             restored_output_tail: String::new(),
+            restore_command: None,
+            restore_env: None,
         };
         let pane_terminal_id = terminal_pane_terminal_id(launch_context.as_ref(), &pane_plan);
         let pty_config = terminal_pty_config_for_terminal_id(
@@ -405,6 +411,8 @@ impl CoduxApp {
                     pane: Some(terminal),
                     restored_output_bytes: 0,
                     restored_output_tail: String::new(),
+                    restore_command: None,
+                    restore_env: None,
                 },
             );
         }
@@ -438,6 +446,109 @@ impl CoduxApp {
         self.refresh_terminal_slot_snapshots();
         self.sync_terminal_state_after_layout_change(cx);
         self.status_message = "terminal panes swapped".to_string();
+        self.invalidate_terminal_workspace(cx);
+    }
+
+    pub(in crate::app) fn move_terminal_top_pane(
+        &mut self,
+        from_index: usize,
+        target_index: usize,
+        direction: TerminalSplitDirection,
+        cx: &mut Context<Self>,
+    ) {
+        let pane_count = self.main_terminal().map(|tab| tab.panes.len()).unwrap_or(0);
+        if pane_count <= 1
+            || from_index >= pane_count
+            || target_index >= pane_count
+            || from_index == target_index
+        {
+            return;
+        }
+        let top_ratios = terminal_top_ratios_for_panes(
+            self.state.terminal_layout.top_ratios.clone(),
+            pane_count,
+        );
+        let grid = terminal_top_grid_for_panes(
+            self.state.terminal_layout.top_grid.clone(),
+            &top_ratios,
+            pane_count,
+        );
+        let tree = terminal_split_tree_for_panes(
+            self.state.terminal_layout.split_tree.clone(),
+            &grid,
+            &top_ratios,
+            pane_count,
+        )
+        .unwrap_or(TerminalSplitNode::Leaf { pane: 0 });
+        let (split_tree, insert_index) =
+            match terminal_split_tree_move_pane(&tree, from_index, target_index, direction) {
+                Ok(result) => result,
+                Err(error) => {
+                    self.status_message = error.to_string();
+                    self.invalidate_terminal_workspace(cx);
+                    return;
+                }
+            };
+        let Some(tab) = self.main_terminal_mut() else {
+            return;
+        };
+        let slot = tab.panes.remove(from_index);
+        tab.panes.insert(insert_index.min(tab.panes.len()), slot);
+        self.set_terminal_split_tree(Some(split_tree));
+        self.status_message = "terminal pane moved".to_string();
+        self.sync_terminal_state_after_layout_change(cx);
+        self.invalidate_terminal_workspace(cx);
+    }
+
+    pub(in crate::app) fn rename_terminal_pane(
+        &mut self,
+        terminal_id: Option<String>,
+        pane_index: usize,
+        collapsed_index: Option<usize>,
+        title: String,
+        cx: &mut Context<Self>,
+    ) {
+        let title = title.trim().chars().take(80).collect::<String>();
+        if title.is_empty() {
+            return;
+        }
+        let mut renamed = false;
+        if let Some(collapsed_index) = collapsed_index {
+            if let Some(slot) = self.collapsed_terminal_panes.get_mut(collapsed_index) {
+                slot.title = title.clone();
+                renamed = true;
+            }
+        } else if let Some(tab) = self.main_terminal_mut() {
+            let slot_index = terminal_id
+                .as_deref()
+                .and_then(|id| {
+                    tab.panes
+                        .iter()
+                        .position(|slot| slot.terminal_id.as_deref() == Some(id))
+                })
+                .unwrap_or(pane_index);
+            if let Some(slot) = tab.panes.get_mut(slot_index) {
+                slot.title = title.clone();
+                renamed = true;
+            }
+        }
+        if !renamed {
+            return;
+        }
+        if let Some(terminal_id) = terminal_id.as_deref() {
+            if let Some(session) = self
+                .state
+                .terminal_runtime
+                .sessions
+                .iter_mut()
+                .find(|session| session.terminal_id == terminal_id)
+            {
+                session.title = title.clone();
+            }
+        }
+        self.status_message = format!("terminal renamed: {title}");
+        self.sync_terminal_state_after_layout_change(cx);
+        self.invalidate_task_column(cx);
         self.invalidate_terminal_workspace(cx);
     }
 
@@ -836,6 +947,32 @@ impl CoduxApp {
         self.invalidate_terminal_workspace(cx);
     }
 
+    pub(in crate::app) fn close_collapsed_terminal_pane(
+        &mut self,
+        collapsed_index: usize,
+        cx: &mut Context<Self>,
+    ) {
+        if collapsed_index >= self.collapsed_terminal_panes.len() {
+            return;
+        }
+        self.refresh_terminal_slot_snapshots();
+        let removed = self.collapsed_terminal_panes.remove(collapsed_index);
+        let terminal_id = removed.terminal_id.unwrap_or_default();
+        let kill_result = if terminal_id.trim().is_empty() {
+            Ok(())
+        } else {
+            self.kill_terminal_session_if_present(&terminal_id)
+        };
+        self.sync_terminal_state_after_layout_change(cx);
+        if let Err(error) = kill_result {
+            self.status_message = format!("terminal closed; PTY cleanup failed: {error}");
+        } else {
+            self.status_message = "terminal closed".to_string();
+        }
+        self.invalidate_task_column(cx);
+        self.invalidate_terminal_workspace(cx);
+    }
+
     fn reset_terminal_pane(
         &mut self,
         pane_index: usize,
@@ -1117,6 +1254,8 @@ impl CoduxApp {
             title: title.clone(),
             restored_output_bytes: 0,
             restored_output_tail: String::new(),
+            restore_command: None,
+            restore_env: None,
         };
         let pane_terminal_id = terminal_pane_terminal_id(launch_context.as_ref(), &pane_plan);
         let pty_config = terminal_pty_config_for_terminal_id(
@@ -1145,6 +1284,8 @@ impl CoduxApp {
                     pane: Some(terminal),
                     restored_output_bytes: 0,
                     restored_output_tail: String::new(),
+                    restore_command: None,
+                    restore_env: None,
                 },
             );
         }

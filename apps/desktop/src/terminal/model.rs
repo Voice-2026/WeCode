@@ -10,7 +10,6 @@ struct TerminalModel {
     sync_output_depth: usize,
     sync_output_pending_notify: bool,
     sync_output_scan_tail: Vec<u8>,
-    restored_bootstrap_active: bool,
     // A remote client (mobile, always dark-themed) owns the viewport; color
     // scheme queries must be answered for the renderer the user is actually
     // looking at, not the desktop theme.
@@ -103,13 +102,13 @@ impl TerminalModel {
             }
         })
         .detach();
-        let restored_bootstrap_active = restored_output
-            .as_ref()
-            .is_some_and(|restored_output| !restored_output.tail.is_empty());
         if let Some(restored_output) = restored_output.as_ref()
             && !restored_output.tail.is_empty()
         {
-            screen.lock().process_replay(restored_output.tail.as_bytes());
+            let restored_text = codux_terminal_core::terminal_legacy_output_plain_text(
+                &restored_output.tail,
+            );
+            screen.lock().process_replay(restored_text.as_bytes());
             codux_runtime::runtime_trace::runtime_trace(
                 "terminal-restore",
                 &format!(
@@ -182,7 +181,6 @@ impl TerminalModel {
             sync_output_depth: 0,
             sync_output_pending_notify: false,
             sync_output_scan_tail: Vec::new(),
-            restored_bootstrap_active,
             remote_viewer: false,
             viewport_generation: 0,
             render_visible: false,
@@ -289,7 +287,6 @@ impl TerminalModel {
         // before the bytes are parsed.
         let pending_event_notify = self.process_pending_events(cx);
         self.apply_model_events();
-        self.replace_restored_bootstrap_before_output(bytes.len());
         let sync_update = self.update_synchronized_output_state(bytes);
         let color_scheme_update =
             update_terminal_color_scheme_state(bytes, &mut self.color_scheme_state);
@@ -324,7 +321,6 @@ impl TerminalModel {
 
     #[cfg(test)]
     fn process_output_bytes_for_test(&mut self, bytes: &[u8]) {
-        self.replace_restored_bootstrap_before_output(bytes.len());
         self.process_bytes(bytes);
     }
 
@@ -434,24 +430,6 @@ impl TerminalModel {
             }
         }
         self.snapshot_dirty = true;
-    }
-
-    fn replace_restored_bootstrap_before_output(&mut self, bytes_len: usize) {
-        if !self.restored_bootstrap_active {
-            return;
-        }
-        let cols = self.window_size.num_cols as usize;
-        let rows = self.window_size.num_lines as usize;
-        self.handle.clear_screen();
-        self.restored_bootstrap_active = false;
-        self.snapshot_dirty = true;
-        codux_runtime::runtime_trace::runtime_trace(
-            "terminal-restore",
-            &format!(
-                "restored_bootstrap_replace first_bytes={} cols={} rows={}",
-                bytes_len, cols, rows
-            ),
-        );
     }
 
     fn update_colors(&mut self, colors: ColorPalette) {
@@ -1098,7 +1076,6 @@ impl TerminalModel {
             sync_output_depth: 0,
             sync_output_pending_notify: false,
             sync_output_scan_tail: Vec::new(),
-            restored_bootstrap_active: false,
             remote_viewer: false,
             viewport_generation: 0,
             render_visible: true,
@@ -1132,15 +1109,17 @@ impl TerminalModel {
         scrollback: usize,
         restored_output: TerminalOutputSnapshot,
     ) -> Self {
-        let mut model = Self::new_for_test(cols, rows, scrollback);
+        let model = Self::new_for_test(cols, rows, scrollback);
         if !restored_output.tail.is_empty() {
+            let restored_text = codux_terminal_core::terminal_legacy_output_plain_text(
+                &restored_output.tail,
+            );
             model
                 .handle
                 .screen
                 .lock()
-                .process_replay(restored_output.tail.as_bytes());
+                .process_replay(restored_text.as_bytes());
             model.handle.publish_snapshot();
-            model.restored_bootstrap_active = true;
         }
         model
     }
@@ -1217,10 +1196,6 @@ impl TerminalStateHandle {
         *engine_dims = (cols, rows);
         self.screen.lock().resize(cols, rows);
         true
-    }
-
-    fn clear_screen(&self) {
-        self.screen.lock().clear();
     }
 
     fn scroll_display(&self, lines: i32) -> bool {

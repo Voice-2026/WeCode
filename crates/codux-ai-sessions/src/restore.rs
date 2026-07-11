@@ -7,12 +7,18 @@ use crate::AISessionSummary;
 /// Resume command for `session`, e.g. `claude --resume <id>` / `codex resume <id>`.
 /// Mirrors the per-tool flags the desktop has always used.
 pub fn session_restore_command(session: &AISessionSummary) -> String {
-    let tool = session.source.to_lowercase();
     let id = session
         .external_session_id
         .as_deref()
         .filter(|id| !id.trim().is_empty())
         .unwrap_or(&session.session_key);
+    session_restore_command_for_source(&session.source, id)
+}
+
+/// Resume command for a tool/session pair that is already bound to a terminal.
+pub fn session_restore_command_for_source(source: &str, session_id: &str) -> String {
+    let tool = source.to_lowercase();
+    let id = session_id.trim();
     let quoted_id = shell_quote(id);
     if tool.contains("codex") {
         format!("codex resume {quoted_id}")

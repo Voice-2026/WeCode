@@ -69,6 +69,14 @@ impl RuntimeService {
         load_terminal_layout(&self.support_dir, project_id)
     }
 
+    pub fn reload_terminal_runtime(
+        &self,
+        project_id: Option<&str>,
+    ) -> crate::terminal_runtime::TerminalRuntimeSummary {
+        crate::terminal_runtime::TerminalRuntimeService::new(self.support_dir.clone())
+            .load(project_id)
+    }
+
     pub fn reload_terminal_layouts<'a, I>(
         &self,
         project_ids: I,
@@ -280,6 +288,15 @@ impl RuntimeService {
             bottom_ratio,
             collapsed_panes,
         )
+    }
+
+    pub fn save_terminal_runtime(
+        &self,
+        project_id: &str,
+        summary: crate::terminal_runtime::TerminalRuntimeSummary,
+    ) -> Result<crate::terminal_runtime::TerminalRuntimeSummary, String> {
+        crate::terminal_runtime::TerminalRuntimeService::new(self.support_dir.clone())
+            .save(project_id, summary)
     }
 
     pub fn save_file_editor_layout(

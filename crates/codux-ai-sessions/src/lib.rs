@@ -18,7 +18,7 @@ mod tests;
 mod types;
 
 pub use dispatch::{session_op_payload, session_op_result};
-pub use restore::session_restore_command;
+pub use restore::{session_restore_command, session_restore_command_for_source};
 pub use types::*;
 
 use rusqlite::Connection;

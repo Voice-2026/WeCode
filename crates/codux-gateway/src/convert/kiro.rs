@@ -30,8 +30,11 @@ pub fn build_kiro_payload(
     let cfg = params.config;
 
     // Tools with long descriptions → move to system prompt.
-    let (processed_tools, tool_documentation) =
-        process_tools_with_long_descriptions(params.tools.clone(), cfg.tool_description_max_length);
+    let (processed_tools, tool_documentation) = if cfg.provider_only {
+        (params.tools.clone(), String::new())
+    } else {
+        process_tools_with_long_descriptions(params.tools.clone(), cfg.tool_description_max_length)
+    };
 
     validate_tool_names(&processed_tools)?;
 
@@ -43,7 +46,7 @@ pub fn build_kiro_payload(
             format!("{full_system}{tool_documentation}")
         };
     }
-    if cfg.fake_reasoning {
+    if cfg.gateway_agent_features_enabled() && cfg.fake_reasoning {
         let addition = thinking_system_prompt_addition();
         full_system = if full_system.is_empty() {
             addition.trim().to_string()
@@ -595,7 +598,7 @@ fn thinking_system_prompt_addition() -> String {
 }
 
 fn inject_thinking_tags(content: &str, thinking: &ThinkingConfig, cfg: &GatewayConfig) -> String {
-    if !cfg.fake_reasoning || !thinking.enabled {
+    if !cfg.gateway_agent_features_enabled() || !cfg.fake_reasoning || !thinking.enabled {
         return content.to_string();
     }
     let mut budget = thinking

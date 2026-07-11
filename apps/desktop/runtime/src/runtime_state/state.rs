@@ -54,7 +54,7 @@ impl RuntimeState {
         );
         let terminal_layout_owner = runtime_model_scope_key(selected_project.as_ref(), &worktrees);
         let terminal_layout = load_terminal_layout(&support_dir, terminal_layout_owner.as_deref());
-        let terminal_runtime = TerminalRuntimeSummary::default();
+        let terminal_runtime = load_terminal_runtime(&support_dir, terminal_layout_owner.as_deref());
         let update = load_update(&support_dir, std::env::current_dir().unwrap_or_default());
         let runtime_activity = load_runtime_activity(&support_dir);
         let runtime_events = load_runtime_events();
@@ -149,7 +149,8 @@ impl RuntimeState {
             runtime_model_scope_key(self.selected_project.as_ref(), &self.worktrees);
         self.terminal_layout =
             load_terminal_layout(&self.support_dir, terminal_layout_owner.as_deref());
-        self.terminal_runtime = TerminalRuntimeSummary::default();
+        self.terminal_runtime =
+            load_terminal_runtime(&self.support_dir, terminal_layout_owner.as_deref());
         self.runtime_activity = load_runtime_activity(&self.support_dir);
         self.runtime_events = load_runtime_events();
         self.ai_runtime_state = load_ai_runtime_state(&self.support_dir, &self.runtime_events);

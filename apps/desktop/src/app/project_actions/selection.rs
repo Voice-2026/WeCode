@@ -189,7 +189,9 @@ impl CoduxApp {
         self.state.terminal_layout = self
             .runtime_service
             .reload_terminal_layout(Some(&terminal_storage_key));
-        self.state.terminal_runtime = TerminalRuntimeSummary::default();
+        self.state.terminal_runtime = self
+            .runtime_service
+            .reload_terminal_runtime(Some(&terminal_storage_key));
         self.reset_current_worktree_ui_state(cx);
         self.ensure_active_file_editor_state(window, cx);
         self.runtime_trace(
@@ -312,6 +314,7 @@ impl CoduxApp {
         self.file_editable = false;
         self.file_dirty = false;
         self.file_editor_tabs.clear();
+        self.file_editor_markdown_preview_paths.clear();
         self.active_file_editor_tab = None;
         self.clear_file_selection();
         self.state.files.clear();

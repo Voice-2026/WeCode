@@ -146,8 +146,12 @@ fn executable_name(word: &str) -> Option<String> {
 /// Strip Windows launcher extensions so `codex.exe` / `codex.cmd` / `codex.js` match the driver registry.
 fn strip_launcher_extension(base: &str) -> &str {
     for ext in [".exe", ".cmd", ".bat", ".ps1", ".js"] {
-        if base.len() > ext.len() && base[base.len() - ext.len()..].eq_ignore_ascii_case(ext) {
-            return &base[..base.len() - ext.len()];
+        let extension_start = base.len().saturating_sub(ext.len());
+        if base
+            .get(extension_start..)
+            .is_some_and(|suffix| suffix.eq_ignore_ascii_case(ext))
+        {
+            return base.get(..extension_start).unwrap_or(base);
         }
     }
     base
@@ -163,6 +167,12 @@ mod tests {
             ppid,
             command: command.to_string(),
         }
+    }
+
+    #[test]
+    fn launcher_extension_detection_handles_unicode_arguments() {
+        assert_eq!(strip_launcher_extension("未命名.md"), "未命名.md");
+        assert_eq!(strip_launcher_extension("工具.js"), "工具");
     }
 
     #[cfg(not(windows))]

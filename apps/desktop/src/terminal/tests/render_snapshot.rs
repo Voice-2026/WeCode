@@ -91,7 +91,7 @@ fn updates_render_snapshot_after_output() {
     assert_eq!(snapshot.screen_lines, 4);
 }
 #[test]
-fn first_real_output_replaces_restored_bootstrap() {
+fn first_real_output_appends_to_restored_bootstrap() {
     let mut state = TerminalModel::new_for_test_with_restored_output(
         20,
         4,
@@ -107,8 +107,28 @@ fn first_real_output_replaces_restored_bootstrap() {
     state.process_output_bytes_for_test(b"live");
     let snapshot = state.sync_for_test();
 
-    assert!(!row_text(&snapshot, 0).contains("restored"));
+    assert!(row_text(&snapshot, 0).contains("restored"));
     assert!(row_text(&snapshot, 0).contains("live"));
+}
+
+#[test]
+fn legacy_ansi_restore_is_normalized_before_rendering() {
+    let state = TerminalModel::new_for_test_with_restored_output(
+        24,
+        8,
+        100,
+        TerminalOutputSnapshot {
+            bytes: 32,
+            tail: "\x1b[2J\x1b[1;1Hheader\x1b[2;20Htail".to_string(),
+        },
+    );
+    let snapshot = state.handle.snapshot();
+    let text = (0..snapshot.screen_lines as i32)
+        .map(|line| row_text(&snapshot, line))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(text.contains("header"));
+    assert!(text.contains("tail"));
 }
 #[test]
 fn stale_snapshot_does_not_replace_published_terminal_content() {

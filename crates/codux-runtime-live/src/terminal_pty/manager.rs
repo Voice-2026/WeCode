@@ -359,6 +359,10 @@ impl TerminalManager {
         Ok(self.session(session_id)?.screen_snapshot())
     }
 
+    pub fn restorable_output_snapshot(&self, session_id: &str) -> Result<TerminalOutputSnapshot> {
+        Ok(self.session(session_id)?.restorable_output_snapshot())
+    }
+
     pub fn input_snapshot(&self, session_id: &str) -> Result<TerminalInputSnapshot> {
         Ok(self.session(session_id)?.input_snapshot())
     }

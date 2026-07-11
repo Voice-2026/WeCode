@@ -34,6 +34,7 @@ pub(in crate::app) struct FileEditorWorkspaceSnapshot {
     pub(super) active_tab: Option<FileEditorTab>,
     pub(super) active_editor: Option<gpui::Entity<InputState>>,
     pub(super) active_loading: bool,
+    pub(super) markdown_preview: bool,
     /// True when this editor is rendered as the right-hand split panel (next to
     /// the terminal), so the tab bar shows its own dedicated "close split"
     /// control on the right.
@@ -53,6 +54,7 @@ impl PartialEq for FileEditorWorkspaceSnapshot {
                     .as_ref()
                     .map(|editor| editor.entity_id())
             && self.active_loading == other.active_loading
+            && self.markdown_preview == other.markdown_preview
             && self.split_active == other.split_active
     }
 }
@@ -144,15 +146,17 @@ impl FileEditorWorkspaceView {
         active_path: Option<String>,
         editor: Option<gpui::Entity<InputState>>,
         loading: bool,
+        markdown_preview: bool,
         cx: &mut Context<Self>,
     ) -> gpui::Entity<FileEditorContentView> {
         if let Some(view) = &self.content_view {
             view.update(cx, |view, cx| {
-                view.set_editor(active_path, editor, loading, cx)
+                view.set_editor(active_path, editor, loading, markdown_preview, cx)
             });
             return view.clone();
         }
-        let view = cx.new(|_| FileEditorContentView::new(active_path, editor, loading));
+        let view =
+            cx.new(|_| FileEditorContentView::new(active_path, editor, loading, markdown_preview));
         self.content_view = Some(view.clone());
         view
     }
@@ -172,6 +176,7 @@ impl Render for FileEditorWorkspaceView {
         let toolbar_view = self.toolbar_view(
             FileEditorToolbarSnapshot {
                 active_tab: snapshot.active_tab.clone(),
+                markdown_preview: snapshot.markdown_preview,
                 window_header: snapshot.single_window,
             },
             cx,
@@ -181,6 +186,7 @@ impl Render for FileEditorWorkspaceView {
             snapshot.active_preview_path.clone(),
             snapshot.active_editor.clone(),
             snapshot.active_loading,
+            snapshot.markdown_preview,
             cx,
         );
         file_editor_workspace(
@@ -300,6 +306,7 @@ impl Render for FileEditorTabBarView {
 #[derive(Clone, PartialEq)]
 struct FileEditorToolbarSnapshot {
     active_tab: Option<FileEditorTab>,
+    markdown_preview: bool,
     window_header: bool,
 }
 
@@ -345,6 +352,7 @@ impl Render for FileEditorToolbarView {
         file_editor_toolbar(
             self.app_entity.clone(),
             self.snapshot.active_tab.clone(),
+            self.snapshot.markdown_preview,
             self.snapshot.window_header,
             cx,
         )
@@ -355,6 +363,9 @@ pub(in crate::app) struct FileEditorContentView {
     active_path: Option<String>,
     editor: Option<gpui::Entity<InputState>>,
     loading: bool,
+    markdown_preview: bool,
+    markdown_state: Option<gpui::Entity<TextViewState>>,
+    markdown_path: Option<String>,
 }
 
 impl FileEditorContentView {
@@ -362,11 +373,15 @@ impl FileEditorContentView {
         active_path: Option<String>,
         editor: Option<gpui::Entity<InputState>>,
         loading: bool,
+        markdown_preview: bool,
     ) -> Self {
         Self {
             active_path,
             editor,
             loading,
+            markdown_preview,
+            markdown_state: None,
+            markdown_path: None,
         }
     }
 
@@ -375,19 +390,41 @@ impl FileEditorContentView {
         active_path: Option<String>,
         editor: Option<gpui::Entity<InputState>>,
         loading: bool,
+        markdown_preview: bool,
         cx: &mut Context<Self>,
     ) {
         if self.active_path == active_path
             && self.editor.as_ref().map(|editor| editor.entity_id())
                 == editor.as_ref().map(|editor| editor.entity_id())
             && self.loading == loading
+            && self.markdown_preview == markdown_preview
         {
             return;
         }
         self.active_path = active_path;
         self.editor = editor;
         self.loading = loading;
+        self.markdown_preview = markdown_preview;
         cx.notify();
+    }
+
+    fn markdown_state(
+        &mut self,
+        path: Option<String>,
+        content: &str,
+        cx: &mut Context<Self>,
+    ) -> gpui::Entity<TextViewState> {
+        if self.markdown_path != path {
+            self.markdown_state = None;
+            self.markdown_path = path;
+        }
+        if let Some(state) = &self.markdown_state {
+            state.update(cx, |state, cx| state.set_text(content, cx));
+            return state.clone();
+        }
+        let state = cx.new(|cx| TextViewState::markdown(content, cx));
+        self.markdown_state = Some(state.clone());
+        state
     }
 }
 
@@ -398,11 +435,18 @@ impl Render for FileEditorContentView {
             .as_deref()
             .map(file_preview_kind_for_path)
             .unwrap_or(FilePreviewKind::Text);
-        let preview_kind = if preview_kind == FilePreviewKind::Markdown {
-            FilePreviewKind::Text
+        let show_markdown_preview =
+            preview_kind == FilePreviewKind::Markdown && self.markdown_preview;
+        let markdown_state = if show_markdown_preview {
+            self.editor.clone().map(|editor| {
+                let content = editor.read(cx).value().to_string();
+                self.markdown_state(self.active_path.clone(), &content, cx)
+            })
         } else {
-            preview_kind
+            None
         };
+        let show_text_editor = preview_kind == FilePreviewKind::Text
+            || preview_kind == FilePreviewKind::Markdown && !show_markdown_preview;
         div()
             .flex_1()
             .min_w_0()
@@ -425,10 +469,11 @@ impl Render for FileEditorContentView {
                         )
                 },
             )
+            .when_some(markdown_state, |this, markdown_state| {
+                this.child(super::preview_render::file_preview_markdown(markdown_state))
+            })
             .when_some(
-                self.editor
-                    .clone()
-                    .filter(|_| preview_kind == FilePreviewKind::Text),
+                self.editor.clone().filter(|_| show_text_editor),
                 |this, editor| {
                     this.child(
                         Input::new(&editor)
@@ -440,7 +485,7 @@ impl Render for FileEditorContentView {
                 },
             )
             .when(
-                preview_kind == FilePreviewKind::Text && self.editor.is_none() && self.loading,
+                show_text_editor && self.editor.is_none() && self.loading,
                 |this| {
                     this.flex()
                         .items_center()

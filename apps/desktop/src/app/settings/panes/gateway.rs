@@ -23,7 +23,7 @@ pub(super) fn settings_gateway_pane(
             Some(settings_text(
                 language,
                 "settings.gateway.section.service.description",
-                "Expose OpenAI and Anthropic compatible APIs backed by Kiro.",
+                "Use Kiro only as a model provider for Claude Code.",
             )),
             vec![
                 settings_row(
@@ -41,6 +41,40 @@ pub(super) fn settings_gateway_pane(
                     settings_text(language, "settings.gateway.status", "Status"),
                     None,
                     status,
+                )
+                .into_any_element(),
+                settings_row(
+                    settings_text(language, "settings.gateway.mode", "Mode"),
+                    Some(settings_text(
+                        language,
+                        "settings.gateway.mode.provider_only.description",
+                        "Claude Code owns sessions, tools, Skills, Hooks, MCP and approvals. Built-in Web Search is proxied as a server tool.",
+                    )),
+                    settings_status_tag(
+                        settings_text(
+                            language,
+                            "settings.gateway.mode.provider_only",
+                            "Model Provider Only",
+                        ),
+                        theme::GREEN,
+                    ),
+                )
+                .into_any_element(),
+                settings_row(
+                    settings_text(language, "settings.gateway.search_transport", "Web Search"),
+                    Some(settings_text(
+                        language,
+                        "settings.gateway.search_transport.description",
+                        "Proxy Claude Code's built-in server search without enabling the Kiro agent.",
+                    )),
+                    settings_status_tag(
+                        settings_text(
+                            language,
+                            "settings.gateway.search_transport.enabled",
+                            "Claude Code Search Proxy",
+                        ),
+                        theme::GREEN,
+                    ),
                 )
                 .into_any_element(),
             ],
@@ -112,26 +146,6 @@ pub(super) fn settings_gateway_pane(
                         window,
                         cx,
                         |app, value, _window, cx| app.set_gateway_region(value, cx),
-                    ),
-                )
-                .into_any_element(),
-                settings_row(
-                    settings_text(language, "settings.gateway.web_search", "Web Search"),
-                    Some(settings_text(
-                        language,
-                        "settings.gateway.web_search.description",
-                        "Auto-inject and handle the gateway web_search tool.",
-                    )),
-                    settings_toggle(
-                        "settings-gateway-web-search",
-                        config.web_search_enabled,
-                        cx,
-                        {
-                            move |app, _window, cx| {
-                                let next = !app.gateway_settings.config.web_search_enabled;
-                                app.set_gateway_web_search_enabled(next, cx);
-                            }
-                        },
                     ),
                 )
                 .into_any_element(),

@@ -3,7 +3,7 @@ use anyhow::{Context, Result, anyhow};
 use codux_terminal_core::{
     HeadlessTerminalScreen, TerminalDriver as CoreTerminalDriver, TerminalEventSink,
     TerminalLaunchConfig, TerminalScreenSnapshot,
-    TerminalSessionHandle as CoreTerminalSessionHandle,
+    TerminalSessionHandle as CoreTerminalSessionHandle, terminal_screen_plain_text,
 };
 pub use codux_terminal_core::{TerminalEvent, TerminalSessionSnapshot, TerminalViewportState};
 use codux_terminal_pty::{

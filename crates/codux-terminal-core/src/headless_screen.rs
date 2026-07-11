@@ -119,6 +119,72 @@ pub struct TerminalScreenCellSnapshot {
     pub strikeout: bool,
 }
 
+/// Render the parsed terminal screen as stable text for persistence. Cursor
+/// movement and styling have already been applied, so this can be restored at
+/// a different viewport width without executing stale positioning commands.
+pub fn terminal_screen_plain_text(snapshot: &TerminalScreenSnapshot) -> String {
+    let row_count = snapshot
+        .cells
+        .iter()
+        .filter(|cell| cell.row >= 0)
+        .map(|cell| cell.row as usize + 1)
+        .max()
+        .unwrap_or_default()
+        .max(snapshot.rows);
+    let mut rows = vec![Vec::<&TerminalScreenCellSnapshot>::new(); row_count];
+    for cell in &snapshot.cells {
+        if cell.row >= 0 && (cell.row as usize) < rows.len() {
+            rows[cell.row as usize].push(cell);
+        }
+    }
+    let mut lines = rows
+        .into_iter()
+        .map(|mut cells| {
+            cells.sort_by_key(|cell| cell.col);
+            let mut line = String::new();
+            let mut col = 0usize;
+            for cell in cells {
+                while col < cell.col {
+                    line.push(' ');
+                    col += 1;
+                }
+                if cell.text.is_empty() {
+                    for _ in 0..cell.width.max(1) {
+                        line.push(' ');
+                    }
+                } else {
+                    line.push_str(&terminal_snapshot_text(&cell.text));
+                }
+                col = col.max(cell.col + cell.width.max(1));
+            }
+            line.trim_end().to_string()
+        })
+        .collect::<Vec<_>>();
+    while lines.first().is_some_and(|line| line.is_empty()) {
+        lines.remove(0);
+    }
+    while lines.last().is_some_and(|line| line.is_empty()) {
+        lines.pop();
+    }
+    if lines.is_empty() {
+        String::new()
+    } else {
+        format!("{}\n", lines.join("\n"))
+    }
+}
+
+/// Compatibility path for snapshots written before stable screen text was
+/// introduced. Parse the ANSI stream in an isolated wide viewport and export
+/// only its final text state.
+pub fn terminal_legacy_output_plain_text(output: &str) -> String {
+    if !output.contains('\u{1b}') {
+        return output.to_string();
+    }
+    let mut screen = HeadlessTerminalScreen::new(240, 80, 1_000);
+    screen.process_replay(output.as_bytes());
+    terminal_screen_plain_text(&screen.snapshot())
+}
+
 /// Underline style carried per cell (SGR 4 and 4:x colon subparams).
 #[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1964,6 +2030,32 @@ mod tests {
         // Replayed history applies titles too (restore path).
         screen.process_replay(b"\x1b]0;zsh\x07");
         assert_eq!(screen.snapshot().title.as_deref(), Some("zsh"));
+    }
+
+    #[test]
+    fn stable_restore_text_applies_cursor_positioning_without_ansi() {
+        let mut screen = HeadlessTerminalScreen::new(40, 4, 100);
+        screen.process_replay(b"left\x1b[10Gright\x1b[2;1Hsecond");
+
+        let text = terminal_screen_plain_text(&screen.snapshot());
+
+        assert!(!text.contains('\u{1b}'));
+        assert!(text.contains("left     right"));
+        assert!(text.contains("second"));
+    }
+
+    #[test]
+    fn legacy_restore_text_is_safe_to_replay_at_a_new_width() {
+        let text =
+            terminal_legacy_output_plain_text("\x1b[2J\x1b[1;1Hheading\x1b[2;80Htail\x1b[3;1Hdone");
+        assert!(!text.contains('\u{1b}'));
+
+        let mut restored = HeadlessTerminalScreen::new(24, 12, 100);
+        restored.process_replay(text.as_bytes());
+        let restored_text = terminal_screen_plain_text(&restored.snapshot());
+        assert!(restored_text.contains("heading"));
+        assert!(restored_text.contains("tail"));
+        assert!(restored_text.contains("done"));
     }
 
     #[test]

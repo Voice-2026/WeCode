@@ -280,7 +280,7 @@ fn file_preview_media_error(message: String) -> AnyElement {
         .into_any_element()
 }
 
-fn file_preview_markdown(markdown_state: gpui::Entity<TextViewState>) -> AnyElement {
+pub(super) fn file_preview_markdown(markdown_state: gpui::Entity<TextViewState>) -> AnyElement {
     div()
         .size_full()
         .min_w_0()

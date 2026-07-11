@@ -67,11 +67,16 @@ impl CoduxApp {
         self.state.terminal_layout = terminal_layout;
         self.state.terminal_runtime = terminal_runtime;
         let plan_started_at = Instant::now();
-        let restore_plan = terminal_restore_plan_for_language(
+        let gateway_restore = kiro_gateway_restore_config(
+            &self.gateway_settings,
+            &self.state.tool_permissions.kiro_model,
+        );
+        let restore_plan = terminal_restore_plan_for_language_with_gateway(
             &self.state.terminal_layout,
             &self.state.terminal_runtime,
             &self.state.settings.language,
             self.remembered_active_terminal_runtime_id(),
+            gateway_restore.as_ref(),
         );
         self.state.terminal_layout.active_terminal_id =
             restore_plan.active_terminal_id.clone().unwrap_or_default();

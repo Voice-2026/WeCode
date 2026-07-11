@@ -1,4 +1,5 @@
 pub mod ai_history;
+pub mod ai_session_metadata;
 // The AI usage-history engine lives in the shared `codux-ai-history` crate so
 // the headless agent can host the same stats with full parity. Re-export it
 // under the historical module paths the desktop code already uses.

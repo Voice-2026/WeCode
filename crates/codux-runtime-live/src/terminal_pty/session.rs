@@ -467,6 +467,12 @@ impl TerminalPtySession {
     pub fn output_snapshot(&self) -> TerminalOutputSnapshot {
         self.output_capture.lock().snapshot()
     }
+
+    pub fn restorable_output_snapshot(&self) -> TerminalOutputSnapshot {
+        let mut output = self.output_snapshot();
+        output.tail = terminal_screen_plain_text(&self.screen_snapshot());
+        output
+    }
 }
 
 impl TerminalPtySessionHandle {

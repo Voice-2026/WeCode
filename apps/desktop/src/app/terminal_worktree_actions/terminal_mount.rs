@@ -38,11 +38,18 @@ impl CoduxApp {
             return Ok(());
         }
 
-        let pty_config = terminal_pty_config_for_terminal_id(
+        let mut pty_config = terminal_pty_config_for_terminal_id(
             &base_pty_config,
             slot.terminal_id.as_deref(),
             &slot.title,
         );
+        pty_config.command = slot.restore_command.take();
+        if let Some(restore_env) = slot.restore_env.take() {
+            pty_config
+                .env
+                .get_or_insert_with(HashMap::new)
+                .extend(restore_env);
+        }
         if let Some(pane) = slot
             .terminal_id
             .as_deref()
@@ -81,7 +88,7 @@ impl CoduxApp {
             let tab_terminal_id = tab.terminal_id.clone();
             for slot in &mut tab.panes {
                 if let Some(pane) = &slot.pane {
-                    let output = pane.output_snapshot();
+                    let output = pane.restorable_output_snapshot();
                     slot.restored_output_bytes = output.bytes;
                     slot.restored_output_tail = output.tail;
                     continue;
@@ -94,7 +101,7 @@ impl CoduxApp {
                 else {
                     continue;
                 };
-                if let Ok(output) = terminal_manager.output_snapshot(&terminal_id) {
+                if let Ok(output) = terminal_manager.restorable_output_snapshot(&terminal_id) {
                     slot.restored_output_bytes = output.bytes;
                     slot.restored_output_tail = output.tail;
                 }

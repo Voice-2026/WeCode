@@ -33,7 +33,7 @@ pub async fn messages(
         return resp;
     }
     let mut request = body.0;
-    if state.config.truncation_recovery {
+    if state.config.gateway_agent_features_enabled() && state.config.truncation_recovery {
         crate::truncation::inject_notices(&mut request, &state.truncation);
     }
     let stream_requested = request
@@ -46,20 +46,24 @@ pub async fn messages(
         .unwrap_or("auto")
         .to_string();
 
-    if let Some(query) = native_web_search_query(&request) {
-        let input_tokens = estimate_input_tokens(&request);
-        let auth = state.accounts.current_auth().await;
-        return match crate::mcp::call_web_search(&auth, &query).await {
-            Ok((tool_use_id, results)) => native_web_search_response(
-                &model,
-                &query,
-                &tool_use_id,
-                &results,
-                input_tokens,
-                stream_requested,
-            ),
-            Err(error) => (error.status_code(), Json(error.to_anthropic_json())).into_response(),
-        };
+    if state.config.server_web_search_proxy_enabled() {
+        if let Some(query) = native_web_search_query(&request) {
+            let input_tokens = estimate_input_tokens(&request);
+            let auth = state.accounts.current_auth().await;
+            return match crate::mcp::call_web_search(&auth, &query).await {
+                Ok((tool_use_id, results)) => native_web_search_response(
+                    &model,
+                    &query,
+                    &tool_use_id,
+                    &results,
+                    input_tokens,
+                    stream_requested,
+                ),
+                Err(error) => {
+                    (error.status_code(), Json(error.to_anthropic_json())).into_response()
+                }
+            };
+        }
     }
 
     let conv_id = conversation_id();
@@ -89,7 +93,8 @@ pub async fn messages(
     let rt = state.config.streaming_read_timeout_secs;
     let thinking = thinking_handling(&state.config);
 
-    let recovery = state.config.truncation_recovery;
+    let recovery =
+        state.config.gateway_agent_features_enabled() && state.config.truncation_recovery;
     let store = state.truncation.clone();
 
     if stream_requested {
@@ -314,7 +319,7 @@ fn native_web_search_response(
 
 /// The thinking handling mode, or None when fake reasoning is disabled.
 fn thinking_handling(config: &crate::config::GatewayConfig) -> Option<String> {
-    if config.fake_reasoning {
+    if config.gateway_agent_features_enabled() && config.fake_reasoning {
         Some(config.fake_reasoning_handling.clone())
     } else {
         None

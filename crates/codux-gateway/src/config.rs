@@ -59,6 +59,9 @@ fn default_hidden_from_list() -> Vec<String> {
 fn default_max_input_tokens() -> u64 {
     200_000
 }
+fn default_provider_only() -> bool {
+    true
+}
 
 /// Where the gateway loads Kiro credentials from (single-account, phases 1-4).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -161,6 +164,12 @@ pub struct GatewayConfig {
     pub max_payload_bytes: usize,
     pub auto_trim_payload: bool,
 
+    /// Keep Kiro behind a model-provider boundary. When enabled, the gateway
+    /// only performs authentication, protocol conversion and model transport;
+    /// Claude Code remains responsible for tools, MCP and agent behavior.
+    #[serde(default = "default_provider_only")]
+    pub provider_only: bool,
+
     /// Inject <thinking_mode> tags ("fake reasoning"). Off until the streaming
     /// thinking parser lands (phase 6) so clients never see raw tags.
     pub fake_reasoning: bool,
@@ -203,11 +212,12 @@ impl Default for GatewayConfig {
             tool_description_max_length: default_tool_description_max_length(),
             max_payload_bytes: default_max_payload_bytes(),
             auto_trim_payload: false,
+            provider_only: true,
             fake_reasoning: false,
             fake_reasoning_max_tokens: default_fake_reasoning_max_tokens(),
             fake_reasoning_budget_cap: default_fake_reasoning_budget_cap(),
             fake_reasoning_handling: "as_reasoning_content".to_string(),
-            truncation_recovery: true,
+            truncation_recovery: false,
             web_search_enabled: false,
             model_aliases: default_model_aliases(),
             hidden_models: HashMap::new(),
@@ -248,6 +258,17 @@ pub fn kiro_api_host(region: &str) -> String {
 }
 
 impl GatewayConfig {
+    pub fn gateway_agent_features_enabled(&self) -> bool {
+        !self.provider_only
+    }
+
+    /// Claude Code's built-in Web Search is a provider-side tool. A custom
+    /// Anthropic base URL must execute it server-side, so provider-only mode
+    /// keeps this narrow transport proxy without enabling Kiro's agent loop.
+    pub fn server_web_search_proxy_enabled(&self) -> bool {
+        self.provider_only || self.web_search_enabled
+    }
+
     pub fn load_from_file(path: &std::path::Path) -> Result<Self, crate::error::GatewayError> {
         let text = std::fs::read_to_string(path).map_err(|e| {
             crate::error::GatewayError::Internal(format!(
@@ -261,5 +282,27 @@ impl GatewayConfig {
                 path.display()
             ))
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn provider_only_is_the_default_and_disables_gateway_agent_features() {
+        let config = GatewayConfig::default();
+        assert!(config.provider_only);
+        assert!(!config.gateway_agent_features_enabled());
+        assert!(config.server_web_search_proxy_enabled());
+        assert!(!config.truncation_recovery);
+        assert!(!config.web_search_enabled);
+        assert!(!config.fake_reasoning);
+    }
+
+    #[test]
+    fn missing_provider_only_field_deserializes_to_enabled() {
+        let config: GatewayConfig = serde_json::from_value(serde_json::json!({})).unwrap();
+        assert!(config.provider_only);
     }
 }

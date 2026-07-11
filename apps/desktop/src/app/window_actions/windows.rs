@@ -173,6 +173,7 @@ impl CoduxApp {
             file_editor_tabs: Vec::new(),
             active_file_editor_tab: None,
             file_editor_states: HashMap::new(),
+            file_editor_markdown_preview_paths: HashSet::new(),
             file_editor_state_lru: Vec::new(),
             file_editor_loading_states: HashSet::new(),
             file_search_open: false,
@@ -349,8 +350,10 @@ impl CoduxApp {
             assistant_panel: None,
             project_column_collapsed: true,
             task_column_collapsed: false,
-            task_section_terminals_collapsed: false,
-            task_section_sessions_collapsed: false,
+            task_column_primary_tab: TaskColumnPrimaryTab::Git,
+            task_git_tab: TaskGitTab::Worktrees,
+            task_session_filter: TaskSessionFilter::Recent,
+            task_session_source_filter: TaskSessionSourceFilter::All,
             project_list_state: None,
             remote_link_states: std::collections::HashMap::new(),
             remote_saved_host_ids: Vec::new(),
@@ -358,6 +361,7 @@ impl CoduxApp {
             task_column_view: None,
             task_column_header_view: None,
             task_worktree_list_view: None,
+            task_branch_list_view: None,
             task_session_list_view: None,
             task_terminal_list_view: None,
             collapsed_terminal_panes: Vec::new(),
@@ -607,6 +611,7 @@ impl CoduxApp {
 
     pub(in crate::app) fn new_file_editor_window_from_state(
         relative_path: String,
+        markdown_preview: bool,
         state: RuntimeState,
         runtime: RuntimeInventory,
         runtime_service: RuntimeService,
@@ -616,10 +621,17 @@ impl CoduxApp {
         app.status_message = format!("file editor opened: {relative_path}");
         app.file_editor_tabs.clear();
         app.file_editor_states.clear();
+        app.file_editor_markdown_preview_paths.clear();
         app.file_editor_state_lru.clear();
         app.file_editor_loading_states.clear();
         app.active_file_editor_tab = None;
-        app.add_file_editor_window_tab(relative_path);
+        app.add_file_editor_window_tab(relative_path.clone());
+        if markdown_preview
+            && file_editor::file_preview_kind_for_path(&relative_path)
+                == file_editor::FilePreviewKind::Markdown
+        {
+            app.file_editor_markdown_preview_paths.insert(relative_path);
+        }
         app
     }
 
@@ -656,6 +668,9 @@ impl CoduxApp {
         let state = self.state.clone();
         let runtime = self.runtime.clone();
         let runtime_service = self.runtime_service.clone();
+        let markdown_preview = self
+            .file_editor_markdown_preview_paths
+            .contains(&relative_path);
         let window_appearance = self.window_appearance;
         let bounds = Bounds::centered(None, size(px(900.0), px(640.0)), cx);
         let opened_path = relative_path.clone();
@@ -670,6 +685,7 @@ impl CoduxApp {
                 macos_window::configure_document_child_window_controls(window);
                 let mut app = CoduxApp::new_file_editor_window_from_state(
                     relative_path,
+                    markdown_preview,
                     state,
                     runtime,
                     runtime_service,

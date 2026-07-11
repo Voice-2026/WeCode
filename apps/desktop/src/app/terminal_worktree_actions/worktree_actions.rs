@@ -222,6 +222,7 @@ impl CoduxApp {
             }
             self.reset_current_worktree_ui_state(cx);
             self.file_editor_states.clear();
+            self.file_editor_markdown_preview_paths.clear();
             self.file_editor_state_lru.clear();
             self.file_editor_loading_states.clear();
             self.project_switch_generation = self.project_switch_generation.wrapping_add(1);
@@ -673,7 +674,9 @@ impl CoduxApp {
                 ),
             );
             self.state.terminal_layout = terminal_layout;
-            self.state.terminal_runtime = TerminalRuntimeSummary::default();
+            self.state.terminal_runtime = self
+                .runtime_service
+                .reload_terminal_runtime(Some(&storage_key));
             let selected_worktree = self
                 .state
                 .worktrees
@@ -741,6 +744,9 @@ impl CoduxApp {
                     let terminal_layout = runtime_service.reload_terminal_layout(Some(
                         &super::app_state::worktree_terminal_storage_key(&scope_key),
                     ));
+                    let terminal_runtime = runtime_service.reload_terminal_runtime(Some(
+                        &super::app_state::worktree_terminal_storage_key(&scope_key),
+                    ));
                     Ok::<_, String>(WorktreeSwitchLoad {
                         project_id: project.id,
                         generation,
@@ -748,7 +754,7 @@ impl CoduxApp {
                         ai_history,
                         remote_ai_current_sessions,
                         terminal_layout,
-                        terminal_runtime: TerminalRuntimeSummary::default(),
+                        terminal_runtime,
                     })
                 }
             })

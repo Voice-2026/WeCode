@@ -49,16 +49,19 @@ impl CoduxApp {
         let (terminal_layout, terminal_runtime) = normalize_terminal_restore_state(
             super::ai_runtime_status::terminal_layout_owner_id(&state).as_deref(),
             state.terminal_layout.clone(),
-            TerminalRuntimeSummary::default(),
+            state.terminal_runtime.clone(),
             &state.settings.language,
         );
         state.terminal_layout = terminal_layout;
         state.terminal_runtime = terminal_runtime;
-        let restore_plan = terminal_restore_plan_for_language(
+        let gateway_restore =
+            kiro_gateway_restore_config(&gateway_settings, &state.tool_permissions.kiro_model);
+        let restore_plan = terminal_restore_plan_for_language_with_gateway(
             &state.terminal_layout,
             &state.terminal_runtime,
             &state.settings.language,
             None,
+            gateway_restore.as_ref(),
         );
         prepare_memory_launch_artifacts(&runtime_service, &state);
         let launch_context = terminal_launch_context(&state, &runtime, &tool_permissions);
@@ -96,6 +99,7 @@ impl CoduxApp {
             false,
             &terminal_pane_registry,
             &terminal_manager,
+            gateway_restore.as_ref(),
         );
         let selected_ai_provider_id = state
             .settings
@@ -253,6 +257,7 @@ impl CoduxApp {
             file_editor_tabs: Vec::new(),
             active_file_editor_tab: None,
             file_editor_states: HashMap::new(),
+            file_editor_markdown_preview_paths: HashSet::new(),
             file_editor_state_lru: Vec::new(),
             file_editor_loading_states: HashSet::new(),
             file_search_open: false,
@@ -429,8 +434,10 @@ impl CoduxApp {
             assistant_panel: None,
             project_column_collapsed: true,
             task_column_collapsed: false,
-            task_section_terminals_collapsed: false,
-            task_section_sessions_collapsed: false,
+            task_column_primary_tab: TaskColumnPrimaryTab::Git,
+            task_git_tab: TaskGitTab::Worktrees,
+            task_session_filter: TaskSessionFilter::Recent,
+            task_session_source_filter: TaskSessionSourceFilter::All,
             project_list_state: None,
             remote_link_states: std::collections::HashMap::new(),
             remote_saved_host_ids,
@@ -438,6 +445,7 @@ impl CoduxApp {
             task_column_view: None,
             task_column_header_view: None,
             task_worktree_list_view: None,
+            task_branch_list_view: None,
             task_session_list_view: None,
             task_terminal_list_view: None,
             collapsed_terminal_panes,
@@ -671,6 +679,7 @@ impl CoduxApp {
         if self.is_exiting {
             return;
         }
+        self.persist_current_terminal_layout_now();
         self.is_exiting = true;
         self.close_auxiliary_windows_for_shutdown();
         self.shutdown_runtime_state();
@@ -680,6 +689,7 @@ impl CoduxApp {
         if self.is_exiting {
             return;
         }
+        self.persist_current_terminal_layout_now();
         self.is_exiting = true;
         self.close_desktop_pet_window(cx);
         self.close_auxiliary_windows(cx);
@@ -694,6 +704,7 @@ impl CoduxApp {
             .last_quit_request_at
             .is_some_and(|last| now.duration_since(last) <= QUIT_CONFIRM_WINDOW)
         {
+            self.persist_current_terminal_layout_now();
             self.is_exiting = true;
             codux_runtime::config::flush_all_config_writes();
             cx.quit();

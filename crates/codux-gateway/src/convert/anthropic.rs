@@ -209,10 +209,13 @@ fn convert_messages(messages: &[Value]) -> Vec<UnifiedMessage> {
     out
 }
 
-fn convert_tools(tools: Option<&Value>) -> Option<Vec<UnifiedTool>> {
+fn convert_tools(tools: Option<&Value>, provider_only: bool) -> Option<Vec<UnifiedTool>> {
     let arr = tools?.as_array()?;
     let mut out = Vec::new();
     for tool in arr {
+        if provider_only && is_provider_managed_tool(tool) {
+            continue;
+        }
         let name = tool.get("name").and_then(Value::as_str)?.to_string();
         out.push(UnifiedTool {
             name,
@@ -228,6 +231,12 @@ fn convert_tools(tools: Option<&Value>) -> Option<Vec<UnifiedTool>> {
     } else {
         Some(out)
     }
+}
+
+fn is_provider_managed_tool(tool: &Value) -> bool {
+    tool.get("type")
+        .and_then(Value::as_str)
+        .is_some_and(|kind| kind.starts_with("web_search"))
 }
 
 fn extract_thinking(request: &Value) -> ThinkingConfig {
@@ -263,7 +272,7 @@ pub fn anthropic_to_kiro(
         .cloned()
         .unwrap_or_default();
     let unified = convert_messages(&messages);
-    let tools = convert_tools(request.get("tools"));
+    let tools = convert_tools(request.get("tools"), config.provider_only);
     let system = extract_system_prompt(request.get("system"));
     let model = request
         .get("model")
@@ -285,4 +294,39 @@ pub fn anthropic_to_kiro(
         },
     )?;
     Ok(result.payload)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn provider_only_drops_server_web_search_but_keeps_claude_code_tools() {
+        let tools = json!([
+            { "type": "web_search_20250305", "name": "web_search" },
+            {
+                "name": "Bash",
+                "description": "Run a shell command",
+                "input_schema": { "type": "object" }
+            },
+            {
+                "name": "mcp__search__query",
+                "description": "Search through a local MCP server",
+                "input_schema": { "type": "object" }
+            }
+        ]);
+
+        let converted = convert_tools(Some(&tools), true).expect("local tools");
+        assert_eq!(converted.len(), 2);
+        assert_eq!(converted[0].name, "Bash");
+        assert_eq!(converted[1].name, "mcp__search__query");
+    }
+
+    #[test]
+    fn legacy_gateway_mode_can_still_convert_server_web_search() {
+        let tools = json!([{ "type": "web_search_20250305", "name": "web_search" }]);
+        let converted = convert_tools(Some(&tools), false).expect("web search tool");
+        assert_eq!(converted[0].name, "web_search");
+    }
 }

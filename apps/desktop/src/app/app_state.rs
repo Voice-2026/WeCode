@@ -15,6 +15,32 @@ pub(in crate::app) struct RemoteBrowseEntry {
     pub(in crate::app) is_dir: bool,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::app) enum TaskColumnPrimaryTab {
+    Git,
+    Terminals,
+    Sessions,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::app) enum TaskGitTab {
+    Worktrees,
+    Branches,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::app) enum TaskSessionFilter {
+    Recent,
+    Pinned,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::app) enum TaskSessionSourceFilter {
+    All,
+    Claude,
+    Codex,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::app) struct FilePickerRenameDraft {
     pub(in crate::app) path: String,
@@ -160,6 +186,7 @@ pub struct CoduxApp {
     pub(in crate::app) file_editor_tabs: Vec<FileEditorTab>,
     pub(in crate::app) active_file_editor_tab: Option<String>,
     pub(in crate::app) file_editor_states: HashMap<String, gpui::Entity<InputState>>,
+    pub(in crate::app) file_editor_markdown_preview_paths: HashSet<String>,
     // Most-recently-accessed editor-state keys, oldest first. Bounds the
     // editor-state cache: opening files across many projects/worktrees would
     // otherwise retain every file's rope + syntax tree forever (only cleared on
@@ -346,8 +373,10 @@ pub struct CoduxApp {
     pub(in crate::app) assistant_panel: Option<AssistantPanel>,
     pub(in crate::app) project_column_collapsed: bool,
     pub(in crate::app) task_column_collapsed: bool,
-    pub(in crate::app) task_section_terminals_collapsed: bool,
-    pub(in crate::app) task_section_sessions_collapsed: bool,
+    pub(in crate::app) task_column_primary_tab: TaskColumnPrimaryTab,
+    pub(in crate::app) task_git_tab: TaskGitTab,
+    pub(in crate::app) task_session_filter: TaskSessionFilter,
+    pub(in crate::app) task_session_source_filter: TaskSessionSourceFilter,
     pub(in crate::app) project_list_state: Option<gpui::Entity<ProjectListState>>,
     /// Last polled client→host link state per host device id. Drives the project
     /// connection badge and triggers terminal re-attach when a host reconnects.
@@ -362,6 +391,7 @@ pub struct CoduxApp {
     pub(in crate::app) task_column_view: Option<gpui::Entity<TaskColumnView>>,
     pub(in crate::app) task_column_header_view: Option<gpui::Entity<TaskColumnHeaderView>>,
     pub(in crate::app) task_worktree_list_view: Option<gpui::Entity<TaskWorktreeListView>>,
+    pub(in crate::app) task_branch_list_view: Option<gpui::Entity<TaskBranchListView>>,
     pub(in crate::app) task_session_list_view: Option<gpui::Entity<TaskSessionListView>>,
     pub(in crate::app) task_terminal_list_view: Option<gpui::Entity<TaskTerminalListView>>,
     pub(in crate::app) workspace_column_view: Option<gpui::Entity<WorkspaceColumnView>>,

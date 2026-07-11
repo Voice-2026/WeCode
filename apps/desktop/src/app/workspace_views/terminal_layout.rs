@@ -102,7 +102,7 @@ fn terminal_pane_drag_overlay(
         .on_drag_move::<TerminalPaneDrag>(cx.listener({
             let split_tree = split_tree.clone();
             move |view, event: &gpui::DragMoveEvent<TerminalPaneDrag>, _window, cx| {
-                let Some(pane_index) = terminal_pane_drop_target_at_position(
+                let Some(preview) = terminal_pane_drop_preview_at_position(
                     &split_tree,
                     pane_count,
                     event.bounds,
@@ -113,7 +113,7 @@ fn terminal_pane_drag_overlay(
                     }
                     return;
                 };
-                let next = Some(TerminalPaneDropPreview { pane_index });
+                let next = Some(preview);
                 if view.pane_drop_preview != next {
                     view.pane_drop_preview = next;
                     cx.notify();
@@ -129,12 +129,17 @@ fn terminal_pane_drag_overlay(
                     .map(|preview| preview.pane_index)
                     .unwrap_or(from_index);
                 if target != from_index {
+                    let direction = preview.and_then(|preview| preview.direction);
                     defer_terminal_workspace_app_update(
                         app_entity.clone(),
                         window,
                         cx,
                         move |app, _window, app_cx| {
-                            app.swap_terminal_top_panes(from_index, target, app_cx);
+                            if let Some(direction) = direction {
+                                app.move_terminal_top_pane(from_index, target, direction, app_cx);
+                            } else {
+                                app.swap_terminal_top_panes(from_index, target, app_cx);
+                            }
                         },
                     );
                 }
@@ -165,7 +170,20 @@ fn terminal_pane_drop_placeholder(
     pane_count: usize,
     preview: TerminalPaneDropPreview,
 ) -> Vec<AnyElement> {
-    let rect = terminal_pane_rect(split_tree, pane_count, preview.pane_index);
+    let mut rect = terminal_pane_rect(split_tree, pane_count, preview.pane_index);
+    match preview.direction {
+        Some(TerminalSplitDirection::Left) => rect.width *= 0.5,
+        Some(TerminalSplitDirection::Right) => {
+            rect.left += rect.width * 0.5;
+            rect.width *= 0.5;
+        }
+        Some(TerminalSplitDirection::Up) => rect.height *= 0.5,
+        Some(TerminalSplitDirection::Down) => {
+            rect.top += rect.height * 0.5;
+            rect.height *= 0.5;
+        }
+        None => {}
+    }
     vec![
         div()
             .absolute()
@@ -294,6 +312,34 @@ pub(in crate::app) fn terminal_pane_drop_target_at_position(
             height: 1.0,
         },
     )
+}
+
+fn terminal_pane_drop_preview_at_position(
+    split_tree: &TerminalSplitNode,
+    pane_count: usize,
+    bounds: Bounds<Pixels>,
+    position: gpui::Point<Pixels>,
+) -> Option<TerminalPaneDropPreview> {
+    let pane_index =
+        terminal_pane_drop_target_at_position(split_tree, pane_count, bounds, position)?;
+    let pane_rect = terminal_pane_rect(split_tree, pane_count, pane_index);
+    let x = ((position.x - bounds.left()) / bounds.size.width).clamp(0.0, 0.999_999);
+    let y = ((position.y - bounds.top()) / bounds.size.height).clamp(0.0, 0.999_999);
+    let local_x = ((x - pane_rect.left) / pane_rect.width.max(0.000_001)).clamp(0.0, 1.0);
+    let local_y = ((y - pane_rect.top) / pane_rect.height.max(0.000_001)).clamp(0.0, 1.0);
+    let edge = [
+        (local_x, TerminalSplitDirection::Left),
+        (1.0 - local_x, TerminalSplitDirection::Right),
+        (local_y, TerminalSplitDirection::Up),
+        (1.0 - local_y, TerminalSplitDirection::Down),
+    ]
+    .into_iter()
+    .min_by(|(a, _), (b, _)| a.total_cmp(b));
+    let direction = edge.and_then(|(distance, direction)| (distance <= 0.30).then_some(direction));
+    Some(TerminalPaneDropPreview {
+        pane_index,
+        direction,
+    })
 }
 
 fn terminal_pane_drop_target_in_node(

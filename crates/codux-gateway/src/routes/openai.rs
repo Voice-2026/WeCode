@@ -32,7 +32,7 @@ pub async fn chat_completions(
         return resp;
     }
     let mut request = body.0;
-    if state.config.truncation_recovery {
+    if state.config.gateway_agent_features_enabled() && state.config.truncation_recovery {
         crate::truncation::inject_notices(&mut request, &state.truncation);
     }
     let stream_requested = request
@@ -67,13 +67,14 @@ pub async fn chat_completions(
 
     let ft = state.config.first_token_timeout_secs;
     let rt = state.config.streaming_read_timeout_secs;
-    let thinking = if state.config.fake_reasoning {
+    let thinking = if state.config.gateway_agent_features_enabled() && state.config.fake_reasoning {
         Some(state.config.fake_reasoning_handling.clone())
     } else {
         None
     };
 
-    let recovery = state.config.truncation_recovery;
+    let recovery =
+        state.config.gateway_agent_features_enabled() && state.config.truncation_recovery;
     let store = state.truncation.clone();
 
     if stream_requested {

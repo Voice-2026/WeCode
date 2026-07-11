@@ -40,6 +40,15 @@ impl CoduxApp {
         self.open_file_preview_window(entry.relative_path, cx);
     }
 
+    pub(in crate::app) fn open_active_file_editor_in_window(&mut self, cx: &mut Context<Self>) {
+        let Some(relative_path) = self.active_file_editor_tab.clone() else {
+            self.status_message = "no active file to open in a window".to_string();
+            self.invalidate_status_bar(cx);
+            return;
+        };
+        self.open_file_editor_window(relative_path, cx);
+    }
+
     pub(in crate::app) fn send_file_path_to_active_terminal(
         &mut self,
         relative_path: String,

@@ -139,10 +139,51 @@ impl CoduxApp {
     }
 
     pub(in crate::app) fn persist_current_terminal_layout(&mut self) {
+        self.refresh_terminal_slot_snapshots();
+        let runtime_snapshot = self.terminal_runtime_snapshot();
+        let terminal_runtime =
+            crate::app::terminal_worktree_actions::terminal_runtime_summary_from_inputs(
+                &self.state.terminal_runtime,
+                runtime_snapshot.0,
+                runtime_snapshot.1,
+            );
+        self.state.terminal_runtime = terminal_runtime.clone();
         self.spawn_persist_terminal_layout_snapshot(
             super::ai_runtime_status::current_terminal_layout_storage_key(&self.state),
             self.terminal_layout_snapshot(),
+            terminal_runtime,
         );
+    }
+
+    pub(in crate::app) fn persist_current_terminal_layout_now(&mut self) {
+        let Some(owner_id) =
+            super::ai_runtime_status::current_terminal_layout_storage_key(&self.state)
+        else {
+            return;
+        };
+        self.refresh_terminal_slot_snapshots();
+        let runtime_snapshot = self.terminal_runtime_snapshot();
+        let terminal_runtime =
+            crate::app::terminal_worktree_actions::terminal_runtime_summary_from_inputs(
+                &self.state.terminal_runtime,
+                runtime_snapshot.0,
+                runtime_snapshot.1,
+            );
+        let layout = self.terminal_layout_snapshot();
+        let _ = self.runtime_service.save_terminal_layout_with_grid(
+            &owner_id,
+            layout.tabs,
+            layout.top_panes,
+            layout.top_ratios,
+            layout.top_grid,
+            layout.split_tree,
+            layout.bottom_ratio,
+            layout.collapsed_panes,
+        );
+        let _ = self
+            .runtime_service
+            .save_terminal_runtime(&owner_id, terminal_runtime.clone());
+        self.state.terminal_runtime = terminal_runtime;
     }
 
     pub(in crate::app) fn merge_worktree_ai_history_if_current(
@@ -181,6 +222,7 @@ impl CoduxApp {
         &self,
         owner_id: Option<String>,
         layout_snapshot: TerminalLayoutSnapshot,
+        terminal_runtime: TerminalRuntimeSummary,
     ) {
         let Some(owner_id) = owner_id else {
             return;
@@ -207,6 +249,12 @@ impl CoduxApp {
                 codux_runtime::runtime_trace::runtime_trace(
                     "terminal-layout",
                     &format!("failed to persist terminal layout {owner_id}: {error}"),
+                );
+            }
+            if let Err(error) = runtime_service.save_terminal_runtime(&owner_id, terminal_runtime) {
+                codux_runtime::runtime_trace::runtime_trace(
+                    "terminal-layout",
+                    &format!("failed to persist terminal runtime {owner_id}: {error}"),
                 );
             }
         });

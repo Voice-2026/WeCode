@@ -28,10 +28,13 @@ pub fn load(path: &Path, creds: &mut Credentials) -> Result<(), GatewayError> {
     }
     if let Some(v) = data.get("profileArn").and_then(Value::as_str) {
         creds.profile_arn = Some(v.to_string());
+        creds.detected_api_region = profile_arn_region(v);
     }
     if let Some(v) = data.get("region").and_then(Value::as_str) {
         creds.sso_region = Some(v.to_string());
-        creds.detected_api_region = Some(v.to_string());
+        if creds.detected_api_region.is_none() {
+            creds.detected_api_region = Some(v.to_string());
+        }
     }
     if let Some(v) = data.get("clientIdHash").and_then(Value::as_str) {
         load_enterprise_device_registration(v, creds);
@@ -78,8 +81,16 @@ fn load_kiro_ide_profile(creds: &mut Credentials) {
         creds.profile_arn = Some(arn.to_string());
         // The IDE token's `region` is the authentication region. Runtime and
         // MCP requests must follow the CodeWhisperer profile ARN region.
-        creds.detected_api_region = arn.split(':').nth(3).map(str::to_string);
+        creds.detected_api_region = profile_arn_region(arn);
     }
+}
+
+fn profile_arn_region(arn: &str) -> Option<String> {
+    arn.split(':')
+        .nth(3)
+        .map(str::trim)
+        .filter(|region| !region.is_empty())
+        .map(str::to_string)
 }
 
 /// Enterprise Kiro IDE: device registration at ~/.aws/sso/cache/{hash}.json.
@@ -166,4 +177,60 @@ pub fn expand(path: &Path) -> std::path::PathBuf {
         }
     }
     path.to_path_buf()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn profile_arn_region_overrides_sso_region_for_runtime_api() {
+        let path = std::env::temp_dir().join(format!(
+            "codux-kiro-token-{}-{}.json",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::write(
+            &path,
+            r#"{
+                "accessToken": "token",
+                "region": "ap-northeast-1",
+                "profileArn": "arn:aws:codewhisperer:us-east-1:123456789012:profile/test"
+            }"#,
+        )
+        .unwrap();
+
+        let mut creds = Credentials::default();
+        load(&path, &mut creds).unwrap();
+
+        assert_eq!(creds.sso_region.as_deref(), Some("ap-northeast-1"));
+        assert_eq!(creds.detected_api_region.as_deref(), Some("us-east-1"));
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn sso_region_remains_runtime_fallback_without_profile_arn() {
+        let path = std::env::temp_dir().join(format!(
+            "codux-kiro-token-no-profile-{}-{}.json",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::write(
+            &path,
+            r#"{"accessToken":"token","region":"ap-northeast-1"}"#,
+        )
+        .unwrap();
+
+        let mut creds = Credentials::default();
+        load(&path, &mut creds).unwrap();
+
+        assert_eq!(creds.detected_api_region.as_deref(), Some("ap-northeast-1"));
+        let _ = std::fs::remove_file(path);
+    }
 }

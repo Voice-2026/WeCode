@@ -78,7 +78,8 @@ impl CoduxApp {
                     };
                     let terminal_layout =
                         terminal_layout_service.reload_terminal_layout(Some(&terminal_storage_key));
-                    let terminal_runtime = TerminalRuntimeSummary::default();
+                    let terminal_runtime = terminal_layout_service
+                        .reload_terminal_runtime(Some(&terminal_storage_key));
                     codux_runtime::runtime_trace::runtime_trace(
                         "project-switch",
                         &format!(

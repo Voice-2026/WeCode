@@ -16,13 +16,14 @@ pub(in crate::app) fn file_editor_workspace(
         active_tab: _,
         active_editor: _,
         active_loading: _,
+        markdown_preview: _,
         split_active: _,
     } = snapshot;
     let empty_text = file_editor_i18n(
         app_entity.clone(),
         cx,
         "files.editor.empty",
-        "Double-click a file to open it",
+        "Click a file to open it",
     );
 
     div()
@@ -337,11 +338,15 @@ pub(super) fn file_editor_tab_content(tab: FileEditorTab, icon_color: gpui::Hsla
 pub(super) fn file_editor_toolbar(
     app_entity: gpui::Entity<CoduxApp>,
     active_tab: Option<FileEditorTab>,
+    markdown_preview: bool,
     window_header: bool,
     cx: &mut Context<FileEditorToolbarView>,
 ) -> impl IntoElement {
     let active_dirty = active_tab.as_ref().is_some_and(|tab| tab.dirty);
     let read_only = active_tab.as_ref().is_none_or(|tab| !tab.editable);
+    let is_markdown = active_tab.as_ref().is_some_and(|tab| {
+        file_preview_kind_for_path(&tab.relative_path) == FilePreviewKind::Markdown
+    });
     let active_label = active_tab
         .as_ref()
         .map(|tab| tab.label.clone())
@@ -363,13 +368,16 @@ pub(super) fn file_editor_toolbar(
         .border_b_1()
         .border_color(cx.theme().border)
         .bg(cx.theme().title_bar)
-        .when(window_header, |this| {
-            this.window_control_area(WindowControlArea::Drag)
-        })
         .child(
             div()
                 .min_w_0()
                 .flex_1()
+                .h_full()
+                .flex()
+                .items_center()
+                .when(window_header, |this| {
+                    this.window_control_area(WindowControlArea::Drag)
+                })
                 .text_size(rems(0.875))
                 .line_height(rems(1.125))
                 .text_color(color(theme::TEXT))
@@ -425,6 +433,65 @@ pub(super) fn file_editor_toolbar(
                         view.dispatch_active_file_editor_action(Redo, window, cx);
                     },
                 ))
+                .child(file_editor_toolbar_button(
+                    app_entity.clone(),
+                    "file-editor-markdown-preview",
+                    if markdown_preview {
+                        HeroIconName::PencilSquare
+                    } else {
+                        HeroIconName::Eye
+                    },
+                    if markdown_preview {
+                        file_editor_i18n(
+                            app_entity.clone(),
+                            cx,
+                            "files.editor.edit_markdown",
+                            "Edit Markdown",
+                        )
+                    } else {
+                        file_editor_i18n(
+                            app_entity.clone(),
+                            cx,
+                            "files.editor.preview_markdown",
+                            "Preview Markdown",
+                        )
+                    },
+                    if markdown_preview {
+                        cx.theme().primary
+                    } else {
+                        cx.theme().secondary_foreground
+                    },
+                    !is_markdown,
+                    cx,
+                    |view, _event, _window, cx| {
+                        let app_entity = view.app_entity.clone();
+                        cx.update_entity(&app_entity, |app, cx| {
+                            app.toggle_active_markdown_preview(cx);
+                        });
+                    },
+                ))
+                .when(!window_header, |this| {
+                    this.child(file_editor_toolbar_button(
+                        app_entity.clone(),
+                        "file-editor-open-window",
+                        HeroIconName::ArrowTopRightOnSquare,
+                        file_editor_i18n(
+                            app_entity.clone(),
+                            cx,
+                            "files.editor.open_window",
+                            "Open in New Window",
+                        ),
+                        cx.theme().secondary_foreground,
+                        active_tab.is_none(),
+                        cx,
+                        |view, _event, _window, cx| {
+                            let app_entity = view.app_entity.clone();
+                            cx.update_entity(&app_entity, |app, cx| {
+                                app.open_active_file_editor_in_window(cx);
+                            });
+                        },
+                    ))
+                })
                 .child(file_editor_toolbar_button(
                     app_entity.clone(),
                     "file-editor-search",

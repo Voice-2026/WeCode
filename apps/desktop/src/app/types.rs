@@ -1,4 +1,5 @@
 use crate::terminal::TerminalPane;
+use std::collections::HashMap;
 
 /// What the file-picker sub-window selects.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -67,6 +68,8 @@ pub(in crate::app) struct TerminalPaneSlot {
     pub(in crate::app) pane: Option<TerminalPane>,
     pub(in crate::app) restored_output_bytes: usize,
     pub(in crate::app) restored_output_tail: String,
+    pub(in crate::app) restore_command: Option<String>,
+    pub(in crate::app) restore_env: Option<HashMap<String, String>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -82,6 +85,8 @@ pub(in crate::app) struct TerminalPanePlan {
     pub(in crate::app) title: String,
     pub(in crate::app) restored_output_bytes: usize,
     pub(in crate::app) restored_output_tail: String,
+    pub(in crate::app) restore_command: Option<String>,
+    pub(in crate::app) restore_env: Option<HashMap<String, String>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

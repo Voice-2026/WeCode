@@ -53,6 +53,25 @@ impl TerminalPane {
     where
         C: AppContext,
     {
+        Self::spawn_with_restored_output(
+            cx,
+            terminal_manager,
+            pty_config,
+            terminal_config,
+            None,
+        )
+    }
+
+    pub fn spawn_with_restored_output<C>(
+        cx: &mut C,
+        terminal_manager: Arc<TerminalManager>,
+        pty_config: TerminalPtyConfig,
+        terminal_config: TerminalConfig,
+        restored_output: Option<TerminalOutputSnapshot>,
+    ) -> Result<Self>
+    where
+        C: AppContext,
+    {
         let config = terminal_pty_config_with_view(pty_config, &terminal_config);
         let (session_event_tx, session_event_rx) = flume::unbounded();
         let (session_event_wake_tx, session_event_wake_rx) = flume::bounded(1);
@@ -72,6 +91,14 @@ impl TerminalPane {
         let session = TerminalSessionBinding::attached(session);
         let writer = TerminalSessionWriter::new(session.clone());
         let view_started_at = Instant::now();
+        let restored_output_bytes = restored_output
+            .as_ref()
+            .map(|output| output.bytes)
+            .unwrap_or_default();
+        let restored_tail_bytes = restored_output
+            .as_ref()
+            .map(|output| output.tail.len())
+            .unwrap_or_default();
         let view = cx.new(|cx| {
             TerminalView::new(
                 writer,
@@ -80,16 +107,18 @@ impl TerminalPane {
                 session_event_wake_rx,
                 session.clone(),
                 terminal_config,
-                None,
+                restored_output,
                 cx,
             )
         });
         codux_runtime::runtime_trace::runtime_trace(
             "terminal-restore",
             &format!(
-                "view_create elapsed_ms={} terminal_id={}",
+                "view_create elapsed_ms={} terminal_id={} restored_bytes={} restored_tail_bytes={}",
                 view_started_at.elapsed().as_millis(),
-                terminal_id.as_deref().unwrap_or("none")
+                terminal_id.as_deref().unwrap_or("none"),
+                restored_output_bytes,
+                restored_tail_bytes
             ),
         );
 
@@ -322,8 +351,8 @@ impl TerminalPane {
         self.session.input_snapshot()
     }
 
-    pub fn output_snapshot(&self) -> TerminalOutputSnapshot {
-        self.session.output_snapshot()
+    pub fn restorable_output_snapshot(&self) -> TerminalOutputSnapshot {
+        self.session.restorable_output_snapshot()
     }
 
     pub fn matches_pty_config(&self, config: &TerminalPtyConfig) -> bool {
@@ -760,12 +789,12 @@ impl TerminalSessionBinding {
             .unwrap_or_default()
     }
 
-    fn output_snapshot(&self) -> TerminalOutputSnapshot {
+    fn restorable_output_snapshot(&self) -> TerminalOutputSnapshot {
         self.inner
             .lock()
             .session
             .as_ref()
-            .map(|session| session.output_snapshot())
+            .map(|session| session.restorable_output_snapshot())
             .unwrap_or_default()
     }
 

@@ -14,7 +14,8 @@ pub use headless_screen::{
     TerminalScreenCellSnapshot, TerminalScreenColor, TerminalScreenCursorShape,
     TerminalScreenCursorSnapshot, TerminalScreenEvent, TerminalScreenEventSink,
     TerminalScreenImage, TerminalScreenSnapshot, TerminalScreenUnderline, TerminalSelectionSpan,
-    TerminalSelectionSpanKind, stack_scrolled_snapshots,
+    TerminalSelectionSpanKind, stack_scrolled_snapshots, terminal_legacy_output_plain_text,
+    terminal_screen_plain_text,
 };
 pub use output_sequence::{
     TerminalOutputSequenceAction, TerminalOutputSequenceResult, TerminalOutputSequencer,

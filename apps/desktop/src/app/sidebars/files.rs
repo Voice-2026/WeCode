@@ -732,7 +732,7 @@ fn file_tree_entry_row(
             let entry = entry.clone();
             let extend = event.modifiers().shift;
             let toggle = event.modifiers().control || event.modifiers().platform;
-            let open = !is_dir && event.click_count() >= 2;
+            let open = file_tree_click_opens_file(is_dir, extend, toggle);
             view.defer_app_update(window, cx, move |app, window, cx| {
                 app.select_file_entry_from_click(entry, extend, toggle, open, window, cx);
             });
@@ -859,6 +859,10 @@ fn file_tree_entry_row(
                 .child(file.name)
                 .into_any_element()
         })
+}
+
+fn file_tree_click_opens_file(is_dir: bool, extend: bool, toggle: bool) -> bool {
+    !is_dir && !extend && !toggle
 }
 
 fn file_tree_context_menu(
@@ -1105,7 +1109,10 @@ fn clipboard_text_line_may_be_file_path(line: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{clipboard_image_extension, clipboard_text_line_may_be_file_path, file_tree_rows};
+    use super::{
+        clipboard_image_extension, clipboard_text_line_may_be_file_path,
+        file_tree_click_opens_file, file_tree_rows,
+    };
     use crate::app::FileNameDraftKind;
     use codux_runtime::runtime_state::{FileEntry, FileKind};
     use gpui::ImageFormat;
@@ -1127,6 +1134,14 @@ mod tests {
         assert_eq!(clipboard_image_extension(ImageFormat::Png), "png");
         assert_eq!(clipboard_image_extension(ImageFormat::Jpeg), "jpg");
         assert_eq!(clipboard_image_extension(ImageFormat::Webp), "webp");
+    }
+
+    #[test]
+    fn plain_file_click_opens_without_breaking_multi_select() {
+        assert!(file_tree_click_opens_file(false, false, false));
+        assert!(!file_tree_click_opens_file(true, false, false));
+        assert!(!file_tree_click_opens_file(false, true, false));
+        assert!(!file_tree_click_opens_file(false, false, true));
     }
 
     #[test]

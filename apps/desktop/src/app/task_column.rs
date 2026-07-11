@@ -1,4 +1,8 @@
-use gpui_component::{InteractiveElementExt as _, menu::ContextMenuExt as _};
+use chrono::{DateTime, Local};
+use gpui_component::{
+    InteractiveElementExt as _, Selectable as _, WindowExt as _, button::ButtonVariant,
+    dialog::DialogButtonProps, menu::ContextMenuExt as _,
+};
 
 use super::agent_display::{agent_lifecycle_color, agent_lifecycle_status_dot, spin_icon};
 use super::ai_runtime_status::AgentLifecycleState;
@@ -10,18 +14,20 @@ use super::{
 };
 use gpui::ListSizingBehavior;
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum TaskSectionKind {
-    Terminals,
-    Sessions,
-}
-
 pub(in crate::app) struct TaskColumnView {
+    app_entity: gpui::Entity<CoduxApp>,
     header_view: gpui::Entity<TaskColumnHeaderView>,
     worktree_list_view: gpui::Entity<TaskWorktreeListView>,
+    branch_list_view: gpui::Entity<TaskBranchListView>,
     terminal_list_view: gpui::Entity<TaskTerminalListView>,
     session_list_view: gpui::Entity<TaskSessionListView>,
-    sessions_collapsed: bool,
+    active_tab: TaskColumnPrimaryTab,
+    active_git_tab: TaskGitTab,
+    worktree_count: usize,
+    branch_count: usize,
+    terminal_count: usize,
+    session_count: usize,
+    labels: TaskColumnLabels,
 }
 
 #[derive(Clone)]
@@ -68,20 +74,31 @@ struct TaskSessionRow {
     external_session_id: Option<String>,
     title: String,
     source: String,
+    last_model: Option<String>,
     last_seen_at: f64,
     total_tokens: i64,
     usage_amounts: Vec<codux_runtime::ai_history::AIUsageAmount>,
     active: bool,
+    pinned: bool,
 }
 
 impl Render for TaskColumnView {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         task_column_content(
+            self.app_entity.clone(),
             self.header_view.clone(),
             self.worktree_list_view.clone(),
+            self.branch_list_view.clone(),
             self.terminal_list_view.clone(),
             self.session_list_view.clone(),
-            self.sessions_collapsed,
+            self.active_tab,
+            self.active_git_tab,
+            self.worktree_count,
+            self.branch_count,
+            self.terminal_count,
+            self.session_count,
+            self.labels.clone(),
+            cx,
         )
         .into_any_element()
     }
@@ -92,12 +109,35 @@ impl CoduxApp {
         &mut self,
         cx: &mut Context<Self>,
     ) -> gpui::Entity<TaskColumnView> {
-        let sessions_collapsed = self.task_section_sessions_collapsed;
+        let active_tab = self.task_column_primary_tab;
+        let active_git_tab = self.task_git_tab;
+        let worktree_count = self.state.worktrees.worktrees.len();
+        let branch_count = self.state.git.branches.len();
+        let terminal_count = self
+            .main_terminal()
+            .map(|tab| tab.panes.len())
+            .unwrap_or_default()
+            + self.collapsed_terminal_panes.len();
+        let session_count = self.state.ai_history.sessions.len();
+        let labels = task_column_labels(&self.state.settings.language);
         if let Some(view) = self.task_column_view.clone() {
             self.update_task_column_child_views(cx);
             view.update(cx, |view, cx| {
-                if view.sessions_collapsed != sessions_collapsed {
-                    view.sessions_collapsed = sessions_collapsed;
+                if view.active_tab != active_tab
+                    || view.worktree_count != worktree_count
+                    || view.active_git_tab != active_git_tab
+                    || view.branch_count != branch_count
+                    || view.terminal_count != terminal_count
+                    || view.session_count != session_count
+                    || view.labels != labels
+                {
+                    view.active_tab = active_tab;
+                    view.worktree_count = worktree_count;
+                    view.active_git_tab = active_git_tab;
+                    view.branch_count = branch_count;
+                    view.terminal_count = terminal_count;
+                    view.session_count = session_count;
+                    view.labels = labels;
                     cx.notify();
                 }
             });
@@ -105,14 +145,24 @@ impl CoduxApp {
         }
         let header_view = self.task_column_header_view(cx);
         let worktree_list_view = self.task_worktree_list_view(cx);
+        let branch_list_view = self.task_branch_list_view(cx);
         let terminal_list_view = self.task_terminal_list_view(cx);
         let session_list_view = self.task_session_list_view(cx);
+        let app_entity = cx.entity();
         let view = cx.new(|_| TaskColumnView {
+            app_entity,
             header_view,
             worktree_list_view,
+            branch_list_view,
             terminal_list_view,
             session_list_view,
-            sessions_collapsed,
+            active_tab,
+            active_git_tab,
+            worktree_count,
+            branch_count,
+            terminal_count,
+            session_count,
+            labels,
         });
         self.task_column_view = Some(view.clone());
         view
@@ -121,6 +171,7 @@ impl CoduxApp {
     pub(in crate::app) fn update_task_column_child_views(&mut self, cx: &mut Context<Self>) {
         let _ = self.task_column_header_view(cx);
         let _ = self.task_worktree_list_view(cx);
+        let _ = self.task_branch_list_view(cx);
         let _ = self.task_terminal_list_view(cx);
         let _ = self.task_session_list_view(cx);
     }
@@ -131,21 +182,38 @@ struct TaskColumnLabels {
     language: String,
     no_project: String,
     no_worktrees_title: String,
+    no_branches_title: String,
     no_sessions_title: String,
     no_branch: String,
     sessions: String,
     terminals: String,
+    git: String,
+    branches: String,
+    worktrees: String,
+    current: String,
     changed_format: String,
     create: String,
+    new_branch: String,
+    branch_name: String,
     refresh: String,
     open: String,
     rename: String,
+    close: String,
+    cancel: String,
+    close_terminal_title: String,
+    close_terminal_message_format: String,
     new_session: String,
     open_folder: String,
     merge: String,
     delete: String,
     bind_wechat: String,
     wechat_bound: String,
+    recent: String,
+    pinned: String,
+    filter: String,
+    all: String,
+    pin: String,
+    unpin: String,
 }
 
 fn task_column_labels(language: &str) -> TaskColumnLabels {
@@ -155,27 +223,45 @@ fn task_column_labels(language: &str) -> TaskColumnLabels {
         language: language.to_string(),
         no_project: tr("files.panel.no_project", "No project selected"),
         no_worktrees_title: tr("worktree.sidebar.empty_title", "No worktrees yet"),
+        no_branches_title: tr("git.branch.empty", "No branches"),
         no_sessions_title: tr("ai.sessions.empty", "No Sessions"),
         no_branch: tr("git.branch.none", "No Branch"),
         sessions: tr("ai.sessions.history", "Session History"),
         terminals: tr("terminal.title", "Terminal"),
+        git: tr("titlebar.git", "Git"),
+        branches: tr("git.branches.title", "Branches"),
+        worktrees: tr("worktree.title", "Worktree"),
+        current: tr("common.current", "Current"),
         changed_format: tr("worktree.sidebar.changed_format", "%@ changed"),
         create: tr("worktree.create.title", "New Worktree"),
+        new_branch: tr("git.branch.new", "New Branch"),
+        branch_name: tr("git.branch.name", "Branch name"),
         refresh: tr("common.refresh", "Refresh"),
         open: tr("common.open", "Open"),
         rename: tr("common.rename", "Rename"),
+        close: tr("common.close", "Close"),
+        cancel: tr("common.cancel", "Cancel"),
+        close_terminal_title: tr("terminal.close.title", "Close Terminal"),
+        close_terminal_message_format: tr("terminal.close.message_format", "Close %@?"),
         new_session: tr("ai.sessions.new_session", "New Session"),
         open_folder: tr("worktree.menu.open_folder", "Open Folder"),
         merge: tr("worktree.menu.merge", "Merge to Mainline"),
         delete: tr("common.delete", "Delete"),
         bind_wechat: tr("terminal.wechat.bind", "Bind WeChat to this terminal"),
         wechat_bound: tr("terminal.wechat.bound", "WeChat bound"),
+        recent: tr("common.recent", "Recent"),
+        pinned: tr("common.pinned", "Pinned"),
+        filter: tr("common.filter", "Filter"),
+        all: tr("common.all", "All"),
+        pin: tr("common.pin", "Pin"),
+        unpin: tr("common.unpin", "Unpin"),
     }
 }
 
 fn task_session_row(
     session: &AISessionSummary,
     active_ai_session_id: Option<&str>,
+    metadata: Option<&codux_runtime::ai_session_metadata::AISessionMetadata>,
 ) -> TaskSessionRow {
     TaskSessionRow {
         id: session.id.clone(),
@@ -183,6 +269,7 @@ fn task_session_row(
         external_session_id: session.external_session_id.clone(),
         title: session.title.clone(),
         source: session.source.clone(),
+        last_model: session.last_model.clone(),
         last_seen_at: session.last_seen_at,
         total_tokens: session.total_tokens,
         usage_amounts: session.usage_amounts.clone(),
@@ -193,7 +280,25 @@ fn task_session_row(
                     || session.external_session_id.as_deref() == Some(id)
             })
             .unwrap_or(false),
+        pinned: metadata.is_some_and(|metadata| metadata.pinned),
     }
+}
+
+fn task_branch_rows(branches: &[GitBranchSummary]) -> Vec<TaskBranchRow> {
+    let mut rows = branches
+        .iter()
+        .map(|branch| TaskBranchRow {
+            name: branch.name.clone(),
+            is_current: branch.is_current,
+        })
+        .collect::<Vec<_>>();
+    rows.sort_by(|left, right| {
+        right
+            .is_current
+            .cmp(&left.is_current)
+            .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
+    });
+    rows
 }
 
 #[derive(Clone, PartialEq)]
@@ -201,6 +306,8 @@ pub(in crate::app) struct TaskColumnHeaderSnapshot {
     project_name: String,
     refreshing: bool,
     create_label: String,
+    branch_name_label: String,
+    create_branch: bool,
     refresh_label: String,
 }
 
@@ -225,6 +332,8 @@ impl Render for TaskColumnHeaderView {
             self.snapshot.project_name.clone(),
             self.snapshot.refreshing,
             self.snapshot.create_label.clone(),
+            self.snapshot.branch_name_label.clone(),
+            self.snapshot.create_branch,
             self.snapshot.refresh_label.clone(),
             self.app_entity.clone(),
             cx,
@@ -269,12 +378,55 @@ impl Render for TaskWorktreeListView {
 }
 
 #[derive(Clone, PartialEq)]
+struct TaskBranchRow {
+    name: String,
+    is_current: bool,
+}
+
+#[derive(Clone, PartialEq)]
+pub(in crate::app) struct TaskBranchListSnapshot {
+    labels: TaskColumnLabels,
+    branches: Vec<TaskBranchRow>,
+}
+
+pub(in crate::app) struct TaskBranchListView {
+    app_entity: gpui::Entity<CoduxApp>,
+    snapshot: TaskBranchListSnapshot,
+    scroll_handle: UniformListScrollHandle,
+}
+
+impl TaskBranchListView {
+    fn set_snapshot(&mut self, snapshot: TaskBranchListSnapshot, cx: &mut Context<Self>) {
+        if self.snapshot == snapshot {
+            return;
+        }
+        self.snapshot = snapshot;
+        cx.notify();
+    }
+}
+
+impl Render for TaskBranchListView {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        branch_list_area(
+            self.snapshot.branches.clone(),
+            self.snapshot.labels.clone(),
+            self.scroll_handle.clone(),
+            self.app_entity.clone(),
+            cx,
+        )
+        .into_any_element()
+    }
+}
+
+#[derive(Clone, PartialEq)]
 struct TaskTerminalRow {
     terminal_id: Option<String>,
     pane_index: usize,
     title: String,
     subtitle: Option<String>,
+    created_at: Option<f64>,
     lifecycle: Option<AgentLifecycleState>,
+    running: bool,
     active: bool,
     wechat_bound: bool,
     collapsed: bool,
@@ -285,7 +437,6 @@ struct TaskTerminalRow {
 pub(in crate::app) struct TaskTerminalListSnapshot {
     labels: TaskColumnLabels,
     terminals: Vec<TaskTerminalRow>,
-    collapsed: bool,
 }
 
 pub(in crate::app) struct TaskTerminalListView {
@@ -315,7 +466,6 @@ impl Render for TaskTerminalListView {
         terminal_list_area(
             self.snapshot.terminals.clone(),
             self.snapshot.labels.clone(),
-            self.snapshot.collapsed,
             self.scroll_handle.clone(),
             self.app_entity.clone(),
             cx,
@@ -328,7 +478,8 @@ impl Render for TaskTerminalListView {
 pub(in crate::app) struct TaskSessionListSnapshot {
     labels: TaskColumnLabels,
     sessions: Vec<TaskSessionRow>,
-    collapsed: bool,
+    filter: TaskSessionFilter,
+    source_filter: TaskSessionSourceFilter,
 }
 
 pub(in crate::app) struct TaskSessionListView {
@@ -352,7 +503,8 @@ impl Render for TaskSessionListView {
         recent_session_area(
             self.snapshot.sessions.clone(),
             self.snapshot.labels.clone(),
-            self.snapshot.collapsed,
+            self.snapshot.filter,
+            self.snapshot.source_filter,
             self.scroll_handle.clone(),
             self.app_entity.clone(),
             cx,
@@ -400,6 +552,25 @@ impl CoduxApp {
         view
     }
 
+    fn task_branch_list_view(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> gpui::Entity<TaskBranchListView> {
+        let snapshot = self.task_branch_list_snapshot();
+        if let Some(view) = self.task_branch_list_view.clone() {
+            view.update(cx, |view, cx| view.set_snapshot(snapshot, cx));
+            return view;
+        }
+        let app_entity = cx.entity();
+        let view = cx.new(|_| TaskBranchListView {
+            app_entity,
+            snapshot,
+            scroll_handle: UniformListScrollHandle::new(),
+        });
+        self.task_branch_list_view = Some(view.clone());
+        view
+    }
+
     fn task_terminal_list_view(
         &mut self,
         cx: &mut Context<Self>,
@@ -441,6 +612,8 @@ impl CoduxApp {
 
     fn task_column_header_snapshot(&self) -> TaskColumnHeaderSnapshot {
         let labels = task_column_labels(&self.state.settings.language);
+        let create_branch = self.task_column_primary_tab == TaskColumnPrimaryTab::Git
+            && self.task_git_tab == TaskGitTab::Branches;
         TaskColumnHeaderSnapshot {
             project_name: self
                 .state
@@ -449,7 +622,13 @@ impl CoduxApp {
                 .map(|project| project.name.clone())
                 .unwrap_or(labels.no_project),
             refreshing: self.task_column_refreshing,
-            create_label: labels.create,
+            create_label: if create_branch {
+                labels.new_branch
+            } else {
+                labels.create
+            },
+            branch_name_label: labels.branch_name,
+            create_branch,
             refresh_label: labels.refresh,
         }
     }
@@ -485,6 +664,12 @@ impl CoduxApp {
         TaskWorktreeListSnapshot { labels, worktrees }
     }
 
+    fn task_branch_list_snapshot(&self) -> TaskBranchListSnapshot {
+        let labels = task_column_labels(&self.state.settings.language);
+        let branches = task_branch_rows(&self.state.git.branches);
+        TaskBranchListSnapshot { labels, branches }
+    }
+
     fn task_terminal_list_snapshot(&self) -> TaskTerminalListSnapshot {
         let labels = task_column_labels(&self.state.settings.language);
         let ai_titles = terminal_ai_titles_by_terminal_id(&self.state.ai_runtime_state.sessions);
@@ -514,6 +699,24 @@ impl CoduxApp {
                             .map(|lifecycle| lifecycle.state);
                         let active = !active_terminal_id.is_empty()
                             && terminal_id.as_deref() == Some(active_terminal_id.as_str());
+                        let created_at = terminal_id.as_deref().and_then(|id| {
+                            self.state
+                                .terminal_runtime
+                                .sessions
+                                .iter()
+                                .find(|session| session.terminal_id == id)
+                                .map(|session| session.created_at)
+                                .filter(|created_at| *created_at > 0.0)
+                        });
+                        let running = terminal_id.as_deref().is_some_and(|id| {
+                            self.state.ai_runtime_state.sessions.iter().any(|session| {
+                                session.terminal_id == id
+                                    && matches!(
+                                        session.state.as_str(),
+                                        "responding" | "needsInput" | "working" | "running"
+                                    )
+                            })
+                        });
                         TaskTerminalRow {
                             wechat_bound: terminal_id.as_deref().is_some_and(|id| {
                                 wechat_bound_session_ids.iter().any(|bound| bound == id)
@@ -522,7 +725,9 @@ impl CoduxApp {
                             pane_index: index,
                             title,
                             subtitle,
+                            created_at,
                             lifecycle,
+                            running,
                             active,
                             collapsed: false,
                             collapsed_index: None,
@@ -552,26 +757,41 @@ impl CoduxApp {
                 pane_index: 0,
                 title,
                 subtitle,
+                created_at: slot.terminal_id.as_deref().and_then(|id| {
+                    self.state
+                        .terminal_runtime
+                        .sessions
+                        .iter()
+                        .find(|session| session.terminal_id == id)
+                        .map(|session| session.created_at)
+                        .filter(|created_at| *created_at > 0.0)
+                }),
                 lifecycle: slot
                     .terminal_id
                     .as_deref()
                     .and_then(|id| self.pane_agent_lifecycle.get(id))
                     .map(|lifecycle| lifecycle.state),
+                running: slot.terminal_id.as_deref().is_some_and(|id| {
+                    self.state.ai_runtime_state.sessions.iter().any(|session| {
+                        session.terminal_id == id
+                            && matches!(
+                                session.state.as_str(),
+                                "responding" | "needsInput" | "working" | "running"
+                            )
+                    })
+                }),
                 active: false,
                 collapsed: true,
                 collapsed_index: Some(collapsed_index),
             });
         }
 
-        TaskTerminalListSnapshot {
-            labels,
-            terminals,
-            collapsed: self.task_section_terminals_collapsed,
-        }
+        TaskTerminalListSnapshot { labels, terminals }
     }
 
     fn task_session_list_snapshot(&self) -> TaskSessionListSnapshot {
         let labels = task_column_labels(&self.state.settings.language);
+        let metadata = self.runtime_service.ai_session_metadata();
         let active_terminal_id = self.active_terminal_runtime_id();
         let active_ai_session_id = (!active_terminal_id.is_empty())
             .then(|| {
@@ -583,28 +803,65 @@ impl CoduxApp {
                     .and_then(|session| session.ai_session_id.as_deref())
             })
             .flatten();
-        let sessions = self
+        let mut sessions = self
             .state
             .ai_history
             .sessions
             .iter()
-            .map(|session| task_session_row(session, active_ai_session_id))
+            .map(|session| {
+                task_session_row(session, active_ai_session_id, metadata.get(&session.id))
+            })
+            .filter(|session| task_session_matches_filter(session, self.task_session_filter))
+            .filter(|session| task_session_matches_source(session, self.task_session_source_filter))
             .collect::<Vec<_>>();
+        sessions.sort_by(|left, right| {
+            right
+                .pinned
+                .cmp(&left.pinned)
+                .then_with(|| right.last_seen_at.total_cmp(&left.last_seen_at))
+        });
 
         TaskSessionListSnapshot {
             labels,
             sessions,
-            collapsed: self.task_section_sessions_collapsed,
+            filter: self.task_session_filter,
+            source_filter: self.task_session_source_filter,
+        }
+    }
+
+    fn set_ai_session_pinned(&mut self, session_id: String, pinned: bool, cx: &mut Context<Self>) {
+        match self
+            .runtime_service
+            .set_ai_session_pinned(&session_id, pinned)
+        {
+            Ok(_) => {
+                self.status_message = if pinned {
+                    "session pinned".to_string()
+                } else {
+                    "session unpinned".to_string()
+                };
+                self.invalidate_task_column(cx);
+            }
+            Err(error) => self.status_message = error,
         }
     }
 }
 
 fn task_column_content(
+    app_entity: gpui::Entity<CoduxApp>,
     header_view: gpui::Entity<TaskColumnHeaderView>,
     worktree_list_view: gpui::Entity<TaskWorktreeListView>,
+    branch_list_view: gpui::Entity<TaskBranchListView>,
     terminal_list_view: gpui::Entity<TaskTerminalListView>,
     session_list_view: gpui::Entity<TaskSessionListView>,
-    sessions_collapsed: bool,
+    active_tab: TaskColumnPrimaryTab,
+    active_git_tab: TaskGitTab,
+    worktree_count: usize,
+    branch_count: usize,
+    terminal_count: usize,
+    session_count: usize,
+    labels: TaskColumnLabels,
+    cx: &mut Context<TaskColumnView>,
 ) -> impl IntoElement {
     div()
         .flex()
@@ -622,35 +879,268 @@ fn task_column_content(
                 .bg(theme::vibrancy_panel(color(theme::BG_COLUMN)))
                 .flex()
                 .flex_col()
+                .child(task_primary_tabs(
+                    app_entity.clone(),
+                    active_tab,
+                    terminal_count,
+                    session_count,
+                    labels.clone(),
+                    cx,
+                ))
                 .child(
                     div()
                         .flex_1()
                         .min_h_0()
                         .overflow_hidden()
-                        .child(gpui::AnyView::from(worktree_list_view)),
-                )
-                .child(
-                    div()
-                        .flex_none()
-                        .overflow_hidden()
-                        .child(gpui::AnyView::from(terminal_list_view)),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .min_h_0()
-                        .when(sessions_collapsed, |this| this.flex_none())
-                        .when(!sessions_collapsed, |this| this.flex_1())
-                        .child(gpui::AnyView::from(session_list_view)),
+                        .when(active_tab == TaskColumnPrimaryTab::Git, |this| {
+                            this.child(task_git_area(
+                                app_entity.clone(),
+                                active_git_tab,
+                                worktree_count,
+                                branch_count,
+                                labels.clone(),
+                                worktree_list_view,
+                                branch_list_view,
+                                cx,
+                            ))
+                        })
+                        .when(active_tab == TaskColumnPrimaryTab::Terminals, |this| {
+                            this.child(gpui::AnyView::from(terminal_list_view))
+                        })
+                        .when(active_tab == TaskColumnPrimaryTab::Sessions, |this| {
+                            this.child(gpui::AnyView::from(session_list_view))
+                        }),
                 ),
         )
+}
+
+fn task_git_area(
+    app_entity: gpui::Entity<CoduxApp>,
+    active_tab: TaskGitTab,
+    worktree_count: usize,
+    branch_count: usize,
+    labels: TaskColumnLabels,
+    worktree_list_view: gpui::Entity<TaskWorktreeListView>,
+    branch_list_view: gpui::Entity<TaskBranchListView>,
+    cx: &mut Context<TaskColumnView>,
+) -> impl IntoElement {
+    let worktree_entity = app_entity.clone();
+    let branch_entity = app_entity;
+    div()
+        .flex()
+        .flex_col()
+        .size_full()
+        .min_h_0()
+        .child(
+            div()
+                .h(px(34.0))
+                .flex_none()
+                .px_3()
+                .flex()
+                .items_center()
+                .child(
+                    div()
+                        .h(px(30.0))
+                        .w_full()
+                        .flex()
+                        .items_center()
+                        .rounded(px(6.0))
+                        .bg(cx.theme().tab_bar_segmented)
+                        .p(px(2.0))
+                        .child(task_git_tab_button(
+                            "task-git-tab-worktrees",
+                            labels.worktrees,
+                            worktree_count,
+                            active_tab == TaskGitTab::Worktrees,
+                            cx,
+                            move |cx| {
+                                cx.update_entity(&worktree_entity, |app, cx| {
+                                    app.task_git_tab = TaskGitTab::Worktrees;
+                                    let _ = app.task_column_view(cx);
+                                });
+                            },
+                        ))
+                        .child(task_git_tab_button(
+                            "task-git-tab-branches",
+                            labels.branches,
+                            branch_count,
+                            active_tab == TaskGitTab::Branches,
+                            cx,
+                            move |cx| {
+                                cx.update_entity(&branch_entity, |app, cx| {
+                                    app.task_git_tab = TaskGitTab::Branches;
+                                    app.refresh_git_panel_state_async_quiet(cx);
+                                    let _ = app.task_column_view(cx);
+                                });
+                            },
+                        )),
+                ),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_h_0()
+                .overflow_hidden()
+                .when(active_tab == TaskGitTab::Worktrees, |this| {
+                    this.child(gpui::AnyView::from(worktree_list_view))
+                })
+                .when(active_tab == TaskGitTab::Branches, |this| {
+                    this.child(gpui::AnyView::from(branch_list_view))
+                }),
+        )
+}
+
+fn task_git_tab_button(
+    id: &'static str,
+    label: String,
+    count: usize,
+    active: bool,
+    cx: &mut Context<TaskColumnView>,
+    on_click: impl Fn(&mut App) + 'static,
+) -> impl IntoElement {
+    div()
+        .id(id)
+        .h(px(26.0))
+        .flex_1()
+        .flex_basis(px(0.0))
+        .min_w_0()
+        .overflow_hidden()
+        .flex()
+        .items_center()
+        .justify_center()
+        .gap(px(3.0))
+        .rounded(px(5.0))
+        .text_size(rems(0.6875))
+        .font_weight(if active {
+            FontWeight::SEMIBOLD
+        } else {
+            FontWeight::NORMAL
+        })
+        .map(|this| {
+            if active {
+                this.bg(cx.theme().primary)
+                    .text_color(cx.theme().primary_foreground)
+            } else {
+                this.text_color(cx.theme().tab_foreground)
+                    .hover(|style| style.bg(cx.theme().secondary_hover))
+            }
+        })
+        .cursor_pointer()
+        .on_click(move |_, _window, cx| on_click(cx))
+        .child(div().min_w_0().truncate().child(label))
+        .child(div().flex_none().child(count.to_string()))
+}
+
+fn task_primary_tabs(
+    app_entity: gpui::Entity<CoduxApp>,
+    active_tab: TaskColumnPrimaryTab,
+    terminal_count: usize,
+    session_count: usize,
+    labels: TaskColumnLabels,
+    cx: &mut Context<TaskColumnView>,
+) -> impl IntoElement {
+    let git_entity = app_entity.clone();
+    let terminal_entity = app_entity.clone();
+    let session_entity = app_entity;
+    div().h(px(42.0)).flex_none().px_3().py(px(5.0)).child(
+        div()
+            .size_full()
+            .flex()
+            .items_center()
+            .rounded(px(6.0))
+            .bg(cx.theme().tab_bar_segmented)
+            .p(px(3.0))
+            .child(task_primary_tab_button(
+                "task-primary-tab-git",
+                labels.git,
+                None,
+                active_tab == TaskColumnPrimaryTab::Git,
+                cx,
+                move |cx| {
+                    cx.update_entity(&git_entity, |app, cx| {
+                        app.task_column_primary_tab = TaskColumnPrimaryTab::Git;
+                        let _ = app.task_column_view(cx);
+                    });
+                },
+            ))
+            .child(task_primary_tab_button(
+                "task-primary-tab-terminals",
+                labels.terminals,
+                Some(terminal_count),
+                active_tab == TaskColumnPrimaryTab::Terminals,
+                cx,
+                move |cx| {
+                    cx.update_entity(&terminal_entity, |app, cx| {
+                        app.task_column_primary_tab = TaskColumnPrimaryTab::Terminals;
+                        let _ = app.task_column_view(cx);
+                    });
+                },
+            ))
+            .child(task_primary_tab_button(
+                "task-primary-tab-sessions",
+                labels.sessions,
+                Some(session_count),
+                active_tab == TaskColumnPrimaryTab::Sessions,
+                cx,
+                move |cx| {
+                    cx.update_entity(&session_entity, |app, cx| {
+                        app.task_column_primary_tab = TaskColumnPrimaryTab::Sessions;
+                        let _ = app.task_column_view(cx);
+                    });
+                },
+            )),
+    )
+}
+
+fn task_primary_tab_button(
+    id: &'static str,
+    label: String,
+    count: Option<usize>,
+    active: bool,
+    cx: &mut Context<TaskColumnView>,
+    on_click: impl Fn(&mut App) + 'static,
+) -> impl IntoElement {
+    div()
+        .id(id)
+        .h_full()
+        .flex_1()
+        .flex_basis(px(0.0))
+        .min_w_0()
+        .overflow_hidden()
+        .flex()
+        .items_center()
+        .justify_center()
+        .gap(px(3.0))
+        .rounded(px(5.0))
+        .text_size(rems(0.75))
+        .font_weight(if active {
+            FontWeight::SEMIBOLD
+        } else {
+            FontWeight::NORMAL
+        })
+        .map(|this| {
+            if active {
+                this.bg(cx.theme().primary)
+                    .text_color(cx.theme().primary_foreground)
+            } else {
+                this.text_color(cx.theme().tab_foreground)
+                    .hover(|style| style.bg(cx.theme().secondary_hover))
+            }
+        })
+        .cursor_pointer()
+        .on_click(move |_, _window, cx| on_click(cx))
+        .child(div().min_w_0().truncate().child(label))
+        .when_some(count, |this, count| {
+            this.child(div().flex_none().child(count.to_string()))
+        })
 }
 
 fn task_column_header(
     project_name: String,
     refreshing: bool,
     create_label: String,
+    branch_name_label: String,
+    create_branch: bool,
     refresh_label: String,
     app_entity: gpui::Entity<CoduxApp>,
     cx: &mut Context<TaskColumnHeaderView>,
@@ -710,12 +1200,29 @@ fn task_column_header(
                                             .text_color(cx.theme().secondary_foreground),
                                     )
                                     .on_click(move |_, window, cx| {
-                                        cx.update_entity(
-                                            &create_entity,
-                                            |app: &mut CoduxApp, cx| {
-                                                app.open_worktree_creator_window(window, cx);
-                                            },
-                                        );
+                                        if create_branch {
+                                            let entity = create_entity.clone();
+                                            super::quick_input::show_quick_input(
+                                                create_label.clone(),
+                                                branch_name_label.clone(),
+                                                generated_git_branch_name(),
+                                                false,
+                                                move |name, window, cx| {
+                                                    entity.update(cx, |app, cx| {
+                                                        app.create_git_branch(name, window, cx);
+                                                    });
+                                                },
+                                                window,
+                                                cx,
+                                            );
+                                        } else {
+                                            cx.update_entity(
+                                                &create_entity,
+                                                |app: &mut CoduxApp, cx| {
+                                                    app.open_worktree_creator_window(window, cx);
+                                                },
+                                            );
+                                        }
                                     }),
                             ),
                         )
@@ -742,6 +1249,7 @@ fn task_column_header(
                                             &refresh_entity,
                                             |app: &mut CoduxApp, cx| {
                                                 app.refresh_task_column_async(cx);
+                                                app.refresh_git_panel_state_async_quiet(cx);
                                             },
                                         );
                                     }),
@@ -810,6 +1318,133 @@ fn task_list_area(
         .into_any_element()
 }
 
+fn branch_list_area(
+    rows: Vec<TaskBranchRow>,
+    labels: TaskColumnLabels,
+    scroll_handle: UniformListScrollHandle,
+    app_entity: gpui::Entity<CoduxApp>,
+    cx: &mut Context<TaskBranchListView>,
+) -> impl IntoElement {
+    if rows.is_empty() {
+        return div()
+            .size_full()
+            .min_h_0()
+            .p_4()
+            .child(task_empty_state(
+                labels.no_branches_title,
+                HeroIconName::ArrowPathRoundedSquare,
+                cx,
+            ))
+            .into_any_element();
+    }
+    let rows = Rc::new(rows);
+    div()
+        .flex()
+        .flex_col()
+        .size_full()
+        .min_h_0()
+        .p_3()
+        .overflow_hidden()
+        .child(codux_uniform_list(
+            "task-column-branches",
+            rows,
+            scroll_handle,
+            None,
+            cx,
+            move |row, _index, _window, cx| {
+                div()
+                    .w_full()
+                    .pb(px(4.0))
+                    .child(branch_compact_row(
+                        row,
+                        labels.clone(),
+                        app_entity.clone(),
+                        cx,
+                    ))
+                    .into_any_element()
+            },
+        ))
+        .into_any_element()
+}
+
+fn branch_compact_row(
+    branch: TaskBranchRow,
+    labels: TaskColumnLabels,
+    app_entity: gpui::Entity<CoduxApp>,
+    _cx: &mut Context<TaskBranchListView>,
+) -> impl IntoElement {
+    let branch_name = branch.name.clone();
+    let is_current = branch.is_current;
+    div()
+        .id(SharedString::from(format!("task-branch-{branch_name}")))
+        .w_full()
+        .min_w_0()
+        .rounded(px(8.0))
+        .px_3()
+        .py(px(8.0))
+        .flex()
+        .items_center()
+        .gap_2()
+        .when(is_current, |this| {
+            this.bg(theme::elevate(color(theme::BG_COLUMN), 0.11))
+        })
+        .hover(|style| style.bg(theme::elevate(color(theme::BG_COLUMN), 0.07)))
+        .cursor_pointer()
+        .on_click(move |_, window, cx| {
+            cx.update_entity(&app_entity, |app, cx| {
+                app.select_git_branch(branch_name.clone(), window, cx);
+                if !is_current {
+                    app.checkout_selected_git_branch(window, cx);
+                }
+                app.invalidate_task_column(cx);
+            });
+        })
+        .child(
+            div()
+                .size(px(7.0))
+                .flex_none()
+                .rounded_full()
+                .bg(if is_current {
+                    color(theme::GREEN)
+                } else {
+                    color(theme::TEXT_DIM).opacity(0.45)
+                }),
+        )
+        .child(
+            Icon::new(HeroIconName::ArrowPathRoundedSquare)
+                .size_3p5()
+                .flex_none()
+                .text_color(if is_current {
+                    color(theme::GREEN)
+                } else {
+                    color(theme::TEXT_DIM)
+                }),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .truncate()
+                .text_sm()
+                .font_weight(if is_current {
+                    FontWeight::SEMIBOLD
+                } else {
+                    FontWeight::NORMAL
+                })
+                .text_color(color(theme::TEXT))
+                .child(branch.name),
+        )
+        .when(is_current, |this| {
+            this.child(
+                div()
+                    .flex_none()
+                    .text_size(rems(0.6875))
+                    .text_color(color(theme::GREEN))
+                    .child(labels.current),
+            )
+        })
+}
+
 fn task_empty_state(
     title: String,
     icon: HeroIconName,
@@ -856,30 +1491,13 @@ fn task_empty_state(
 fn recent_session_area(
     sessions: Vec<TaskSessionRow>,
     labels: TaskColumnLabels,
-    collapsed: bool,
+    filter: TaskSessionFilter,
+    source_filter: TaskSessionSourceFilter,
     scroll_handle: UniformListScrollHandle,
     app_entity: gpui::Entity<CoduxApp>,
     cx: &mut Context<TaskSessionListView>,
 ) -> impl IntoElement {
     let session_count = sessions.len();
-
-    if collapsed {
-        return div()
-            .relative()
-            .flex()
-            .flex_col()
-            .flex_none()
-            .child(session_section_heading(
-                labels.sessions.clone(),
-                session_count,
-                true,
-                app_entity,
-                TaskSectionKind::Sessions,
-                cx,
-            ))
-            .into_any_element();
-    }
-
     let sessions = Rc::new(sessions);
     let row_labels = labels.clone();
     let row_app_entity = app_entity.clone();
@@ -890,12 +1508,11 @@ fn recent_session_area(
         .flex_col()
         .size_full()
         .min_h_0()
-        .child(session_section_heading(
-            labels.sessions.clone(),
-            session_count,
-            false,
+        .child(session_filter_tabs(
             app_entity,
-            TaskSectionKind::Sessions,
+            filter,
+            source_filter,
+            labels.clone(),
             cx,
         ))
         .child(
@@ -937,67 +1554,171 @@ fn recent_session_area(
         .into_any_element()
 }
 
-const TERMINAL_LIST_ROW_HEIGHT: f32 = 34.0;
-const TERMINAL_LIST_MAX_VISIBLE_ROWS: usize = 6;
+fn session_filter_tabs(
+    app_entity: gpui::Entity<CoduxApp>,
+    filter: TaskSessionFilter,
+    source_filter: TaskSessionSourceFilter,
+    labels: TaskColumnLabels,
+    cx: &mut Context<TaskSessionListView>,
+) -> impl IntoElement {
+    let items = [
+        (TaskSessionFilter::Recent, labels.recent.clone()),
+        (TaskSessionFilter::Pinned, labels.pinned.clone()),
+    ];
+    div()
+        .h(px(34.0))
+        .flex_none()
+        .px_2()
+        .flex()
+        .items_center()
+        .child(
+            div()
+                .h(px(30.0))
+                .w_full()
+                .flex()
+                .items_center()
+                .gap_1()
+                .rounded(px(6.0))
+                .bg(cx.theme().tab_bar_segmented)
+                .p(px(2.0))
+                .children(items.into_iter().map(|(item_filter, label)| {
+                    let app_entity = app_entity.clone();
+                    let active = filter == item_filter;
+                    div()
+                        .id(SharedString::from(format!(
+                            "task-session-filter-{item_filter:?}"
+                        )))
+                        .h(px(26.0))
+                        .flex_1()
+                        .flex_basis(px(0.0))
+                        .min_w_0()
+                        .overflow_hidden()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .px(px(2.0))
+                        .rounded(px(5.0))
+                        .text_size(rems(0.6875))
+                        .font_weight(if active {
+                            FontWeight::SEMIBOLD
+                        } else {
+                            FontWeight::NORMAL
+                        })
+                        .map(|this| {
+                            if active {
+                                this.bg(cx.theme().primary)
+                                    .text_color(cx.theme().primary_foreground)
+                            } else {
+                                this.text_color(cx.theme().tab_foreground)
+                                    .hover(|style| style.bg(cx.theme().secondary_hover))
+                            }
+                        })
+                        .cursor_pointer()
+                        .on_click(move |_, _window, cx| {
+                            cx.update_entity(&app_entity, |app, cx| {
+                                app.task_session_filter = item_filter;
+                                let _ = app.task_column_view(cx);
+                            });
+                        })
+                        .child(
+                            div()
+                                .w_full()
+                                .min_w_0()
+                                .text_center()
+                                .truncate()
+                                .child(label),
+                        )
+                }))
+                .child(session_source_filter_button(
+                    app_entity,
+                    source_filter,
+                    labels,
+                    cx,
+                )),
+        )
+}
+
+fn session_source_filter_button(
+    app_entity: gpui::Entity<CoduxApp>,
+    source_filter: TaskSessionSourceFilter,
+    labels: TaskColumnLabels,
+    _cx: &mut Context<TaskSessionListView>,
+) -> impl IntoElement {
+    let source_label = match source_filter {
+        TaskSessionSourceFilter::All => labels.all.clone(),
+        TaskSessionSourceFilter::Claude => "Claude".to_string(),
+        TaskSessionSourceFilter::Codex => "Codex".to_string(),
+    };
+    let icon_color = match source_filter {
+        TaskSessionSourceFilter::All => color(theme::TEXT_DIM),
+        TaskSessionSourceFilter::Claude => color(theme::ORANGE),
+        TaskSessionSourceFilter::Codex => color(theme::ACCENT),
+    };
+    let tooltip = format!("{}: {source_label}", labels.filter);
+    let options = [
+        (TaskSessionSourceFilter::All, labels.all),
+        (TaskSessionSourceFilter::Claude, "Claude".to_string()),
+        (TaskSessionSourceFilter::Codex, "Codex".to_string()),
+    ];
+
+    Button::new("task-session-source-filter")
+        .ghost()
+        .compact()
+        .with_size(Size::Small)
+        .size(px(26.0))
+        .selected(source_filter != TaskSessionSourceFilter::All)
+        .tooltip(tooltip)
+        .icon(
+            Icon::new(HeroIconName::Funnel)
+                .size_3()
+                .text_color(icon_color),
+        )
+        .dropdown_menu_with_anchor(gpui::Anchor::TopRight, move |menu, _window, _cx| {
+            options
+                .iter()
+                .fold(menu.min_w(140.), |menu, (item_filter, label)| {
+                    let app_entity = app_entity.clone();
+                    let item_filter = *item_filter;
+                    menu.item(
+                        PopupMenuItem::new(label.clone())
+                            .checked(item_filter == source_filter)
+                            .on_click(move |_, _window, cx| {
+                                cx.update_entity(&app_entity, |app, cx| {
+                                    app.task_session_source_filter = item_filter;
+                                    let _ = app.task_column_view(cx);
+                                });
+                            }),
+                    )
+                })
+        })
+}
+
+const TERMINAL_LIST_ROW_HEIGHT: f32 = 58.0;
 
 fn terminal_list_area(
     terminals: Vec<TaskTerminalRow>,
     labels: TaskColumnLabels,
-    collapsed: bool,
     scroll_handle: UniformListScrollHandle,
     app_entity: gpui::Entity<CoduxApp>,
     cx: &mut Context<TaskTerminalListView>,
 ) -> impl IntoElement {
     let count = terminals.len();
-    if count == 0 && collapsed {
-        return div().into_any_element();
-    }
-    if collapsed {
-        return div()
-            .flex()
-            .flex_col()
-            .w_full()
-            .flex_none()
-            .child(session_section_heading(
-                labels.terminals.clone(),
-                count,
-                true,
-                app_entity,
-                TaskSectionKind::Terminals,
-                cx,
-            ))
-            .into_any_element();
-    }
     if count == 0 {
-        // Auto-height section: no terminals, no space.
-        return div().into_any_element();
+        return task_empty_state(labels.terminals, HeroIconName::CommandLine, cx);
     }
-    // Deterministic height from the row count: uniform_list has no intrinsic
-    // content size, so an auto-height ancestor would collapse this section.
-    let visible_rows = count.min(TERMINAL_LIST_MAX_VISIBLE_ROWS);
-    let height = 32.0 + visible_rows as f32 * TERMINAL_LIST_ROW_HEIGHT + 8.0;
     let terminals = Rc::new(terminals);
     div()
         .flex()
         .flex_col()
-        .w_full()
-        .h(px(height))
-        .child(session_section_heading(
-            labels.terminals.clone(),
-            count,
-            false,
-            app_entity.clone(),
-            TaskSectionKind::Terminals,
-            cx,
-        ))
+        .size_full()
+        .min_h_0()
         .child(
             div()
                 .w_full()
                 .min_w_0()
                 .flex_1()
                 .min_h_0()
-                .px_2()
-                .pb_2()
+                .p_2()
                 .overflow_hidden()
                 .child(codux_uniform_list(
                     "task-column-terminals",
@@ -1036,7 +1757,13 @@ fn terminal_compact_row(
     let terminal_id = terminal.terminal_id.clone();
     let terminal_id_for_click = terminal_id.clone();
     let terminal_id_for_wechat = terminal_id.clone();
+    let terminal_id_for_rename = terminal_id.clone();
     let lifecycle = terminal.lifecycle;
+    let running = terminal.running;
+    let title_for_rename = terminal.title.clone();
+    let title_for_menu = terminal.title.clone();
+    let rename_label = labels.rename.clone();
+    let menu_labels = labels.clone();
     let app_entity_for_row = app_entity.clone();
     let row_id = if collapsed {
         SharedString::from(format!(
@@ -1060,16 +1787,22 @@ fn terminal_compact_row(
     } else {
         color(theme::TEXT)
     };
+    let terminal_subtitle = terminal.subtitle.clone();
+    let terminal_created_at = terminal.created_at.and_then(terminal_created_at_text);
+    let terminal_wechat_bound = terminal.wechat_bound;
+    let terminal_lifecycle = terminal.lifecycle;
     div()
         .id(row_id)
         .w_full()
         .min_w_0()
         .h_full()
         .rounded(px(8.0))
-        .px_3()
+        .px_2()
+        .py(px(5.0))
         .flex()
-        .items_center()
-        .gap_2()
+        .flex_col()
+        .justify_center()
+        .gap(px(2.0))
         .when(terminal.active, |this| {
             this.bg(theme::elevate(color(theme::BG_COLUMN), 0.07))
         })
@@ -1095,158 +1828,245 @@ fn terminal_compact_row(
             });
         })
         .child(
-            Icon::new(HeroIconName::CommandLine)
-                .size_3p5()
-                .flex_none()
-                .text_color(terminal_icon_color),
-        )
-        .child(
             div()
-                .flex_1()
+                .w_full()
                 .min_w_0()
-                .text_sm()
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(title_color)
-                .truncate()
-                .child(terminal.title),
-        )
-        .when_some(
-            terminal
-                .lifecycle
-                .filter(|state| *state != AgentLifecycleState::Idle),
-            |this, state| this.child(agent_lifecycle_status_dot(state)),
-        )
-        .when_some(terminal_id_for_wechat, |this, terminal_id| {
-            let bound = terminal.wechat_bound;
-            let app_entity_for_tooltip = app_entity.clone();
-            let app_entity_for_click = app_entity.clone();
-            let tooltip = if bound {
-                labels.wechat_bound.clone()
-            } else {
-                labels.bind_wechat.clone()
-            };
-            let icon_color = if bound {
-                color(theme::GREEN)
-            } else {
-                color(theme::TEXT_DIM)
-            };
-            let button = codux_tooltip_container(
-                app_entity_for_tooltip,
-                format!("task-terminal-wechat-{terminal_id}"),
-                tooltip,
-            )
-            .size(px(22.0))
-            .flex_none()
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded(px(6.0))
-            .text_color(icon_color)
-            .hover(|style| style.bg(theme::elevate(color(theme::BG_COLUMN), 0.11)))
-            .on_click(move |_event, window, cx| {
-                cx.stop_propagation();
-                window.prevent_default();
-                cx.update_entity(&app_entity_for_click, |app, cx| {
-                    app.wechat_bind_terminal_session(&terminal_id, cx);
-                });
-            })
-            .child(
-                Icon::new(HeroIconName::ChatBubbleLeftRight)
-                    .size_3()
-                    .text_color(icon_color),
-            );
-            this.child(button)
-        })
-        .when(
-            collapsed
-                && terminal
-                    .lifecycle
-                    .is_none_or(|state| state == AgentLifecycleState::Idle),
-            |this| {
-                this.child(
-                    div()
-                        .flex_none()
-                        .size(px(6.0))
-                        .rounded_full()
-                        .bg(color(theme::GREEN).opacity(0.85)),
-                )
-            },
-        )
-        .when_some(terminal.subtitle, |this, subtitle| {
-            this.child(
-                div()
-                    .flex_none()
-                    .max_w(px(90.0))
-                    .text_size(rems(0.75))
-                    .line_height(rems(1.0))
-                    .text_color(color(theme::TEXT_DIM))
-                    .truncate()
-                    .child(subtitle),
-            )
-        })
-}
-
-fn session_section_heading(
-    title: String,
-    count: usize,
-    collapsed: bool,
-    app_entity: gpui::Entity<CoduxApp>,
-    section: TaskSectionKind,
-    cx: &mut Context<impl Render>,
-) -> impl IntoElement {
-    let chevron_icon = if collapsed {
-        HeroIconName::ChevronRight
-    } else {
-        HeroIconName::ChevronDown
-    };
-    div()
-        .id(SharedString::from(format!(
-            "task-section-heading-{section:?}"
-        )))
-        .h(px(32.0))
-        .px(px(14.0))
-        .flex_shrink_0()
-        .flex()
-        .items_center()
-        .justify_between()
-        .cursor_pointer()
-        .hover(|style| style.bg(theme::elevate(color(theme::BG_COLUMN), 0.05)))
-        .on_click(move |_, _window, cx| {
-            cx.update_entity(&app_entity, |app, cx| {
-                match section {
-                    TaskSectionKind::Terminals => {
-                        app.task_section_terminals_collapsed =
-                            !app.task_section_terminals_collapsed;
-                    }
-                    TaskSectionKind::Sessions => {
-                        app.task_section_sessions_collapsed = !app.task_section_sessions_collapsed;
-                    }
-                }
-                // Getter (not just child refresh) syncs the collapsed flag into the view and notifies it, so the docked flex re-renders now.
-                let _ = app.task_column_view(cx);
-            });
-        })
-        .child(
-            div()
                 .flex()
                 .items_center()
                 .gap_1()
                 .child(
-                    Icon::new(chevron_icon)
-                        .size_3()
+                    Icon::new(HeroIconName::CommandLine)
+                        .size_3p5()
                         .flex_none()
-                        .text_color(cx.theme().muted_foreground),
+                        .text_color(terminal_icon_color),
                 )
                 .child(
                     div()
-                        .text_size(rems(0.875))
-                        .line_height(rems(1.125))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(cx.theme().muted_foreground)
-                        .child(title),
+                        .flex_1()
+                        .min_w_0()
+                        .text_sm()
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(title_color)
+                        .truncate()
+                        .child(terminal.title.clone()),
+                )
+                .when_some(
+                    terminal_lifecycle.filter(|state| *state != AgentLifecycleState::Idle),
+                    |this, state| this.child(agent_lifecycle_status_dot(state)),
+                )
+                .when(
+                    collapsed
+                        && terminal_lifecycle
+                            .is_none_or(|state| state == AgentLifecycleState::Idle),
+                    |this| {
+                        this.child(
+                            div()
+                                .flex_none()
+                                .size(px(6.0))
+                                .rounded_full()
+                                .bg(color(theme::GREEN).opacity(0.85)),
+                        )
+                    },
                 ),
         )
-        .child(Tag::secondary().rounded_full().child(count.to_string()))
+        .child(
+            div()
+                .w_full()
+                .min_w_0()
+                .flex()
+                .items_center()
+                .justify_end()
+                .gap_1()
+                .when_some(terminal_subtitle, |this, subtitle| {
+                    this.child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .text_right()
+                            .text_size(rems(0.6875))
+                            .line_height(rems(1.0))
+                            .text_color(color(theme::TEXT_DIM))
+                            .truncate()
+                            .child(subtitle),
+                    )
+                })
+                .when_some(terminal_created_at, |this, created_at| {
+                    this.child(
+                        div()
+                            .flex_none()
+                            .flex()
+                            .items_center()
+                            .gap(px(3.0))
+                            .text_size(rems(0.6875))
+                            .text_color(color(theme::TEXT_DIM))
+                            .child(Icon::new(HeroIconName::Clock).size(px(10.0)))
+                            .child(created_at),
+                    )
+                })
+                .when_some(terminal_id_for_wechat, |this, terminal_id| {
+                    let app_entity_for_tooltip = app_entity.clone();
+                    let app_entity_for_click = app_entity.clone();
+                    let tooltip = if terminal_wechat_bound {
+                        labels.wechat_bound.clone()
+                    } else {
+                        labels.bind_wechat.clone()
+                    };
+                    let icon_color = if terminal_wechat_bound {
+                        color(theme::GREEN)
+                    } else {
+                        color(theme::TEXT_DIM)
+                    };
+                    this.child(
+                        codux_tooltip_container(
+                            app_entity_for_tooltip,
+                            format!("task-terminal-wechat-{terminal_id}"),
+                            tooltip,
+                        )
+                        .size(px(18.0))
+                        .flex_none()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded(px(4.0))
+                        .text_color(icon_color)
+                        .hover(|style| style.bg(theme::elevate(color(theme::BG_COLUMN), 0.11)))
+                        .on_click(move |_event, window, cx| {
+                            cx.stop_propagation();
+                            window.prevent_default();
+                            cx.update_entity(&app_entity_for_click, |app, cx| {
+                                app.wechat_bind_terminal_session(&terminal_id, cx);
+                            });
+                        })
+                        .child(
+                            Icon::new(HeroIconName::ChatBubbleLeftRight)
+                                .size(px(10.0))
+                                .text_color(icon_color),
+                        ),
+                    )
+                }),
+        )
+        .context_menu(move |menu, _window, _cx| {
+            let rename_entity = app_entity.clone();
+            let rename_terminal_id = terminal_id_for_rename.clone();
+            let rename_title = title_for_rename.clone();
+            let rename_action_label = rename_label.clone();
+            let close_entity = app_entity.clone();
+            let close_title = title_for_menu.clone();
+            let close_labels = menu_labels.clone();
+            menu.item(
+                PopupMenuItem::new(rename_label.clone())
+                    .icon(HeroIconName::PencilSquare)
+                    .on_click(move |_, window, cx| {
+                        let app_entity = rename_entity.clone();
+                        let terminal_id = rename_terminal_id.clone();
+                        super::quick_input::show_quick_input(
+                            rename_action_label.clone(),
+                            rename_action_label.clone(),
+                            rename_title.clone(),
+                            false,
+                            move |title, _window, cx| {
+                                app_entity.update(cx, |app, cx| {
+                                    app.rename_terminal_pane(
+                                        terminal_id.clone(),
+                                        pane_index,
+                                        collapsed_index,
+                                        title,
+                                        cx,
+                                    );
+                                });
+                            },
+                            window,
+                            cx,
+                        );
+                    }),
+            )
+            .separator()
+            .item(
+                PopupMenuItem::new(close_labels.close.clone())
+                    .icon(HeroIconName::XMark)
+                    .on_click(move |_, window, cx| {
+                        request_close_task_terminal(
+                            close_entity.clone(),
+                            pane_index,
+                            collapsed_index,
+                            close_title.clone(),
+                            running,
+                            close_labels.clone(),
+                            window,
+                            cx,
+                        );
+                    }),
+            )
+        })
+}
+
+fn terminal_created_at_text(created_at: f64) -> Option<String> {
+    if !created_at.is_finite() || created_at <= 0.0 {
+        return None;
+    }
+    let seconds = created_at.floor() as i64;
+    let nanos = ((created_at - seconds as f64) * 1_000_000_000.0) as u32;
+    DateTime::from_timestamp(seconds, nanos)
+        .map(|time| time.with_timezone(&Local).format("%m-%d %H:%M").to_string())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn request_close_task_terminal(
+    app_entity: gpui::Entity<CoduxApp>,
+    pane_index: usize,
+    collapsed_index: Option<usize>,
+    title: String,
+    running: bool,
+    labels: TaskColumnLabels,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    if !running {
+        close_task_terminal_now(&app_entity, pane_index, collapsed_index, window, cx);
+        return;
+    }
+
+    let message = labels.close_terminal_message_format.replace("%@", &title);
+    window.open_dialog(cx, move |dialog, _window, _cx| {
+        let close_entity = app_entity.clone();
+        dialog
+            .title(labels.close_terminal_title.clone())
+            .button_props(
+                DialogButtonProps::default()
+                    .ok_text(labels.close.clone())
+                    .ok_variant(ButtonVariant::Danger)
+                    .cancel_text(labels.cancel.clone())
+                    .show_cancel(true),
+            )
+            .on_ok(move |_, window, cx| {
+                close_task_terminal_now(&close_entity, pane_index, collapsed_index, window, cx);
+                true
+            })
+            .child(
+                div()
+                    .px_4()
+                    .py_3()
+                    .text_sm()
+                    .text_color(color(theme::TEXT))
+                    .child(message.clone()),
+            )
+    });
+}
+
+fn close_task_terminal_now(
+    app_entity: &gpui::Entity<CoduxApp>,
+    pane_index: usize,
+    collapsed_index: Option<usize>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    cx.update_entity(app_entity, |app, cx| {
+        if let Some(collapsed_index) = collapsed_index {
+            app.close_collapsed_terminal_pane(collapsed_index, cx);
+        } else {
+            app.close_terminal_pane(pane_index, window, cx);
+        }
+    });
 }
 
 fn worktree_compact_row(
@@ -1477,6 +2297,58 @@ mod tests {
             "No Branch"
         );
     }
+
+    #[test]
+    fn ai_session_source_display_names_are_distinct() {
+        assert_eq!(ai_session_source_display_name("claude"), "Claude");
+        assert_eq!(ai_session_source_display_name("claude-code"), "Claude");
+        assert_eq!(ai_session_source_display_name("codex"), "Codex");
+        assert_eq!(ai_session_source_display_name("kiro"), "kiro");
+    }
+
+    #[test]
+    fn branch_rows_put_current_branch_first_then_sort_by_name() {
+        let rows = task_branch_rows(&[
+            GitBranchSummary {
+                name: "feature/zeta".to_string(),
+                is_current: false,
+            },
+            GitBranchSummary {
+                name: "main".to_string(),
+                is_current: true,
+            },
+            GitBranchSummary {
+                name: "feature/alpha".to_string(),
+                is_current: false,
+            },
+        ]);
+        assert_eq!(
+            rows.iter().map(|row| row.name.as_str()).collect::<Vec<_>>(),
+            vec!["main", "feature/alpha", "feature/zeta"]
+        );
+    }
+
+    #[test]
+    fn terminal_created_at_text_is_compact_and_rejects_invalid_values() {
+        assert!(terminal_created_at_text(0.0).is_none());
+        assert!(terminal_created_at_text(f64::NAN).is_none());
+        let text = terminal_created_at_text(1_700_000_000.0).expect("formatted creation time");
+        assert_eq!(text.len(), 11);
+        assert_eq!(text.chars().nth(2), Some('-'));
+        assert_eq!(text.chars().nth(5), Some(' '));
+        assert_eq!(text.chars().nth(8), Some(':'));
+    }
+}
+
+fn ai_session_source_display_name(source: &str) -> String {
+    let normalized = source.trim().to_ascii_lowercase();
+    if normalized.contains("claude") {
+        "Claude".to_string()
+    } else if normalized.contains("codex") {
+        "Codex".to_string()
+    } else {
+        source.trim().to_string()
+    }
 }
 
 fn ai_session_compact_row(
@@ -1488,6 +2360,17 @@ fn ai_session_compact_row(
     let restore_session_id = session.id.clone();
     let menu_session_id = session.id.clone();
     let menu_session_title = session.title.clone();
+    let session_pinned = session.pinned;
+    let source_label = ai_session_source_display_name(&session.source);
+    let source_color = if source_label == "Claude" {
+        color(theme::ORANGE)
+    } else if source_label == "Codex" {
+        color(theme::ACCENT)
+    } else {
+        color(theme::TEXT_MUTED)
+    };
+    let session_detail = session.last_model.clone().unwrap_or_default();
+    let has_session_detail = !session_detail.is_empty();
     let last_seen = relative_time_label_for_language(session.last_seen_at, &labels.language);
     let restore_entity = app_entity.clone();
     let drag_payload = TaskSessionDrag {
@@ -1536,12 +2419,28 @@ fn ai_session_compact_row(
         })
         .child(
             div()
+                .flex()
+                .items_center()
+                .gap_2()
                 .min_w_0()
-                .text_sm()
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(color(theme::TEXT))
-                .truncate()
-                .child(session.title.clone()),
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .text_sm()
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(color(theme::TEXT))
+                        .truncate()
+                        .child(session.title.clone()),
+                )
+                .when(session.pinned, |this| {
+                    this.child(
+                        Icon::new(HeroIconName::Star)
+                            .size_3()
+                            .flex_none()
+                            .text_color(color(theme::ACCENT)),
+                    )
+                }),
         )
         .child(
             div()
@@ -1554,11 +2453,30 @@ fn ai_session_compact_row(
                 .text_color(color(theme::TEXT_DIM))
                 .child(
                     div()
-                        .min_w_0()
-                        .flex_1()
-                        .truncate()
-                        .child(session.source.clone()),
+                        .flex_none()
+                        .flex()
+                        .items_center()
+                        .gap(px(4.0))
+                        .child(div().size(px(5.0)).rounded_full().bg(source_color))
+                        .child(
+                            div()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(source_color)
+                                .child(source_label),
+                        ),
                 )
+                .when(has_session_detail, |this| {
+                    this.child(
+                        div()
+                            .flex_none()
+                            .text_color(color(theme::TEXT_DIM))
+                            .child("·"),
+                    )
+                    .child(div().min_w_0().flex_1().truncate().child(session_detail))
+                })
+                .when(!has_session_detail, |this| {
+                    this.child(div().min_w_0().flex_1())
+                })
                 .child(div().flex_shrink_0().text_right().child(format!(
                     "{} · {}",
                     session_usage_label(&session),
@@ -1576,6 +2494,13 @@ fn ai_session_compact_row(
             let rename_session_title = menu_session_title.clone();
             let remove_entity = app_entity.clone();
             let remove_session_id = menu_session_id.clone();
+            let pin_entity = app_entity.clone();
+            let pin_session_id = menu_session_id.clone();
+            let pin_label = if session_pinned {
+                labels.unpin.clone()
+            } else {
+                labels.pin.clone()
+            };
 
             menu.item(
                 PopupMenuItem::new(labels.open.clone())
@@ -1630,6 +2555,16 @@ fn ai_session_compact_row(
                         });
                     }),
             )
+            .separator()
+            .item(
+                PopupMenuItem::new(pin_label)
+                    .icon(HeroIconName::Star)
+                    .on_click(move |_, _window, cx| {
+                        cx.update_entity(&pin_entity, |app, cx| {
+                            app.set_ai_session_pinned(pin_session_id.clone(), !session_pinned, cx);
+                        });
+                    }),
+            )
             .item(
                 PopupMenuItem::new(labels.delete.clone())
                     .icon(HeroIconName::Trash)
@@ -1647,4 +2582,71 @@ fn session_usage_label(session: &TaskSessionRow) -> String {
         return compact_number(session.total_tokens);
     }
     usage_amount_label(&session.usage_amounts).unwrap_or_else(|| compact_number(0))
+}
+
+fn task_session_matches_filter(session: &TaskSessionRow, filter: TaskSessionFilter) -> bool {
+    match filter {
+        TaskSessionFilter::Recent => true,
+        TaskSessionFilter::Pinned => session.pinned,
+    }
+}
+
+fn task_session_matches_source(session: &TaskSessionRow, filter: TaskSessionSourceFilter) -> bool {
+    let source = session.source.to_ascii_lowercase();
+    match filter {
+        TaskSessionSourceFilter::All => true,
+        TaskSessionSourceFilter::Claude => source.contains("claude"),
+        TaskSessionSourceFilter::Codex => source.contains("codex"),
+    }
+}
+
+#[cfg(test)]
+mod session_filter_tests {
+    use super::*;
+
+    fn row(source: &str, pinned: bool) -> TaskSessionRow {
+        TaskSessionRow {
+            id: "session-1".to_string(),
+            session_key: "session-1".to_string(),
+            external_session_id: None,
+            title: "Session".to_string(),
+            source: source.to_string(),
+            last_model: Some("claude-opus-4.8".to_string()),
+            last_seen_at: 1.0,
+            total_tokens: 0,
+            usage_amounts: Vec::new(),
+            active: false,
+            pinned,
+        }
+    }
+
+    #[test]
+    fn session_filters_combine_pin_and_source() {
+        let claude = row("claude", true);
+        let codex = row("codex", false);
+        assert!(task_session_matches_filter(
+            &claude,
+            TaskSessionFilter::Recent
+        ));
+        assert!(task_session_matches_filter(
+            &claude,
+            TaskSessionFilter::Pinned
+        ));
+        assert!(!task_session_matches_filter(
+            &codex,
+            TaskSessionFilter::Pinned
+        ));
+        assert!(task_session_matches_source(
+            &claude,
+            TaskSessionSourceFilter::Claude
+        ));
+        assert!(!task_session_matches_source(
+            &claude,
+            TaskSessionSourceFilter::Codex
+        ));
+        assert!(task_session_matches_source(
+            &codex,
+            TaskSessionSourceFilter::All
+        ));
+    }
 }

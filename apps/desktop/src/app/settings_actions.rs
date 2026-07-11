@@ -435,15 +435,6 @@ impl CoduxApp {
         self.save_gateway_settings("set_gateway_region", settings, cx);
     }
 
-    pub(super) fn set_gateway_web_search_enabled(&mut self, enabled: bool, cx: &mut Context<Self>) {
-        if self.gateway_settings.config.web_search_enabled == enabled {
-            return;
-        }
-        let mut settings = self.gateway_settings.clone();
-        settings.config.web_search_enabled = enabled;
-        self.save_gateway_settings("set_gateway_web_search_enabled", settings, cx);
-    }
-
     pub(super) fn set_gateway_credential_source(&mut self, source: String, cx: &mut Context<Self>) {
         let current = self.gateway_settings.config.credentials.clone();
         let next = match source.as_str() {

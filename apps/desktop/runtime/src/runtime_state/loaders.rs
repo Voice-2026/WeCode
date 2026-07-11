@@ -186,6 +186,10 @@ fn load_terminal_layout(support_dir: &Path, project_id: Option<&str>) -> Termina
     TerminalLayoutService::new(support_dir.to_path_buf()).load(project_id)
 }
 
+fn load_terminal_runtime(support_dir: &Path, project_id: Option<&str>) -> TerminalRuntimeSummary {
+    crate::terminal_runtime::TerminalRuntimeService::new(support_dir.to_path_buf()).load(project_id)
+}
+
 fn load_worktrees(
     support_dir: &Path,
     project_id: Option<&str>,

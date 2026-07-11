@@ -18,6 +18,7 @@ impl Render for TerminalPaneDrag {
 #[derive(Clone, Copy, PartialEq)]
 struct TerminalPaneDropPreview {
     pane_index: usize,
+    direction: Option<TerminalSplitDirection>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -230,23 +231,28 @@ fn default_shell_display_name() -> Option<&'static str> {
     .as_deref()
 }
 
-// Title precedence: AI tool (+model subtitle) > custom pane label > shell OSC title > shell name > default label.
+// Title precedence: custom pane label > AI tool (+model subtitle) > shell OSC title > shell name > default label.
 pub(in crate::app) fn terminal_pane_display_title(
     slot: &TerminalPaneSlot,
     ai_titles: &HashMap<String, (String, Option<String>)>,
     osc_title: Option<&str>,
     language: &str,
 ) -> (String, Option<String>) {
+    let title = slot.title.trim();
+    if !title.is_empty() && !terminal_slot_title_is_generic(title, language) {
+        let subtitle = slot
+            .terminal_id
+            .as_deref()
+            .and_then(|terminal_id| ai_titles.get(terminal_id))
+            .and_then(|(_, subtitle)| subtitle.clone());
+        return (title.to_string(), subtitle);
+    }
     if let Some((title, subtitle)) = slot
         .terminal_id
         .as_deref()
         .and_then(|terminal_id| ai_titles.get(terminal_id))
     {
         return (title.clone(), subtitle.clone());
-    }
-    let title = slot.title.trim();
-    if !title.is_empty() && !terminal_slot_title_is_generic(title, language) {
-        return (title.to_string(), None);
     }
     if let Some(osc_title) = osc_title.map(str::trim).filter(|title| !title.is_empty()) {
         return (friendly_osc_title(osc_title), None);

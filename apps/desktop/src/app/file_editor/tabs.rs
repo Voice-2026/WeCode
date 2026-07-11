@@ -152,6 +152,8 @@ impl CoduxApp {
             return;
         };
         self.file_editor_tabs.remove(index);
+        self.file_editor_markdown_preview_paths
+            .remove(&relative_path);
         let key = self.file_editor_state_key(&relative_path);
         self.file_editor_states.remove(&key);
         self.file_editor_state_lru
@@ -294,6 +296,30 @@ impl CoduxApp {
         self.file_editor_states
             .get(&self.file_editor_state_key(relative_path))
             .cloned()
+    }
+
+    pub(in crate::app) fn toggle_active_markdown_preview(&mut self, cx: &mut Context<Self>) {
+        let Some(relative_path) = self.active_file_editor_tab.clone() else {
+            return;
+        };
+        if file_preview_kind_for_path(&relative_path) != FilePreviewKind::Markdown {
+            return;
+        }
+        if !self
+            .file_editor_markdown_preview_paths
+            .remove(&relative_path)
+        {
+            self.file_editor_markdown_preview_paths
+                .insert(relative_path);
+        }
+        if self.window_mode == AppWindowMode::FileEditor {
+            self.invalidate_ui_region(cx, UiRegion::Root);
+        } else {
+            if !self.update_file_editor_workspace_view(cx) {
+                self.invalidate_ui_region(cx, UiRegion::WorkspaceBody);
+            }
+            self.invalidate_ui_region(cx, UiRegion::WorkspaceChrome);
+        }
     }
 
     pub(in crate::app) fn ensure_active_file_editor_state(
