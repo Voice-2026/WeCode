@@ -52,9 +52,8 @@ impl RuntimeState {
                 .as_ref()
                 .map(|project| project.path.as_str()),
         );
-        let terminal_layout_owner = runtime_model_scope_key(selected_project.as_ref(), &worktrees);
-        let terminal_layout = load_terminal_layout(&support_dir, terminal_layout_owner.as_deref());
-        let terminal_runtime = load_terminal_runtime(&support_dir, terminal_layout_owner.as_deref());
+        let terminal_layout = TerminalLayoutSummary::default();
+        let terminal_runtime = TerminalRuntimeSummary::default();
         let update = load_update(&support_dir, std::env::current_dir().unwrap_or_default());
         let runtime_activity = load_runtime_activity(&support_dir);
         let runtime_events = load_runtime_events();
@@ -145,12 +144,8 @@ impl RuntimeState {
         );
         self.worktrees =
             load_worktrees_from_state(&self.support_dir, Some(&project.id), Some(&project.path));
-        let terminal_layout_owner =
-            runtime_model_scope_key(self.selected_project.as_ref(), &self.worktrees);
-        self.terminal_layout =
-            load_terminal_layout(&self.support_dir, terminal_layout_owner.as_deref());
-        self.terminal_runtime =
-            load_terminal_runtime(&self.support_dir, terminal_layout_owner.as_deref());
+        self.terminal_layout = TerminalLayoutSummary::default();
+        self.terminal_runtime = TerminalRuntimeSummary::default();
         self.runtime_activity = load_runtime_activity(&self.support_dir);
         self.runtime_events = load_runtime_events();
         self.ai_runtime_state = load_ai_runtime_state(&self.support_dir, &self.runtime_events);
@@ -251,6 +246,7 @@ fn selected_ai_runtime_session_scope_id(
         .or_else(|| selected_project.map(|project| project.id.clone()))
 }
 
+#[cfg(test)]
 fn runtime_model_scope_key(
     selected_project: Option<&ProjectInfo>,
     worktrees: &crate::worktree::WorktreeSummary,
@@ -289,6 +285,7 @@ fn runtime_model_scope_key(
         .or_else(|| Some(runtime_scope_key(&project.id, Some(&project.id))))
 }
 
+#[cfg(test)]
 fn runtime_worktree_from_desktop(worktree: &WorktreeInfo) -> RuntimeWorktree {
     RuntimeWorktree {
         id: worktree.id.clone(),

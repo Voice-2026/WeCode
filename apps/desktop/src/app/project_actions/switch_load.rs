@@ -67,19 +67,12 @@ impl CoduxApp {
                         .as_deref()
                         .unwrap_or(terminal_project.id.as_str())
                         .to_string();
-                    let terminal_storage_key =
-                        super::ai_runtime_status::terminal_layout_storage_key(
-                            &terminal_project.id,
-                            &terminal_owner_id,
-                        );
                     let scope_key = WorktreeScopeKey {
                         project_id: terminal_project.id.clone(),
                         worktree_id: terminal_owner_id.clone(),
                     };
-                    let terminal_layout =
-                        terminal_layout_service.reload_terminal_layout(Some(&terminal_storage_key));
-                    let terminal_runtime = terminal_layout_service
-                        .reload_terminal_runtime(Some(&terminal_storage_key));
+                    let terminal_layout = TerminalLayoutSummary::default();
+                    let terminal_runtime = TerminalRuntimeSummary::default();
                     codux_runtime::runtime_trace::runtime_trace(
                         "project-switch",
                         &format!(

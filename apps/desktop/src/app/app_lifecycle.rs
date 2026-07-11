@@ -46,22 +46,15 @@ impl CoduxApp {
             .into_iter()
             .map(|host| host.device_id)
             .collect();
-        let (terminal_layout, terminal_runtime) = normalize_terminal_restore_state(
-            super::ai_runtime_status::terminal_layout_owner_id(&state).as_deref(),
-            state.terminal_layout.clone(),
-            state.terminal_runtime.clone(),
-            &state.settings.language,
-        );
-        state.terminal_layout = terminal_layout;
-        state.terminal_runtime = terminal_runtime;
-        let gateway_restore =
-            kiro_gateway_restore_config(&gateway_settings, &state.tool_permissions.kiro_model);
-        let restore_plan = terminal_restore_plan_for_language_with_gateway(
+        // Terminals are process-local. AI history is the only cross-restart
+        // continuation surface; every desktop launch starts with one fresh PTY.
+        state.terminal_layout = TerminalLayoutSummary::default();
+        state.terminal_runtime = TerminalRuntimeSummary::default();
+        let restore_plan = terminal_restore_plan_for_language(
             &state.terminal_layout,
             &state.terminal_runtime,
             &state.settings.language,
             None,
-            gateway_restore.as_ref(),
         );
         prepare_memory_launch_artifacts(&runtime_service, &state);
         let launch_context = terminal_launch_context(&state, &runtime, &tool_permissions);
@@ -99,7 +92,6 @@ impl CoduxApp {
             false,
             &terminal_pane_registry,
             &terminal_manager,
-            gateway_restore.as_ref(),
         );
         let selected_ai_provider_id = state
             .settings
@@ -189,7 +181,7 @@ impl CoduxApp {
             last_quit_request_at: None,
             pending_terminal_close: None,
             status_message: format!(
-                "runtime preparing · {} project{} · restored {} terminal group{}",
+                "runtime preparing · {} project{} · started {} terminal group{}",
                 ready_snapshot.projects.projects.len(),
                 if ready_snapshot.projects.projects.len() == 1 {
                     ""
@@ -679,7 +671,6 @@ impl CoduxApp {
         if self.is_exiting {
             return;
         }
-        self.persist_current_terminal_layout_now();
         self.is_exiting = true;
         self.close_auxiliary_windows_for_shutdown();
         self.shutdown_runtime_state();
@@ -689,7 +680,6 @@ impl CoduxApp {
         if self.is_exiting {
             return;
         }
-        self.persist_current_terminal_layout_now();
         self.is_exiting = true;
         self.close_desktop_pet_window(cx);
         self.close_auxiliary_windows(cx);
@@ -704,7 +694,6 @@ impl CoduxApp {
             .last_quit_request_at
             .is_some_and(|last| now.duration_since(last) <= QUIT_CONFIRM_WINDOW)
         {
-            self.persist_current_terminal_layout_now();
             self.is_exiting = true;
             codux_runtime::config::flush_all_config_writes();
             cx.quit();

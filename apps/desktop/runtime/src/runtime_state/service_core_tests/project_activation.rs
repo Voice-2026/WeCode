@@ -171,7 +171,7 @@ fn project_select_worktree_marks_root_project_active_and_watches_worktree_files(
 }
 
 #[test]
-fn project_and_worktree_switch_loads_terminal_layout_for_selected_worktree() {
+fn project_and_worktree_switch_does_not_restore_saved_terminal_layout() {
     let support_dir = std::env::temp_dir().join(format!(
         "codux-project-worktree-terminal-layout-{}",
         uuid::Uuid::new_v4()
@@ -283,8 +283,7 @@ fn project_and_worktree_switch_loads_terminal_layout_for_selected_worktree() {
         Some("worktree-a")
     );
     assert_eq!(state.terminal_layout.active_terminal_id, "");
-    assert_eq!(state.terminal_layout.top_panes[0].terminal_id, "terminal-a");
-    assert_eq!(state.terminal_layout.bottom_ratio, 0.18);
+    assert!(state.terminal_layout.top_panes.is_empty());
 
     service
         .project_select_worktree(crate::project_store::ProjectSelectWorktreeRequest {
@@ -298,8 +297,7 @@ fn project_and_worktree_switch_loads_terminal_layout_for_selected_worktree() {
         Some("worktree-b")
     );
     assert_eq!(state.terminal_layout.active_terminal_id, "");
-    assert_eq!(state.terminal_layout.top_panes[0].terminal_id, "terminal-b");
-    assert_eq!(state.terminal_layout.bottom_ratio, 0.52);
+    assert!(state.terminal_layout.top_panes.is_empty());
 
     service
         .project_select_worktree(crate::project_store::ProjectSelectWorktreeRequest {
@@ -313,8 +311,7 @@ fn project_and_worktree_switch_loads_terminal_layout_for_selected_worktree() {
         Some("worktree-a")
     );
     assert_eq!(state.terminal_layout.active_terminal_id, "");
-    assert_eq!(state.terminal_layout.top_panes[0].terminal_id, "terminal-a");
-    assert_eq!(state.terminal_layout.bottom_ratio, 0.18);
+    assert!(state.terminal_layout.top_panes.is_empty());
 
     let _ = fs::remove_dir_all(support_dir);
 }

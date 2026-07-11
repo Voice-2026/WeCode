@@ -1,3 +1,5 @@
+#[cfg(test)]
+use crate::worktree::WorktreeInfo;
 use crate::{
     ai_history::{
         AIGlobalHistorySummary, AIHistoryCurrentSessionView, AIHistoryDailyLevelView,
@@ -93,10 +95,11 @@ use crate::{
     tool_permissions::{ToolPermissionsService, ToolPermissionsSummary},
     update::{UpdateService, UpdateStatus, UpdateSummary},
     worktree::{
-        WorktreeCreateRequest, WorktreeInfo, WorktreeMergeRequest, WorktreeRemoveRequest,
-        WorktreeService, WorktreeSnapshot, WorktreeSummary,
+        WorktreeCreateRequest, WorktreeMergeRequest, WorktreeRemoveRequest, WorktreeService,
+        WorktreeSnapshot, WorktreeSummary,
     },
 };
+#[cfg(test)]
 use codux_terminal_core::{
     RuntimeModel, RuntimeProject, RuntimeWorktree, RuntimeWorktreeState, runtime_scope_key,
 };

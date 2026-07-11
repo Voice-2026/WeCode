@@ -8,7 +8,6 @@ use crate::terminal::{
 use crate::theme;
 use anyhow::Result;
 use codux_runtime::{
-    gateway_service::{GatewayService, GatewaySettings},
     i18n::translate,
     memory::launch_artifact_paths,
     runtime_bridge::RuntimeInventory,
@@ -26,10 +25,7 @@ use codux_runtime::{
 };
 use gpui::{Edges, WindowAppearance, px};
 use std::sync::Arc;
-use std::{
-    collections::{HashMap, HashSet},
-    path::PathBuf,
-};
+use std::{collections::HashMap, path::PathBuf};
 use uuid::Uuid;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -54,41 +50,6 @@ pub(in crate::app) struct TerminalSplitLocation {
     pub(in crate::app) pane_index: usize,
 }
 
-#[derive(Clone, Debug)]
-pub(in crate::app) struct KiroGatewayRestoreConfig {
-    pub(in crate::app) base_url: String,
-    pub(in crate::app) api_key: String,
-    pub(in crate::app) configured_model: String,
-}
-
-pub(in crate::app) fn kiro_gateway_restore_config(
-    settings: &GatewaySettings,
-    configured_model: &str,
-) -> Option<KiroGatewayRestoreConfig> {
-    if !settings.enabled {
-        return None;
-    }
-    let status = GatewayService::global_status();
-    if status.error.is_some() {
-        return None;
-    }
-    let base_url = status
-        .addr
-        .map(|addr| format!("http://{addr}"))
-        .unwrap_or_else(|| {
-            let host = match settings.config.host.trim() {
-                "" | "0.0.0.0" | "::" | "[::]" => "127.0.0.1",
-                host => host,
-            };
-            format!("http://{host}:{}", settings.config.port)
-        });
-    Some(KiroGatewayRestoreConfig {
-        base_url,
-        api_key: settings.config.api_key.clone(),
-        configured_model: configured_model.to_string(),
-    })
-}
-
 #[cfg(test)]
 pub(in crate::app) fn terminal_restore_plan(
     layout: &TerminalLayoutSummary,
@@ -97,28 +58,11 @@ pub(in crate::app) fn terminal_restore_plan(
     terminal_restore_plan_for_language(layout, runtime, "simplifiedChinese", None)
 }
 
-#[cfg(test)]
 pub(in crate::app) fn terminal_restore_plan_for_language(
     layout: &TerminalLayoutSummary,
-    runtime: &TerminalRuntimeSummary,
+    _runtime: &TerminalRuntimeSummary,
     language: &str,
     active_terminal_id: Option<String>,
-) -> TerminalRestorePlan {
-    terminal_restore_plan_for_language_with_gateway(
-        layout,
-        runtime,
-        language,
-        active_terminal_id,
-        None,
-    )
-}
-
-pub(in crate::app) fn terminal_restore_plan_for_language_with_gateway(
-    layout: &TerminalLayoutSummary,
-    runtime: &TerminalRuntimeSummary,
-    language: &str,
-    active_terminal_id: Option<String>,
-    gateway: Option<&KiroGatewayRestoreConfig>,
 ) -> TerminalRestorePlan {
     let mut layout = layout.clone();
     migrate_legacy_tabs_to_top_panes(&mut layout);
@@ -130,60 +74,32 @@ pub(in crate::app) fn terminal_restore_plan_for_language_with_gateway(
     let split_title = |index: usize| {
         tr("terminal.split.default_format", "Split %d").replace("%d", &index.to_string())
     };
-    let ai_resume_unavailable = tr(
-        "terminal.restore.ai_session_missing",
-        "Previous AI session could not be resumed. Open Session History to restore it.",
-    );
-    let mut claimed_ai_sessions = HashSet::new();
     let mut tabs = Vec::new();
     if !layout.top_panes.is_empty() {
         tabs.push(TerminalTabPlan {
             terminal_id: None,
             label: tr("terminal.main", "Main Terminal"),
-            panes:
-                layout
-                    .top_panes
-                    .iter()
-                    .enumerate()
-                    .map(|(index, pane)| {
-                        let title = if pane.title.trim().is_empty() {
-                            split_title(index + 1)
-                        } else {
-                            pane.title.clone()
-                        };
-                        let terminal_id = normalized_terminal_id(&pane.terminal_id);
-                        let session = terminal_id
-                            .as_deref()
-                            .and_then(|id| runtime_session_by_terminal_id(runtime, id));
-                        let (
-                            restored_output_bytes,
-                            restored_output_tail,
-                            restore_command,
-                            restore_env,
-                        ) = session
-                            .map(|session| {
-                                restored_terminal_state(
-                                    session,
-                                    &ai_resume_unavailable,
-                                    gateway,
-                                    &mut claimed_ai_sessions,
-                                )
-                            })
-                            .unwrap_or_default();
-                        TerminalPanePlan {
-                            terminal_id: terminal_id.or_else(|| {
-                                session
-                                    .map(|session| session.terminal_id.clone())
-                                    .filter(|id| !id.trim().is_empty())
-                            }),
-                            title,
-                            restored_output_bytes,
-                            restored_output_tail,
-                            restore_command,
-                            restore_env,
-                        }
-                    })
-                    .collect(),
+            panes: layout
+                .top_panes
+                .iter()
+                .enumerate()
+                .map(|(index, pane)| {
+                    let title = if pane.title.trim().is_empty() {
+                        split_title(index + 1)
+                    } else {
+                        pane.title.clone()
+                    };
+                    let terminal_id = normalized_terminal_id(&pane.terminal_id);
+                    TerminalPanePlan {
+                        terminal_id,
+                        title,
+                        restored_output_bytes: 0,
+                        restored_output_tail: String::new(),
+                        restore_command: None,
+                        restore_env: None,
+                    }
+                })
+                .collect(),
         });
     }
     if tabs.is_empty() {
@@ -206,14 +122,8 @@ pub(in crate::app) fn terminal_restore_plan_for_language_with_gateway(
             tab.panes.push(TerminalPanePlan {
                 terminal_id: tab.terminal_id.clone(),
                 title: split_title(index + 1),
-                restored_output_bytes: restored_terminal_output_bytes(
-                    runtime,
-                    tab.terminal_id.as_deref(),
-                ),
-                restored_output_tail: restored_terminal_output_tail(
-                    runtime,
-                    tab.terminal_id.as_deref(),
-                ),
+                restored_output_bytes: 0,
+                restored_output_tail: String::new(),
                 restore_command: None,
                 restore_env: None,
             });
@@ -980,200 +890,6 @@ pub(in crate::app) fn terminal_layout_is_foreign_to_owner(
         .any(|terminal_id| terminal_id_is_foreign_to_owner(terminal_id, owner_id))
 }
 
-fn restored_terminal_output_tail(
-    runtime: &TerminalRuntimeSummary,
-    terminal_id: Option<&str>,
-) -> String {
-    runtime
-        .sessions
-        .iter()
-        .find(|session| terminal_id.is_some_and(|id| session.terminal_id == id))
-        .map(|session| session.output_tail.clone())
-        .unwrap_or_default()
-}
-
-fn restored_terminal_output_bytes(
-    runtime: &TerminalRuntimeSummary,
-    terminal_id: Option<&str>,
-) -> usize {
-    runtime
-        .sessions
-        .iter()
-        .find(|session| terminal_id.is_some_and(|id| session.terminal_id == id))
-        .map(|session| session.output_bytes)
-        .unwrap_or_default()
-}
-
-fn restored_terminal_state(
-    session: &TerminalRuntimeSessionSummary,
-    ai_resume_unavailable: &str,
-    gateway: Option<&KiroGatewayRestoreConfig>,
-    claimed_ai_sessions: &mut HashSet<String>,
-) -> (
-    usize,
-    String,
-    Option<String>,
-    Option<HashMap<String, String>>,
-) {
-    let ai_tool = session
-        .ai_tool
-        .as_deref()
-        .filter(|tool| !tool.trim().is_empty())
-        .map(str::to_string)
-        .or_else(|| terminal_input_ai_tool(&session.input_history));
-    let Some(ai_tool) = ai_tool else {
-        return (
-            session.output_bytes,
-            session.output_tail.clone(),
-            None,
-            None,
-        );
-    };
-    let ai_session_id = session
-        .ai_session_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|session_id| !session_id.is_empty())
-        .map(str::to_string)
-        .or_else(|| {
-            ai_tool
-                .eq_ignore_ascii_case("claude")
-                .then(|| terminal_input_claude_resume_id(&session.input_history))
-                .flatten()
-        });
-    let Some(ai_session_id) = ai_session_id else {
-        return (0, format!("{ai_resume_unavailable}\n"), None, None);
-    };
-    let claim_key = format!("{}:{ai_session_id}", ai_tool.to_ascii_lowercase());
-    if !claimed_ai_sessions.insert(claim_key) {
-        return (0, format!("{ai_resume_unavailable}\n"), None, None);
-    }
-    let is_kiro_gateway = session
-        .ai_launch_mode
-        .as_deref()
-        .map(|mode| mode.eq_ignore_ascii_case("kiroGateway"))
-        .unwrap_or_else(|| {
-            terminal_latest_claude_launch_is_kiro_gateway(&session.input_history)
-                .unwrap_or_else(|| session.title.to_ascii_lowercase().contains("kiro gateway"))
-        });
-
-    if ai_tool.eq_ignore_ascii_case("claude") && is_kiro_gateway {
-        let Some(gateway) = gateway else {
-            return (
-                0,
-                "Kiro Gateway is unavailable. Enable it in Settings before restoring this session.\n"
-                    .to_string(),
-                None,
-                None,
-            );
-        };
-        let model = super::terminal_actions::gateway_resume_claude_model(
-            session.ai_model.as_deref(),
-            &gateway.configured_model,
-        );
-        let command = super::terminal_actions::gateway_claude_command(&model, Some(&ai_session_id));
-        let env = HashMap::from([
-            ("CODUX_KIRO_GATEWAY".to_string(), "1".to_string()),
-            ("CODUX_KIRO_GATEWAY_MODEL".to_string(), model),
-            ("ANTHROPIC_API_KEY".to_string(), gateway.api_key.clone()),
-            ("ANTHROPIC_BASE_URL".to_string(), gateway.base_url.clone()),
-        ]);
-        return (0, String::new(), Some(command), Some(env));
-    }
-
-    (
-        0,
-        String::new(),
-        Some(
-            codux_runtime::ai_history::session_restore_command_for_source(&ai_tool, &ai_session_id),
-        ),
-        None,
-    )
-}
-
-pub(in crate::app) fn terminal_input_claude_resume_id(
-    input_history: &[codux_runtime::terminal_runtime::TerminalInputSummary],
-) -> Option<String> {
-    input_history.iter().rev().find_map(|input| {
-        input
-            .text
-            .split(['\n', '\r', ';', '&', '|'])
-            .rev()
-            .find_map(|segment| {
-                let words = segment.split_whitespace().collect::<Vec<_>>();
-                let command = words.first()?.rsplit(['/', '\\']).next()?;
-                if !command.eq_ignore_ascii_case("claude") {
-                    return None;
-                }
-                words.iter().enumerate().find_map(|(index, word)| {
-                    if let Some(value) = word.strip_prefix("--resume=") {
-                        return normalized_claude_resume_id(value);
-                    }
-                    word.eq_ignore_ascii_case("--resume")
-                        .then(|| words.get(index + 1))
-                        .flatten()
-                        .and_then(|value| normalized_claude_resume_id(value))
-                })
-            })
-    })
-}
-
-fn normalized_claude_resume_id(value: &str) -> Option<String> {
-    let value = value.trim().trim_matches(['\'', '"']);
-    (!value.is_empty()).then(|| value.to_string())
-}
-
-fn terminal_latest_claude_launch_is_kiro_gateway(
-    input_history: &[codux_runtime::terminal_runtime::TerminalInputSummary],
-) -> Option<bool> {
-    input_history.iter().rev().find_map(|input| {
-        input
-            .text
-            .split(['\n', '\r', ';', '&', '|'])
-            .rev()
-            .find_map(|segment| {
-                let mut words = segment.split_whitespace();
-                let command = words.next()?.rsplit(['/', '\\']).next()?;
-                if !command.eq_ignore_ascii_case("claude") {
-                    return None;
-                }
-                let command = segment.to_ascii_lowercase();
-                Some(
-                    command.contains("--permission-mode")
-                        && command.contains("bypasspermissions")
-                        && command.contains("--model"),
-                )
-            })
-    })
-}
-
-fn terminal_input_ai_tool(
-    input_history: &[codux_runtime::terminal_runtime::TerminalInputSummary],
-) -> Option<String> {
-    input_history.iter().rev().find_map(|input| {
-        input
-            .text
-            .split(['\n', '\r', ';', '&', '|'])
-            .rev()
-            .find_map(|segment| {
-                let command = segment.split_whitespace().next()?;
-                let command = command.rsplit(['/', '\\']).next().unwrap_or(command);
-                let tool = match command.to_ascii_lowercase().as_str() {
-                    "claude" => "claude",
-                    "codex" => "codex",
-                    "kiro" | "kiro-cli" => "kiro",
-                    "agy" | "antigravity" => "agy",
-                    "opencode" => "opencode",
-                    "codewhale" | "deepseek" => "codewhale",
-                    "kimi" => "kimi",
-                    "mimo" => "mimo",
-                    _ => return None,
-                };
-                Some(tool.to_string())
-            })
-    })
-}
-
 pub(in crate::app) fn spawn_terminal_tabs<C>(
     plan: &TerminalRestorePlan,
     terminal_manager: Arc<TerminalManager>,
@@ -1595,19 +1311,12 @@ pub(in crate::app) fn collapsed_terminal_slots_from_layout(
     filter_dead_sessions: bool,
     terminal_pane_registry: &HashMap<String, TerminalPane>,
     terminal_manager: &Arc<TerminalManager>,
-    gateway: Option<&KiroGatewayRestoreConfig>,
 ) -> Vec<TerminalPaneSlot> {
     let visible_terminal_ids = layout
         .top_panes
         .iter()
         .map(|pane| pane.terminal_id.as_str())
         .collect::<std::collections::HashSet<_>>();
-    let mut claimed_ai_sessions = layout
-        .top_panes
-        .iter()
-        .filter_map(|pane| runtime_session_by_terminal_id(runtime, &pane.terminal_id))
-        .filter_map(terminal_ai_restore_claim_key)
-        .collect::<HashSet<_>>();
     layout
         .collapsed_panes
         .iter()
@@ -1628,22 +1337,6 @@ pub(in crate::app) fn collapsed_terminal_slots_from_layout(
         })
         .map(|pane| {
             let terminal_id = pane.terminal_id.trim().to_string();
-            let session = runtime_session_by_terminal_id(runtime, &terminal_id);
-            let (
-                restored_output_bytes,
-                restored_output_tail,
-                restore_command,
-                restore_env,
-            ) = session
-                .map(|session| {
-                    restored_terminal_state(
-                        session,
-                        "Previous AI session could not be resumed. Open Session History to restore it.",
-                        gateway,
-                        &mut claimed_ai_sessions,
-                    )
-                })
-                .unwrap_or_default();
             TerminalPaneSlot {
                 title: if pane.title.trim().is_empty() {
                     "Terminal".to_string()
@@ -1652,35 +1345,13 @@ pub(in crate::app) fn collapsed_terminal_slots_from_layout(
                 },
                 terminal_id: Some(terminal_id),
                 pane: None,
-                restored_output_bytes,
-                restored_output_tail,
-                restore_command,
-                restore_env,
+                restored_output_bytes: 0,
+                restored_output_tail: String::new(),
+                restore_command: None,
+                restore_env: None,
             }
         })
         .collect()
-}
-
-fn terminal_ai_restore_claim_key(session: &TerminalRuntimeSessionSummary) -> Option<String> {
-    let ai_tool = session
-        .ai_tool
-        .as_deref()
-        .filter(|tool| !tool.trim().is_empty())
-        .map(str::to_string)
-        .or_else(|| terminal_input_ai_tool(&session.input_history))?;
-    let ai_session_id = session
-        .ai_session_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|session_id| !session_id.is_empty())
-        .map(str::to_string)
-        .or_else(|| {
-            ai_tool
-                .eq_ignore_ascii_case("claude")
-                .then(|| terminal_input_claude_resume_id(&session.input_history))
-                .flatten()
-        })?;
-    Some(format!("{}:{ai_session_id}", ai_tool.to_ascii_lowercase()))
 }
 
 fn collapsed_terminal_session_is_live(

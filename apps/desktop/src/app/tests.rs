@@ -11,10 +11,9 @@ mod tests {
             },
             shortcuts::{normalized_shortcut_text, shortcut_matches},
             terminal_state::{
-                KiroGatewayRestoreConfig, TerminalSplitDirection, normalize_terminal_restore_state,
+                TerminalSplitDirection, normalize_terminal_restore_state,
                 structural_terminal_layout, terminal_pane_terminal_id, terminal_restore_plan,
-                terminal_restore_plan_for_language,
-                terminal_restore_plan_for_language_with_gateway, terminal_split_tree_insert_pane,
+                terminal_restore_plan_for_language, terminal_split_tree_insert_pane,
                 terminal_split_tree_insert_pane_root, terminal_split_tree_move_pane,
                 terminal_split_tree_remove_pane, terminal_split_tree_update_ratios,
             },
@@ -34,9 +33,7 @@ mod tests {
             SplitAxis, TerminalGridColumn, TerminalLayoutSummary, TerminalPaneSummary,
             TerminalSplitNode, TerminalTabSummary, TerminalTopGrid,
         },
-        terminal_runtime::{
-            TerminalInputSummary, TerminalRuntimeSessionSummary, TerminalRuntimeSummary,
-        },
+        terminal_runtime::{TerminalRuntimeSessionSummary, TerminalRuntimeSummary},
     };
     use gpui::{Bounds, point, px, size};
     use std::{collections::HashMap, path::PathBuf};
@@ -144,16 +141,13 @@ mod tests {
             vec!["分屏 1", "长任务", "标签页 1", "标签页 2"]
         );
         assert_eq!(plan.tabs[0].panes[0].terminal_id.as_deref(), Some("term-a"));
-        assert_eq!(
-            plan.tabs[0].panes[0].restored_output_tail,
-            "restored top output"
-        );
+        assert!(plan.tabs[0].panes[0].restored_output_tail.is_empty());
         assert_eq!(plan.active_index, 0);
         assert_eq!(plan.active_terminal_id.as_deref(), Some("term-d"));
     }
 
     #[test]
-    fn terminal_restore_plan_resumes_ai_session_without_replaying_tui_grid() {
+    fn terminal_plan_ignores_persisted_ai_resume_metadata() {
         let layout = TerminalLayoutSummary {
             top_panes: vec![TerminalPaneSummary {
                 title: "Claude Code".to_string(),
@@ -165,10 +159,9 @@ mod tests {
             sessions: vec![TerminalRuntimeSessionSummary {
                 terminal_id: "term-claude".to_string(),
                 output_bytes: 4096,
-                output_tail: "        stale tui grid        \n".to_string(),
+                output_tail: "stale terminal output\n".to_string(),
                 ai_tool: Some("claude".to_string()),
-                ai_session_id: Some("session-1".to_string()),
-                ai_model: Some("claude-opus-4-8".to_string()),
+                ai_session_id: Some("old-session".to_string()),
                 ..TerminalRuntimeSessionSummary::default()
             }],
             ..TerminalRuntimeSummary::default()
@@ -176,322 +169,10 @@ mod tests {
 
         let plan = terminal_restore_plan(&layout, &runtime);
         let pane = &plan.tabs[0].panes[0];
-        assert_eq!(
-            pane.restore_command.as_deref(),
-            Some("claude --resume session-1")
-        );
+        assert!(pane.restore_command.is_none());
+        assert!(pane.restore_env.is_none());
         assert_eq!(pane.restored_output_bytes, 0);
         assert!(pane.restored_output_tail.is_empty());
-        assert!(pane.restore_env.is_none());
-    }
-
-    #[test]
-    fn terminal_restore_plan_resumes_claude_through_kiro_gateway() {
-        let layout = TerminalLayoutSummary {
-            top_panes: vec![TerminalPaneSummary {
-                title: "Kiro Gateway · Claude · claude-opus-4.8".to_string(),
-                terminal_id: "term-claude".to_string(),
-            }],
-            ..TerminalLayoutSummary::default()
-        };
-        let runtime = TerminalRuntimeSummary {
-            sessions: vec![TerminalRuntimeSessionSummary {
-                terminal_id: "term-claude".to_string(),
-                output_bytes: 4096,
-                output_tail: "stale tui grid\n".to_string(),
-                ai_tool: Some("claude".to_string()),
-                ai_session_id: Some("session-1".to_string()),
-                ai_model: Some("claude-opus-4-8".to_string()),
-                ai_launch_mode: Some("kiroGateway".to_string()),
-                ..TerminalRuntimeSessionSummary::default()
-            }],
-            ..TerminalRuntimeSummary::default()
-        };
-        let gateway = KiroGatewayRestoreConfig {
-            base_url: "http://127.0.0.1:8989".to_string(),
-            api_key: "test-key".to_string(),
-            configured_model: "claude-sonnet-4.6".to_string(),
-        };
-
-        let plan = terminal_restore_plan_for_language_with_gateway(
-            &layout,
-            &runtime,
-            "simplifiedChinese",
-            None,
-            Some(&gateway),
-        );
-        let pane = &plan.tabs[0].panes[0];
-        assert_eq!(
-            pane.restore_command.as_deref(),
-            Some(
-                "claude --permission-mode bypassPermissions --model claude-opus-4-8 --resume session-1"
-            )
-        );
-        let env = pane.restore_env.as_ref().expect("gateway env");
-        assert_eq!(env.get("CODUX_KIRO_GATEWAY").map(String::as_str), Some("1"));
-        assert_eq!(
-            env.get("CODUX_KIRO_GATEWAY_MODEL").map(String::as_str),
-            Some("claude-opus-4.8")
-        );
-        assert_eq!(
-            env.get("ANTHROPIC_BASE_URL").map(String::as_str),
-            Some("http://127.0.0.1:8989")
-        );
-        assert_eq!(
-            env.get("ANTHROPIC_API_KEY").map(String::as_str),
-            Some("test-key")
-        );
-        assert_eq!(pane.restored_output_bytes, 0);
-        assert!(pane.restored_output_tail.is_empty());
-    }
-
-    #[test]
-    fn terminal_restore_plan_does_not_guess_legacy_kiro_gateway_session() {
-        let layout = TerminalLayoutSummary {
-            top_panes: vec![TerminalPaneSummary {
-                title: "Claude Code".to_string(),
-                terminal_id: "term-claude".to_string(),
-            }],
-            ..TerminalLayoutSummary::default()
-        };
-        let runtime = TerminalRuntimeSummary {
-            sessions: vec![TerminalRuntimeSessionSummary {
-                terminal_id: "term-claude".to_string(),
-                input_history: vec![TerminalInputSummary {
-                    text: "claude --permission-mode bypassPermissions --model claude-opus-4-8\n"
-                        .to_string(),
-                    bytes: 72,
-                    timestamp: 1.0,
-                }],
-                ai_tool: Some("claude".to_string()),
-                ai_model: Some("claude-opus-4-8".to_string()),
-                ..TerminalRuntimeSessionSummary::default()
-            }],
-            ..TerminalRuntimeSummary::default()
-        };
-        let gateway = KiroGatewayRestoreConfig {
-            base_url: "http://127.0.0.1:8989".to_string(),
-            api_key: "test-key".to_string(),
-            configured_model: "claude-sonnet-4.6".to_string(),
-        };
-
-        let plan = terminal_restore_plan_for_language_with_gateway(
-            &layout,
-            &runtime,
-            "simplifiedChinese",
-            None,
-            Some(&gateway),
-        );
-        let pane = &plan.tabs[0].panes[0];
-        assert!(pane.restore_command.is_none());
-        assert!(pane.restore_env.is_none());
-        assert!(pane.restored_output_tail.contains("Session History"));
-    }
-
-    #[test]
-    fn terminal_restore_plan_uses_latest_claude_launch_source() {
-        let layout = TerminalLayoutSummary {
-            top_panes: vec![TerminalPaneSummary {
-                title: "Claude Code".to_string(),
-                terminal_id: "term-claude".to_string(),
-            }],
-            ..TerminalLayoutSummary::default()
-        };
-        let runtime = TerminalRuntimeSummary {
-            sessions: vec![TerminalRuntimeSessionSummary {
-                terminal_id: "term-claude".to_string(),
-                input_history: vec![
-                    TerminalInputSummary {
-                        text:
-                            "claude --permission-mode bypassPermissions --model claude-opus-4-8\n"
-                                .to_string(),
-                        bytes: 72,
-                        timestamp: 1.0,
-                    },
-                    TerminalInputSummary {
-                        text: "claude\n".to_string(),
-                        bytes: 7,
-                        timestamp: 2.0,
-                    },
-                ],
-                ai_tool: Some("claude".to_string()),
-                ai_session_id: Some("native-session".to_string()),
-                ..TerminalRuntimeSessionSummary::default()
-            }],
-            ..TerminalRuntimeSummary::default()
-        };
-
-        let plan = terminal_restore_plan(&layout, &runtime);
-        let pane = &plan.tabs[0].panes[0];
-        assert_eq!(
-            pane.restore_command.as_deref(),
-            Some("claude --resume native-session")
-        );
-        assert!(pane.restore_env.is_none());
-    }
-
-    #[test]
-    fn terminal_restore_plan_does_not_fall_back_to_native_when_gateway_is_unavailable() {
-        let layout = TerminalLayoutSummary {
-            top_panes: vec![TerminalPaneSummary {
-                title: "Kiro Gateway · Claude".to_string(),
-                terminal_id: "term-claude".to_string(),
-            }],
-            ..TerminalLayoutSummary::default()
-        };
-        let runtime = TerminalRuntimeSummary {
-            sessions: vec![TerminalRuntimeSessionSummary {
-                terminal_id: "term-claude".to_string(),
-                ai_tool: Some("claude".to_string()),
-                ai_session_id: Some("session-1".to_string()),
-                ai_launch_mode: Some("kiroGateway".to_string()),
-                ..TerminalRuntimeSessionSummary::default()
-            }],
-            ..TerminalRuntimeSummary::default()
-        };
-
-        let plan = terminal_restore_plan(&layout, &runtime);
-        let pane = &plan.tabs[0].panes[0];
-        assert!(pane.restore_command.is_none());
-        assert!(pane.restore_env.is_none());
-        assert!(pane.restored_output_tail.contains("Kiro Gateway"));
-    }
-
-    #[test]
-    fn terminal_restore_plan_hides_unresumable_ai_tui_grid() {
-        let layout = TerminalLayoutSummary {
-            top_panes: vec![TerminalPaneSummary {
-                title: "Kiro".to_string(),
-                terminal_id: "term-kiro".to_string(),
-            }],
-            ..TerminalLayoutSummary::default()
-        };
-        let runtime = TerminalRuntimeSummary {
-            sessions: vec![TerminalRuntimeSessionSummary {
-                terminal_id: "term-kiro".to_string(),
-                output_bytes: 4096,
-                output_tail: "        stale tui grid        \n".to_string(),
-                input_history: vec![TerminalInputSummary {
-                    text: "kiro-cli\n".to_string(),
-                    bytes: 9,
-                    timestamp: 1.0,
-                }],
-                ..TerminalRuntimeSessionSummary::default()
-            }],
-            ..TerminalRuntimeSummary::default()
-        };
-
-        let plan = terminal_restore_plan(&layout, &runtime);
-        let pane = &plan.tabs[0].panes[0];
-        assert!(pane.restore_command.is_none());
-        assert_eq!(pane.restored_output_bytes, 0);
-        assert!(pane.restored_output_tail.contains("Session History"));
-        assert!(!pane.restored_output_tail.contains("stale tui grid"));
-    }
-
-    #[test]
-    fn terminal_restore_plan_does_not_continue_legacy_claude_terminal() {
-        let layout = TerminalLayoutSummary {
-            top_panes: vec![TerminalPaneSummary {
-                title: "Claude Code".to_string(),
-                terminal_id: "term-claude".to_string(),
-            }],
-            ..TerminalLayoutSummary::default()
-        };
-        let runtime = TerminalRuntimeSummary {
-            sessions: vec![TerminalRuntimeSessionSummary {
-                terminal_id: "term-claude".to_string(),
-                output_tail: "        stale tui grid        \n".to_string(),
-                input_history: vec![TerminalInputSummary {
-                    text: "claude --permission-mode bypassPermissions\n".to_string(),
-                    bytes: 44,
-                    timestamp: 1.0,
-                }],
-                ..TerminalRuntimeSessionSummary::default()
-            }],
-            ..TerminalRuntimeSummary::default()
-        };
-
-        let plan = terminal_restore_plan(&layout, &runtime);
-        let pane = &plan.tabs[0].panes[0];
-        assert!(pane.restore_command.is_none());
-        assert!(pane.restored_output_tail.contains("Session History"));
-    }
-
-    #[test]
-    fn terminal_restore_plan_does_not_restore_one_claude_session_twice() {
-        let layout = TerminalLayoutSummary {
-            top_panes: vec![
-                TerminalPaneSummary {
-                    title: "Claude 1".to_string(),
-                    terminal_id: "term-claude-1".to_string(),
-                },
-                TerminalPaneSummary {
-                    title: "Claude 2".to_string(),
-                    terminal_id: "term-claude-2".to_string(),
-                },
-            ],
-            ..TerminalLayoutSummary::default()
-        };
-        let runtime = TerminalRuntimeSummary {
-            sessions: vec![
-                TerminalRuntimeSessionSummary {
-                    terminal_id: "term-claude-1".to_string(),
-                    ai_tool: Some("claude".to_string()),
-                    ai_session_id: Some("shared-session".to_string()),
-                    ..TerminalRuntimeSessionSummary::default()
-                },
-                TerminalRuntimeSessionSummary {
-                    terminal_id: "term-claude-2".to_string(),
-                    ai_tool: Some("claude".to_string()),
-                    ai_session_id: Some("shared-session".to_string()),
-                    ..TerminalRuntimeSessionSummary::default()
-                },
-            ],
-            ..TerminalRuntimeSummary::default()
-        };
-
-        let plan = terminal_restore_plan(&layout, &runtime);
-        assert_eq!(
-            plan.tabs[0].panes[0].restore_command.as_deref(),
-            Some("claude --resume shared-session")
-        );
-        assert!(plan.tabs[0].panes[1].restore_command.is_none());
-        assert!(
-            plan.tabs[0].panes[1]
-                .restored_output_tail
-                .contains("Session History")
-        );
-    }
-
-    #[test]
-    fn terminal_restore_plan_recovers_claude_session_id_from_resume_command() {
-        let layout = TerminalLayoutSummary {
-            top_panes: vec![TerminalPaneSummary {
-                title: "Claude Code".to_string(),
-                terminal_id: "term-claude".to_string(),
-            }],
-            ..TerminalLayoutSummary::default()
-        };
-        let runtime = TerminalRuntimeSummary {
-            sessions: vec![TerminalRuntimeSessionSummary {
-                terminal_id: "term-claude".to_string(),
-                ai_tool: Some("claude".to_string()),
-                input_history: vec![TerminalInputSummary {
-                    text: "claude --resume exact-session\n".to_string(),
-                    bytes: 30,
-                    timestamp: 1.0,
-                }],
-                ..TerminalRuntimeSessionSummary::default()
-            }],
-            ..TerminalRuntimeSummary::default()
-        };
-
-        let plan = terminal_restore_plan(&layout, &runtime);
-        assert_eq!(
-            plan.tabs[0].panes[0].restore_command.as_deref(),
-            Some("claude --resume exact-session")
-        );
     }
 
     #[test]
@@ -570,10 +251,7 @@ mod tests {
             plan.active_terminal_id.as_deref(),
             Some("gpui-term-worktree-1-bottom-1")
         );
-        assert_eq!(
-            plan.tabs[0].panes[0].restored_output_tail,
-            "worktree top output"
-        );
+        assert!(plan.tabs[0].panes[0].restored_output_tail.is_empty());
     }
 
     #[test]

@@ -447,15 +447,6 @@ impl CoduxApp {
             .clone()
             .or_else(|| existing.map(|session| session.cwd.clone()))
             .unwrap_or_else(|| project_path.clone());
-        let existing_input_history = existing
-            .map(|session| session.input_history.as_slice())
-            .unwrap_or_default();
-        let (ai_tool, ai_session_id, ai_model, ai_launch_mode) = self.terminal_ai_restore_metadata(
-            &terminal_id,
-            &slot.title,
-            existing_input_history,
-            existing,
-        );
         TerminalRuntimeSessionSummary {
             terminal_id,
             title: slot.title.clone(),
@@ -484,10 +475,10 @@ impl CoduxApp {
             output_tail: existing
                 .map(|session| session.output_tail.clone())
                 .unwrap_or_else(|| slot.restored_output_tail.clone()),
-            ai_tool,
-            ai_session_id,
-            ai_model,
-            ai_launch_mode,
+            ai_tool: None,
+            ai_session_id: None,
+            ai_model: None,
+            ai_launch_mode: None,
         }
     }
 
@@ -557,14 +548,6 @@ impl CoduxApp {
                     slot.restored_output_tail.clone(),
                 )
             });
-        let existing = self
-            .state
-            .terminal_runtime
-            .sessions
-            .iter()
-            .find(|session| session.terminal_id == terminal_id);
-        let (ai_tool, ai_session_id, ai_model, ai_launch_mode) =
-            self.terminal_ai_restore_metadata(&terminal_id, &slot.title, &input_history, existing);
         TerminalRuntimeSessionInput {
             terminal_id,
             title: slot.title.clone(),
@@ -576,55 +559,11 @@ impl CoduxApp {
             input_history,
             output_bytes,
             output_tail,
-            ai_tool,
-            ai_session_id,
-            ai_model,
-            ai_launch_mode,
+            ai_tool: None,
+            ai_session_id: None,
+            ai_model: None,
+            ai_launch_mode: None,
         }
-    }
-
-    fn terminal_ai_restore_metadata(
-        &self,
-        terminal_id: &str,
-        title: &str,
-        input_history: &[TerminalInputSummary],
-        existing: Option<&TerminalRuntimeSessionSummary>,
-    ) -> (
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-    ) {
-        let live = self
-            .state
-            .ai_runtime_state
-            .sessions
-            .iter()
-            .filter(|session| session.terminal_id == terminal_id)
-            .max_by(|left, right| left.updated_at.total_cmp(&right.updated_at));
-        let ai_tool = live
-            .map(|session| session.tool.clone())
-            .filter(|tool| !tool.trim().is_empty())
-            .or_else(|| existing.and_then(|session| session.ai_tool.clone()));
-        let ai_session_id = live
-            .and_then(|session| session.ai_session_id.clone())
-            .filter(|session_id| !session_id.trim().is_empty())
-            .or_else(|| crate::app::terminal_state::terminal_input_claude_resume_id(input_history))
-            .or_else(|| existing.and_then(|session| session.ai_session_id.clone()));
-        let ai_model = live
-            .and_then(|session| session.model.clone())
-            .filter(|model| !model.trim().is_empty())
-            .or_else(|| terminal_input_claude_model(input_history))
-            .or_else(|| existing.and_then(|session| session.ai_model.clone()));
-        let ai_launch_mode = terminal_input_claude_launch_mode(input_history)
-            .or_else(|| {
-                title
-                    .to_ascii_lowercase()
-                    .contains("kiro gateway")
-                    .then(|| "kiroGateway".to_string())
-            })
-            .or_else(|| existing.and_then(|session| session.ai_launch_mode.clone()));
-        (ai_tool, ai_session_id, ai_model, ai_launch_mode)
     }
 
     pub(in crate::app) fn restore_collapsed_panes_for_layout(
@@ -632,17 +571,12 @@ impl CoduxApp {
         filter_dead_sessions: bool,
         cx: &mut Context<Self>,
     ) {
-        let gateway_restore = kiro_gateway_restore_config(
-            &self.gateway_settings,
-            &self.state.tool_permissions.kiro_model,
-        );
         self.collapsed_terminal_panes = collapsed_terminal_slots_from_layout(
             &self.state.terminal_layout,
             &self.state.terminal_runtime,
             filter_dead_sessions,
             &self.terminal_pane_registry,
             &self.terminal_manager,
-            gateway_restore.as_ref(),
         );
         self.invalidate_task_column(cx);
     }
@@ -791,16 +725,11 @@ impl CoduxApp {
         self.state.terminal_layout = terminal_layout;
         self.state.terminal_runtime = terminal_runtime;
         let plan_started_at = Instant::now();
-        let gateway_restore = kiro_gateway_restore_config(
-            &self.gateway_settings,
-            &self.state.tool_permissions.kiro_model,
-        );
-        let restore_plan = terminal_restore_plan_for_language_with_gateway(
+        let restore_plan = terminal_restore_plan_for_language(
             &self.state.terminal_layout,
             &self.state.terminal_runtime,
             &self.state.settings.language,
             self.remembered_active_terminal_runtime_id(),
-            gateway_restore.as_ref(),
         );
         self.state.terminal_layout.active_terminal_id =
             restore_plan.active_terminal_id.clone().unwrap_or_default();
@@ -894,45 +823,6 @@ impl CoduxApp {
         );
         self.invalidate_terminal_workspace(cx);
     }
-}
-
-fn terminal_input_claude_model(input_history: &[TerminalInputSummary]) -> Option<String> {
-    input_history.iter().rev().find_map(|input| {
-        let words = input.text.split_whitespace().collect::<Vec<_>>();
-        let model_index = words.iter().position(|word| *word == "--model")?;
-        words
-            .get(model_index + 1)
-            .map(|model| model.trim_matches(['\'', '"']).to_string())
-            .filter(|model| !model.is_empty())
-    })
-}
-
-fn terminal_input_claude_launch_mode(input_history: &[TerminalInputSummary]) -> Option<String> {
-    input_history.iter().rev().find_map(|input| {
-        input
-            .text
-            .split(['\n', '\r', ';', '&', '|'])
-            .rev()
-            .find_map(|segment| {
-                let mut words = segment.split_whitespace();
-                let command = words.next()?.rsplit(['/', '\\']).next()?;
-                if !command.eq_ignore_ascii_case("claude") {
-                    return None;
-                }
-                let command = segment.to_ascii_lowercase();
-                Some(
-                    if command.contains("--permission-mode")
-                        && command.contains("bypasspermissions")
-                        && command.contains("--model")
-                    {
-                        "kiroGateway"
-                    } else {
-                        "native"
-                    }
-                    .to_string(),
-                )
-            })
-    })
 }
 
 #[derive(Clone)]
@@ -1074,8 +964,7 @@ pub(in crate::app) fn terminal_runtime_summary_from_inputs(
 
 #[cfg(test)]
 mod osc_title_tests {
-    use super::{normalized_terminal_osc_title, terminal_input_claude_launch_mode};
-    use codux_runtime::terminal_runtime::TerminalInputSummary;
+    use super::normalized_terminal_osc_title;
 
     #[test]
     fn normalized_osc_title_strips_prompt_noise() {
@@ -1108,31 +997,6 @@ mod osc_title_tests {
         assert_eq!(
             normalized_terminal_osc_title("dartvm"),
             Some("dartvm".to_string())
-        );
-    }
-
-    #[test]
-    fn claude_launch_mode_tracks_latest_command() {
-        let history = vec![
-            TerminalInputSummary {
-                text: "claude --permission-mode bypassPermissions --model claude-opus-4-8\n"
-                    .to_string(),
-                bytes: 72,
-                timestamp: 1.0,
-            },
-            TerminalInputSummary {
-                text: "claude\n".to_string(),
-                bytes: 7,
-                timestamp: 2.0,
-            },
-        ];
-        assert_eq!(
-            terminal_input_claude_launch_mode(&history).as_deref(),
-            Some("native")
-        );
-        assert_eq!(
-            terminal_input_claude_launch_mode(&history[..1]).as_deref(),
-            Some("kiroGateway")
         );
     }
 }

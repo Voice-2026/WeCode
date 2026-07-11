@@ -178,20 +178,8 @@ impl CoduxApp {
         self.state.worktrees = self
             .runtime_service
             .reload_worktrees_from_state(Some(&project.id), Some(&project.path));
-        let terminal_owner_id = self
-            .state
-            .worktrees
-            .selected_worktree_id
-            .as_deref()
-            .unwrap_or(project.id.as_str());
-        let terminal_storage_key =
-            super::ai_runtime_status::terminal_layout_storage_key(&project.id, terminal_owner_id);
-        self.state.terminal_layout = self
-            .runtime_service
-            .reload_terminal_layout(Some(&terminal_storage_key));
-        self.state.terminal_runtime = self
-            .runtime_service
-            .reload_terminal_runtime(Some(&terminal_storage_key));
+        self.state.terminal_layout = TerminalLayoutSummary::default();
+        self.state.terminal_runtime = TerminalRuntimeSummary::default();
         self.reset_current_worktree_ui_state(cx);
         self.ensure_active_file_editor_state(window, cx);
         self.runtime_trace(

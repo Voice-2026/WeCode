@@ -660,9 +660,7 @@ impl CoduxApp {
         self.status_message = format!("selected worktree: {worktree_id}");
         if let Some(key) = current_worktree_scope_key(&self.state) {
             let storage_key = super::app_state::worktree_terminal_storage_key(&key);
-            let terminal_layout = self
-                .runtime_service
-                .reload_terminal_layout(Some(&storage_key));
+            let terminal_layout = TerminalLayoutSummary::default();
             self.runtime_trace(
                 "terminal-layout",
                 &format!(
@@ -674,9 +672,7 @@ impl CoduxApp {
                 ),
             );
             self.state.terminal_layout = terminal_layout;
-            self.state.terminal_runtime = self
-                .runtime_service
-                .reload_terminal_runtime(Some(&storage_key));
+            self.state.terminal_runtime = TerminalRuntimeSummary::default();
             let selected_worktree = self
                 .state
                 .worktrees
@@ -741,12 +737,8 @@ impl CoduxApp {
                         )
                         .and_then(Result::ok)
                         .unwrap_or_default();
-                    let terminal_layout = runtime_service.reload_terminal_layout(Some(
-                        &super::app_state::worktree_terminal_storage_key(&scope_key),
-                    ));
-                    let terminal_runtime = runtime_service.reload_terminal_runtime(Some(
-                        &super::app_state::worktree_terminal_storage_key(&scope_key),
-                    ));
+                    let terminal_layout = TerminalLayoutSummary::default();
+                    let terminal_runtime = TerminalRuntimeSummary::default();
                     Ok::<_, String>(WorktreeSwitchLoad {
                         project_id: project.id,
                         generation,
