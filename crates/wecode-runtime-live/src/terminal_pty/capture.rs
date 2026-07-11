@@ -26,6 +26,8 @@ pub(super) struct CaptureReader {
     history: Arc<parking_lot::Mutex<RingHistory>>,
     screen: Arc<parking_lot::Mutex<HeadlessTerminalScreen>>,
     output_subscribers: Arc<parking_lot::Mutex<Vec<flume::Sender<Vec<u8>>>>>,
+    io_subscribers: Arc<parking_lot::Mutex<Vec<flume::Sender<TerminalIoEvent>>>>,
+    io_sequence: Arc<AtomicU64>,
     event_subscribers: Arc<parking_lot::Mutex<Vec<EventSubscriber>>>,
     info: Arc<parking_lot::Mutex<TerminalSessionSnapshot>>,
     pending_utf8: Vec<u8>,
@@ -90,6 +92,8 @@ impl CaptureReader {
         history: Arc<parking_lot::Mutex<RingHistory>>,
         screen: Arc<parking_lot::Mutex<HeadlessTerminalScreen>>,
         output_subscribers: Arc<parking_lot::Mutex<Vec<flume::Sender<Vec<u8>>>>>,
+        io_subscribers: Arc<parking_lot::Mutex<Vec<flume::Sender<TerminalIoEvent>>>>,
+        io_sequence: Arc<AtomicU64>,
         event_subscribers: Arc<parking_lot::Mutex<Vec<EventSubscriber>>>,
         info: Arc<parking_lot::Mutex<TerminalSessionSnapshot>>,
     ) -> Self {
@@ -101,6 +105,8 @@ impl CaptureReader {
             history,
             screen,
             output_subscribers,
+            io_subscribers,
+            io_sequence,
             event_subscribers,
             info,
             pending_utf8: Vec::new(),
@@ -132,6 +138,13 @@ impl Read for CaptureReader {
             self.output_capture.lock().push(bytes);
             self.screen.lock().process(bytes);
             self.broadcast_output(bytes);
+            broadcast_io_event(
+                &self.io_subscribers,
+                &self.io_sequence,
+                TerminalIoDirection::Output,
+                TerminalIoOrigin::Pty,
+                bytes,
+            );
             let text = decode_utf8_output(bytes, &mut self.pending_utf8);
             if !text.is_empty() {
                 let mut history = self.history.lock();

@@ -88,6 +88,13 @@ impl WeCodeApp {
             Some(&mut boot_pending_terminals),
             cx,
         )?;
+        // The manager is installed before boot terminals exist so inbound
+        // WeChat messages can always resolve it. Refresh once the initial PTY
+        // has spawned as well, so persisted bindings begin mirroring desktop
+        // input immediately instead of waiting for the next WeChat message.
+        wecode_runtime::wechat_bridge_service::set_wechat_bridge_terminals(
+            terminal_manager.clone(),
+        );
         let collapsed_terminal_panes = collapsed_terminal_slots_from_layout(
             &state.terminal_layout,
             &state.terminal_runtime,

@@ -8,8 +8,7 @@
 //! follows the allowlist-first model: a new peer receives a pairing code and a
 //! desktop user must confirm it against a chosen terminal session.
 
-use std::collections::HashMap;
-use std::io::{Read, Seek, SeekFrom};
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::OnceLock;
@@ -20,7 +19,9 @@ use parking_lot::Mutex;
 use wecode_im_bridge::binding::{BindingState, BindingStore, ChatBinding};
 use wecode_im_bridge::runtime::{BridgeStatus, CredentialStore, HostSink, ReplyText, WeChatBridge};
 use wecode_im_bridge::wechat::WeChatCredentials;
-use wecode_runtime_live::terminal_pty::TerminalManager;
+use wecode_runtime_live::terminal_pty::{
+    TerminalIoDirection, TerminalIoEvent, TerminalIoOrigin, TerminalManager,
+};
 
 use crate::async_runtime;
 use crate::runtime_paths;
@@ -86,33 +87,11 @@ fn output_relays_cell() -> &'static Mutex<HashMap<String, OutputRelayState>> {
 #[derive(Clone, Debug)]
 struct OutputRelayState {
     session_id: String,
-    turn: u64,
-    replied_turn: Option<u64>,
-    incoming_text: String,
-    approval_fingerprint: Option<String>,
 }
 
 impl OutputRelayState {
-    fn new(session_id: String, incoming_text: Option<&str>) -> Self {
-        let begins_turn = incoming_text.is_some();
-        Self {
-            session_id,
-            turn: u64::from(begins_turn),
-            replied_turn: None,
-            incoming_text: incoming_text.unwrap_or_default().to_string(),
-            approval_fingerprint: None,
-        }
-    }
-
-    fn begin_turn(&mut self, incoming_text: &str) {
-        self.turn = self.turn.saturating_add(1);
-        self.replied_turn = None;
-        self.incoming_text = incoming_text.to_string();
-        self.approval_fingerprint = None;
-    }
-
-    fn has_replied(&self, turn: u64) -> bool {
-        self.replied_turn == Some(turn)
+    fn new(session_id: String) -> Self {
+        Self { session_id }
     }
 }
 
@@ -264,7 +243,7 @@ impl HostSink for TerminalSink {
         // when the user presses Enter.
         let mut bytes = text.as_bytes().to_vec();
         bytes.push(b'\r');
-        terminals.write(session_id, &bytes).is_ok()
+        terminals.write_from_wechat(session_id, &bytes).is_ok()
     }
 
     fn on_status(&self, status: BridgeStatus) {
@@ -397,7 +376,25 @@ pub fn set_wechat_bridge_terminals(terminals: Arc<TerminalManager>) {
         "wechat",
         &format!("terminals_update current={current_count} next={next_count}"),
     );
-    *cell = Some(terminals);
+    *cell = Some(terminals.clone());
+    drop(cell);
+
+    let paths = FileCredentialStore::default_paths();
+    let bindings = std::fs::read_to_string(paths.bindings_path)
+        .ok()
+        .and_then(|text| serde_json::from_str::<BindingState>(&text).ok())
+        .map(|state| state.bindings.into_values().collect::<Vec<_>>())
+        .unwrap_or_default();
+    let sessions = terminals
+        .list()
+        .into_iter()
+        .map(|session| session.id)
+        .collect::<std::collections::HashSet<_>>();
+    for binding in bindings {
+        if sessions.contains(&binding.session_id) {
+            start_output_relay(binding.chat_id, binding.session_id, None);
+        }
+    }
 }
 
 pub fn wechat_bridge_fallback_terminal_session_id() -> Option<String> {
@@ -499,21 +496,15 @@ fn current_millis() -> u64 {
         .unwrap_or_default()
 }
 
-fn start_output_relay(chat_id: String, session_id: String, incoming_text: Option<&str>) {
+fn start_output_relay(chat_id: String, session_id: String, _incoming_text: Option<&str>) {
     let should_spawn = {
         let mut relays = output_relays_cell().lock();
         if let Some(relay) = relays.get_mut(&chat_id)
             && relay.session_id == session_id
         {
-            if let Some(incoming_text) = incoming_text {
-                relay.begin_turn(incoming_text);
-            }
             false
         } else {
-            relays.insert(
-                chat_id.clone(),
-                OutputRelayState::new(session_id.clone(), incoming_text),
-            );
+            relays.insert(chat_id.clone(), OutputRelayState::new(session_id.clone()));
             true
         }
     };
@@ -525,7 +516,7 @@ fn start_output_relay(chat_id: String, session_id: String, incoming_text: Option
         output_relays_cell().lock().remove(&chat_id);
         return;
     };
-    let rx = match terminals.subscribe_output(&session_id, false) {
+    let rx = match terminals.subscribe_io(&session_id) {
         Ok(rx) => rx,
         Err(_) => {
             output_relays_cell().lock().remove(&chat_id);
@@ -534,140 +525,297 @@ fn start_output_relay(chat_id: String, session_id: String, incoming_text: Option
     };
     let bridge = ensure_bridge();
     async_runtime::spawn(async move {
-        relay_terminal_output_to_wechat(terminals, bridge, chat_id, session_id, rx).await;
+        relay_terminal_io_to_wechat(terminals, bridge, chat_id, session_id, rx).await;
     });
 }
 
-async fn relay_terminal_output_to_wechat(
+#[derive(Debug)]
+struct TerminalIoBatch {
+    direction: TerminalIoDirection,
+    origin: TerminalIoOrigin,
+    first_sequence: u64,
+    last_sequence: u64,
+    bytes: Vec<u8>,
+    updated_at: Instant,
+}
+
+impl TerminalIoBatch {
+    fn from_event(event: TerminalIoEvent) -> Self {
+        Self {
+            direction: event.direction,
+            origin: event.origin,
+            first_sequence: event.sequence,
+            last_sequence: event.sequence,
+            bytes: event.bytes,
+            updated_at: Instant::now(),
+        }
+    }
+
+    fn can_merge(&self, event: &TerminalIoEvent) -> bool {
+        self.direction == event.direction
+            && self.origin == event.origin
+            && self.last_sequence.saturating_add(1) == event.sequence
+            && self.bytes.len().saturating_add(event.bytes.len()) <= 12 * 1024
+    }
+
+    fn push(&mut self, event: TerminalIoEvent) {
+        self.last_sequence = event.sequence;
+        self.bytes.extend_from_slice(&event.bytes);
+        self.updated_at = Instant::now();
+    }
+
+    fn push_input(&mut self, event: TerminalIoEvent) {
+        self.last_sequence = event.sequence;
+        self.bytes.extend_from_slice(&event.bytes);
+        self.updated_at = Instant::now();
+    }
+
+    fn input_ready(&self) -> bool {
+        self.bytes.iter().any(|byte| matches!(byte, b'\r' | b'\n'))
+            || self.bytes.len() >= 12 * 1024
+            || self
+                .bytes
+                .iter()
+                .any(|byte| *byte < 0x20 && !matches!(*byte, b'\t' | 0x08))
+    }
+}
+
+async fn relay_terminal_io_to_wechat(
     terminals: Arc<TerminalManager>,
     bridge: WeChatBridge,
     chat_id: String,
     session_id: String,
-    rx: flume::Receiver<Vec<u8>>,
+    rx: flume::Receiver<TerminalIoEvent>,
 ) {
-    let mut last_completion = terminal_completion_marker(&terminals, &session_id);
-    let mut observed_turn = output_relay_turn(&chat_id, &session_id).unwrap_or_default();
-    let mut output_active = false;
-    let mut raw_output = Vec::new();
-    let mut last_output_at = None;
-    let mut interval = tokio::time::interval(Duration::from_millis(250));
+    let mut local_input: Option<TerminalIoBatch> = None;
+    let mut output_batches = VecDeque::<TerminalIoBatch>::new();
+    let mut pending_echo: Option<String> = None;
+    let mut last_screen_output: Option<String> = None;
+    let mut last_output_at: Option<Instant> = None;
+    let mut interval = tokio::time::interval(Duration::from_millis(100));
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
         if !output_relay_is_current(&chat_id, &session_id) {
             return;
         }
-        let Some(current_turn) = output_relay_turn(&chat_id, &session_id) else {
-            return;
-        };
-        if current_turn != observed_turn {
-            observed_turn = current_turn;
-            last_completion = terminal_completion_marker(&terminals, &session_id);
-            output_active = false;
-            raw_output.clear();
-            last_output_at = None;
-        }
         tokio::select! {
-            chunk = rx.recv_async() => {
-                let Ok(chunk) = chunk else {
+            event = rx.recv_async() => {
+                let Ok(event) = event else {
                     clear_output_relay(&chat_id, &session_id);
                     return;
                 };
-                let Some(latest_turn) = output_relay_turn(&chat_id, &session_id) else {
-                    return;
-                };
-                if latest_turn != observed_turn {
-                    observed_turn = latest_turn;
-                    raw_output.clear();
+                match (event.direction, event.origin) {
+                    (TerminalIoDirection::Input, TerminalIoOrigin::WeChat) => {
+                        pending_echo = terminal_input_echo_text(&event.bytes);
+                    }
+                    (TerminalIoDirection::Input, _) => {
+                        if let Some(batch) = local_input.as_mut() {
+                            batch.push_input(event);
+                        } else {
+                            local_input = Some(TerminalIoBatch::from_event(event));
+                        }
+                    }
+                    (TerminalIoDirection::Output, _) => {
+                        last_output_at = Some(Instant::now());
+                        if let Some(batch) = output_batches
+                            .back_mut()
+                            .filter(|batch| batch.can_merge(&event))
+                        {
+                            batch.push(event);
+                        } else {
+                            output_batches.push_back(TerminalIoBatch::from_event(event));
+                        }
+                    }
                 }
-                append_bounded(&mut raw_output, &chunk, 64 * 1024);
-                output_active = true;
-                last_output_at = Some(Instant::now());
             }
             _ = interval.tick() => {
-                if !output_active {
+                if local_input.as_ref().is_some_and(TerminalIoBatch::input_ready) {
+                    let batch = local_input.as_ref().expect("input batch exists");
+                    let message = terminal_io_batch_message(batch);
+                    if !bridge.send_reply_to_chat(&chat_id, &message).await {
+                        continue;
+                    }
+                    pending_echo = terminal_input_echo_text(&batch.bytes);
+                    crate::runtime_trace::runtime_trace(
+                        "wechat",
+                        &format!(
+                            "terminal_io sent chat={} session={session_id} direction={:?} sequence={}-{} bytes={}",
+                            masked_chat_id(&chat_id),
+                            batch.direction,
+                            batch.first_sequence,
+                            batch.last_sequence,
+                            batch.bytes.len(),
+                        ),
+                    );
+                    local_input = None;
+                }
+
+                if local_input.is_some() {
                     continue;
                 }
-                let _ = terminals.poll_ai_runtime_state();
-
-                if let Some((fingerprint, prompt)) = pending_terminal_approval(&terminals, &session_id)
-                    && !output_relay_approval_was_sent(
-                        &chat_id,
+                if !last_output_at.is_some_and(|at| at.elapsed() >= Duration::from_millis(700)) {
+                    continue;
+                }
+                while !output_batches.is_empty() {
+                    let batch = output_batches.front().expect("output batch exists");
+                    let rendered_screen = terminal_output_prefers_screen(
+                        &terminals,
                         &session_id,
-                        observed_turn,
-                        &fingerprint,
+                        batch,
                     )
-                    && bridge.send_reply_to_chat(&chat_id, &prompt).await
-                {
-                    mark_output_relay_approval_sent(
-                        &chat_id,
-                        &session_id,
-                        observed_turn,
-                        fingerprint,
-                    );
+                    .then(|| rendered_terminal_screen(&terminals, &session_id))
+                    .flatten();
+                    let mut content = rendered_screen
+                        .clone()
+                        .unwrap_or_else(|| terminal_io_batch_content(batch));
+                    let echo = pending_echo.clone();
+                    if let Some(echo) = echo.as_deref() {
+                        content = strip_terminal_echo(&content, echo);
+                    }
+                    if rendered_screen.is_some()
+                        && last_screen_output.as_deref() == Some(content.as_str())
+                    {
+                        if echo.is_some() {
+                            pending_echo = None;
+                        }
+                        output_batches.pop_front();
+                        continue;
+                    }
+                    if content.trim().is_empty() {
+                        if echo.is_some() {
+                            pending_echo = None;
+                        }
+                        output_batches.pop_front();
+                        continue;
+                    }
+                    let message = terminal_io_batch_message_with_content(batch, &content);
+                    if !bridge.send_reply_to_chat(&chat_id, &message).await {
+                        break;
+                    }
+                    if echo.is_some() {
+                        pending_echo = None;
+                    }
+                    if rendered_screen.is_some() {
+                        last_screen_output = Some(content.clone());
+                    }
                     crate::runtime_trace::runtime_trace(
                         "wechat",
                         &format!(
-                            "approval_prompt sent chat={} session={session_id} chars={}",
+                            "terminal_io sent chat={} session={session_id} direction={:?} sequence={}-{} bytes={}",
                             masked_chat_id(&chat_id),
-                            prompt.chars().count()
+                            batch.direction,
+                            batch.first_sequence,
+                            batch.last_sequence,
+                            batch.bytes.len(),
                         ),
                     );
+                    output_batches.pop_front();
                 }
-
-                if let Some((marker, reply)) = completed_terminal_reply(&terminals, &session_id)
-                    && last_completion.as_ref() != Some(&marker)
-                    && !output_relay_has_replied(&chat_id, &session_id, observed_turn)
-                    && bridge.send_reply_to_chat(&chat_id, &reply).await
-                {
-                    mark_output_relay_replied(&chat_id, &session_id, observed_turn);
-                    crate::runtime_trace::runtime_trace(
-                        "wechat",
-                        &format!(
-                            "assistant_reply sent chat={} session={session_id} chars={}",
-                            masked_chat_id(&chat_id),
-                            reply.chars().count()
-                        ),
-                    );
-                    last_completion = Some(marker);
-                    output_active = false;
-                    continue;
-                }
-
-                if output_relay_has_replied(&chat_id, &session_id, observed_turn) {
-                    output_active = false;
-                    continue;
-                }
-                if !last_output_at.is_some_and(|at| at.elapsed() >= Duration::from_millis(900)) {
-                    continue;
-                }
-                let incoming_text = output_relay_incoming_text(
-                    &chat_id,
-                    &session_id,
-                    observed_turn,
-                ).unwrap_or_default();
-                let Some(reply) = shell_terminal_reply(
-                    &terminals,
-                    &session_id,
-                    &raw_output,
-                    &incoming_text,
-                ) else {
-                    continue;
-                };
-                if bridge.send_reply_to_chat(&chat_id, &reply).await {
-                    mark_output_relay_replied(&chat_id, &session_id, observed_turn);
-                    crate::runtime_trace::runtime_trace(
-                        "wechat",
-                        &format!(
-                            "shell_reply sent chat={} session={session_id} chars={}",
-                            masked_chat_id(&chat_id),
-                            reply.chars().count()
-                        ),
-                    );
-                    output_active = false;
+                if output_batches.is_empty() {
+                    last_output_at = None;
                 }
             }
         }
     }
+}
+
+fn terminal_io_batch_message(batch: &TerminalIoBatch) -> String {
+    terminal_io_batch_message_with_content(batch, &terminal_io_batch_content(batch))
+}
+
+fn terminal_io_batch_message_with_content(batch: &TerminalIoBatch, content: &str) -> String {
+    let direction = match batch.direction {
+        TerminalIoDirection::Input => "输入",
+        TerminalIoDirection::Output => "输出",
+    };
+    let sequence = if batch.first_sequence == batch.last_sequence {
+        batch.first_sequence.to_string()
+    } else {
+        format!("{}-{}", batch.first_sequence, batch.last_sequence)
+    };
+    format!("【终端{direction} #{sequence}】\n{content}")
+}
+
+fn terminal_io_batch_content(batch: &TerminalIoBatch) -> String {
+    match batch.direction {
+        TerminalIoDirection::Input => terminal_input_display_text(&batch.bytes),
+        TerminalIoDirection::Output => {
+            let text = strip_terminal_sequences(&batch.bytes);
+            if text.is_empty() {
+                format!("〈终端控制数据：{} 字节〉", batch.bytes.len())
+            } else {
+                text
+            }
+        }
+    }
+}
+
+fn terminal_input_echo_text(bytes: &[u8]) -> Option<String> {
+    let text = String::from_utf8_lossy(bytes)
+        .trim_end_matches(['\r', '\n'])
+        .to_string();
+    (!text.is_empty()).then_some(text)
+}
+
+fn terminal_output_prefers_screen(
+    terminals: &TerminalManager,
+    session_id: &str,
+    batch: &TerminalIoBatch,
+) -> bool {
+    let escape_count = batch.bytes.iter().filter(|byte| **byte == 0x1b).count();
+    escape_count >= 8
+        || batch.bytes.len() >= 12 * 1024
+        || terminals
+            .screen_snapshot(session_id)
+            .ok()
+            .is_some_and(|snapshot| snapshot.input_mode.alternate_screen)
+}
+
+fn rendered_terminal_screen(terminals: &TerminalManager, session_id: &str) -> Option<String> {
+    let snapshot = terminals.screen_snapshot(session_id).ok()?;
+    let text = wecode_runtime_live::ai_runtime::screen_signal::screen_text_from_cells(&snapshot);
+    let text = text.trim_end().to_string();
+    (!text.is_empty()).then_some(text)
+}
+
+fn strip_terminal_echo(output: &str, echo: &str) -> String {
+    let mut removed = false;
+    let mut lines = output.lines().collect::<Vec<_>>();
+    lines.retain(|line| {
+        if removed {
+            return true;
+        }
+        let line = line.trim();
+        if line == echo || line.ends_with(echo) {
+            removed = true;
+            false
+        } else {
+            true
+        }
+    });
+    let mut result = lines.join("\n");
+    if output.ends_with('\n') && !result.is_empty() {
+        result.push('\n');
+    }
+    result
+}
+
+fn terminal_input_display_text(bytes: &[u8]) -> String {
+    let mut text = String::new();
+    for ch in String::from_utf8_lossy(bytes).chars() {
+        match ch {
+            '\r' | '\n' => text.push_str("↵\n"),
+            '\t' => text.push('⇥'),
+            '\u{8}' | '\u{7f}' => text.push('⌫'),
+            '\u{1b}' => text.push('␛'),
+            ch if ch <= '\u{1f}' => {
+                text.push('^');
+                text.push(char::from_u32(ch as u32 + 0x40).unwrap_or('�'));
+            }
+            _ => text.push(ch),
+        }
+    }
+    text
 }
 
 fn output_relay_is_current(chat_id: &str, session_id: &str) -> bool {
@@ -678,341 +826,11 @@ fn output_relay_is_current(chat_id: &str, session_id: &str) -> bool {
         == Some(session_id)
 }
 
-fn output_relay_turn(chat_id: &str, session_id: &str) -> Option<u64> {
-    output_relays_cell()
-        .lock()
-        .get(chat_id)
-        .filter(|relay| relay.session_id == session_id)
-        .map(|relay| relay.turn)
-}
-
-fn output_relay_has_replied(chat_id: &str, session_id: &str, turn: u64) -> bool {
-    output_relays_cell()
-        .lock()
-        .get(chat_id)
-        .filter(|relay| relay.session_id == session_id)
-        .is_some_and(|relay| relay.has_replied(turn))
-}
-
-fn output_relay_incoming_text(chat_id: &str, session_id: &str, turn: u64) -> Option<String> {
-    output_relays_cell()
-        .lock()
-        .get(chat_id)
-        .filter(|relay| relay.session_id == session_id && relay.turn == turn)
-        .map(|relay| relay.incoming_text.clone())
-}
-
-fn output_relay_approval_was_sent(
-    chat_id: &str,
-    session_id: &str,
-    turn: u64,
-    fingerprint: &str,
-) -> bool {
-    output_relays_cell()
-        .lock()
-        .get(chat_id)
-        .filter(|relay| relay.session_id == session_id && relay.turn == turn)
-        .and_then(|relay| relay.approval_fingerprint.as_deref())
-        == Some(fingerprint)
-}
-
-fn mark_output_relay_approval_sent(
-    chat_id: &str,
-    session_id: &str,
-    turn: u64,
-    fingerprint: String,
-) {
-    let mut relays = output_relays_cell().lock();
-    if let Some(relay) = relays.get_mut(chat_id)
-        && relay.session_id == session_id
-        && relay.turn == turn
-    {
-        relay.approval_fingerprint = Some(fingerprint);
-    }
-}
-
-fn mark_output_relay_replied(chat_id: &str, session_id: &str, turn: u64) {
-    let mut relays = output_relays_cell().lock();
-    if let Some(relay) = relays.get_mut(chat_id)
-        && relay.session_id == session_id
-        && relay.turn == turn
-    {
-        relay.replied_turn = Some(turn);
-    }
-}
-
 fn clear_output_relay(chat_id: &str, session_id: &str) {
     let mut relays = output_relays_cell().lock();
     if relays.get(chat_id).map(|relay| relay.session_id.as_str()) == Some(session_id) {
         relays.remove(chat_id);
     }
-}
-
-fn append_bounded(target: &mut Vec<u8>, chunk: &[u8], max_bytes: usize) {
-    if chunk.len() >= max_bytes {
-        target.clear();
-        target.extend_from_slice(&chunk[chunk.len() - max_bytes..]);
-        return;
-    }
-    let overflow = target
-        .len()
-        .saturating_add(chunk.len())
-        .saturating_sub(max_bytes);
-    if overflow > 0 {
-        target.drain(..overflow.min(target.len()));
-    }
-    target.extend_from_slice(chunk);
-}
-
-fn pending_terminal_approval(
-    terminals: &TerminalManager,
-    session_id: &str,
-) -> Option<(String, String)> {
-    let state = terminals.ai_runtime_state_snapshot()?;
-    let session = state
-        .sessions
-        .iter()
-        .find(|session| session.terminal_id == session_id && session.state == "needsInput")?;
-    let snapshot = terminals.screen_snapshot(session_id).ok()?;
-    let screen = wecode_runtime_live::ai_runtime::screen_signal::screen_text_from_cells(&snapshot);
-    let prompt = approval_prompt_from_screen(&screen)?;
-    let fingerprint = format!(
-        "{}:{}",
-        session.ai_session_id.as_deref().unwrap_or("unknown"),
-        prompt
-    );
-    Some((fingerprint, prompt))
-}
-
-fn approval_prompt_from_screen(screen: &str) -> Option<String> {
-    let mut lines = screen
-        .lines()
-        .map(clean_approval_line)
-        .filter(|line| !line.trim().is_empty())
-        .filter(|line| !is_terminal_approval_footer(line))
-        .collect::<Vec<_>>();
-    let tail_start = lines.len().saturating_sub(16);
-    lines.drain(..tail_start);
-
-    let first_option = lines
-        .iter()
-        .position(|line| approval_option_number(line).is_some());
-    if let Some(first_option) = first_option {
-        let prompt_start = lines[..first_option]
-            .iter()
-            .position(|line| is_approval_heading(line))
-            .unwrap_or_else(|| first_option.saturating_sub(6));
-        lines.drain(..prompt_start);
-    } else if let Some(prompt_start) = lines.iter().rposition(|line| is_approval_heading(line)) {
-        lines.drain(..prompt_start);
-    }
-    let title = lines.first()?.trim().to_string();
-    let mut description = Vec::new();
-    let mut options: Vec<(usize, String)> = Vec::new();
-    for line in lines.into_iter().skip(1) {
-        if let Some(number) = approval_option_number(&line) {
-            options.push((number, line));
-        } else if let Some((_, option)) = options.last_mut() {
-            option.push(' ');
-            option.push_str(line.trim());
-        } else {
-            description.push(line);
-        }
-    }
-
-    let mut sections = vec!["【需要确认】".to_string(), title];
-    sections.extend(description);
-    sections.extend(options.iter().map(|(_, option)| option.clone()));
-    sections.push(approval_reply_hint(&options));
-    let mut prompt = sections.join("\n\n");
-    if prompt.chars().count() > 2_000 {
-        prompt = prompt
-            .chars()
-            .rev()
-            .take(2_000)
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .collect();
-    }
-    (!prompt.trim().is_empty()).then_some(prompt.trim().to_string())
-}
-
-fn clean_approval_line(line: &str) -> String {
-    let line = line.trim();
-    for prefix in ["❯", "›", ">"] {
-        if let Some(rest) = line.strip_prefix(prefix)
-            && approval_option_number(rest.trim_start()).is_some()
-        {
-            return rest.trim_start().to_string();
-        }
-    }
-    line.to_string()
-}
-
-fn is_terminal_approval_footer(line: &str) -> bool {
-    let line = line.to_lowercase();
-    [
-        "press enter to confirm",
-        "esc to go back",
-        "esc to cancel",
-        "tab to amend",
-        "ctrl+e to explain",
-    ]
-    .iter()
-    .any(|marker| line.contains(marker))
-}
-
-fn is_approval_heading(line: &str) -> bool {
-    let line = line.to_lowercase();
-    [
-        "hooks need review",
-        "bash command",
-        "permission required",
-        "allow execution",
-        "allow command",
-        "apply this change",
-        "do you want",
-        "would you like",
-        "approve?",
-        "allow?",
-        "proceed?",
-        "confirm?",
-        "[y/n]",
-        "(y/n)",
-    ]
-    .iter()
-    .any(|marker| line.contains(marker))
-}
-
-fn approval_option_number(line: &str) -> Option<usize> {
-    let line = line.trim_start();
-    let digit_count = line.chars().take_while(|ch| ch.is_ascii_digit()).count();
-    if digit_count == 0 {
-        return None;
-    }
-    let number = line[..digit_count].parse().ok()?;
-    matches!(line[digit_count..].chars().next(), Some('.' | ')')).then_some(number)
-}
-
-fn approval_reply_hint(options: &[(usize, String)]) -> String {
-    let numbers = options
-        .iter()
-        .map(|(number, _)| number.to_string())
-        .collect::<Vec<_>>();
-    match numbers.as_slice() {
-        [] => "请直接回复 y 或 n".to_string(),
-        [only] => format!("请回复 {only}"),
-        [first, second] => format!("请回复 {first} 或 {second}"),
-        _ => {
-            let last = numbers.last().cloned().unwrap_or_default();
-            format!(
-                "请回复 {} 或 {last}",
-                numbers[..numbers.len() - 1].join("、")
-            )
-        }
-    }
-}
-
-fn shell_terminal_reply(
-    terminals: &TerminalManager,
-    session_id: &str,
-    raw_output: &[u8],
-    incoming_text: &str,
-) -> Option<String> {
-    let screen = terminals.screen_snapshot(session_id).ok()?;
-    if screen.input_mode.alternate_screen {
-        return None;
-    }
-    if let Some(session) = terminals.ai_runtime_state_snapshot().and_then(|state| {
-        state
-            .sessions
-            .into_iter()
-            .find(|session| session.terminal_id == session_id)
-    }) {
-        if session.is_running || matches!(session.state.as_str(), "responding" | "needsInput") {
-            return None;
-        }
-        if !looks_like_shell_command(incoming_text) {
-            return None;
-        }
-    }
-    terminal_shell_reply_text(raw_output, incoming_text)
-}
-
-fn looks_like_shell_command(text: &str) -> bool {
-    let text = text.trim();
-    let first = text.split_whitespace().next().unwrap_or_default();
-    matches!(
-        first,
-        "ls" | "pwd"
-            | "cd"
-            | "git"
-            | "cat"
-            | "rg"
-            | "grep"
-            | "find"
-            | "echo"
-            | "printf"
-            | "which"
-            | "where"
-            | "whoami"
-            | "date"
-            | "env"
-            | "export"
-            | "cargo"
-            | "npm"
-            | "pnpm"
-            | "yarn"
-            | "node"
-            | "python"
-            | "python3"
-            | "claude"
-            | "codex"
-            | "kiro"
-            | "kiro-cli"
-            | "agy"
-            | "opencode"
-            | "mimo"
-    ) || first.starts_with('/')
-        || first.starts_with("./")
-        || first.starts_with("~/")
-        || text.contains(" && ")
-        || text.contains(" | ")
-}
-
-fn terminal_shell_reply_text(raw_output: &[u8], incoming_text: &str) -> Option<String> {
-    let raw_output = truncate_before_next_prompt(raw_output);
-    let plain = strip_terminal_sequences(raw_output);
-    let incoming_text = incoming_text.trim();
-    let mut lines = plain.lines().map(str::trim_end).collect::<Vec<_>>();
-    while lines.first().is_some_and(|line| line.trim().is_empty()) {
-        lines.remove(0);
-    }
-    if lines.first().is_some_and(|line| {
-        let line = line.trim();
-        line == incoming_text || (!incoming_text.is_empty() && line.ends_with(incoming_text))
-    }) {
-        lines.remove(0);
-    }
-    while lines.last().is_some_and(|line| line.trim().is_empty()) {
-        lines.pop();
-    }
-    let mut reply = lines.join("\n").trim().to_string();
-    if reply.chars().count() > 8_000 {
-        reply = reply.chars().take(8_000).collect::<String>();
-        reply.push_str("\n…输出已截断");
-    }
-    (!reply.is_empty()).then_some(reply)
-}
-
-fn truncate_before_next_prompt(bytes: &[u8]) -> &[u8] {
-    const PROMPT_MARK: &[u8] = b"\x1b]133;A";
-    bytes
-        .windows(PROMPT_MARK.len())
-        .rposition(|window| window == PROMPT_MARK)
-        .map(|index| &bytes[..index])
-        .unwrap_or(bytes)
 }
 
 fn strip_terminal_sequences(bytes: &[u8]) -> String {
@@ -1076,173 +894,80 @@ fn strip_terminal_sequences(bytes: &[u8]) -> String {
     result
 }
 
-fn terminal_completion_marker(terminals: &TerminalManager, session_id: &str) -> Option<String> {
-    let state = terminals.ai_runtime_state_snapshot()?;
-    let session = state
-        .sessions
-        .iter()
-        .find(|session| session.terminal_id == session_id)?;
-    completed_session_marker(session)
-}
-
-fn completed_terminal_reply(
-    terminals: &TerminalManager,
-    session_id: &str,
-) -> Option<(String, String)> {
-    let state = terminals.ai_runtime_state_snapshot()?;
-    let session = state
-        .sessions
-        .iter()
-        .find(|session| session.terminal_id == session_id)?;
-    let marker = completed_session_marker(session)?;
-    let reply = session
-        .transcript_path
-        .as_deref()
-        .and_then(latest_claude_assistant_reply)
-        .or_else(|| session.latest_assistant_preview.clone())?;
-    let reply = reply.trim().to_string();
-    (!reply.is_empty()).then_some((marker, reply))
-}
-
-fn completed_session_marker(
-    session: &wecode_runtime_live::ai_runtime::AISessionSnapshot,
-) -> Option<String> {
-    if session.is_running || session.state != "idle" || !session.has_completed_turn {
-        return None;
-    }
-    Some(format!(
-        "{}:{}:{}",
-        session.ai_session_id.as_deref().unwrap_or("unknown"),
-        session
-            .completed_turn_started_at
-            .map(f64::to_bits)
-            .unwrap_or_default(),
-        session.latest_assistant_preview.as_deref().unwrap_or("")
-    ))
-}
-
-fn latest_claude_assistant_reply(transcript_path: &str) -> Option<String> {
-    const MAX_TAIL_BYTES: u64 = 2 * 1024 * 1024;
-    let mut file = std::fs::File::open(transcript_path).ok()?;
-    let length = file.metadata().ok()?.len();
-    let start = length.saturating_sub(MAX_TAIL_BYTES);
-    file.seek(SeekFrom::Start(start)).ok()?;
-    let mut bytes = Vec::with_capacity((length - start) as usize);
-    file.read_to_end(&mut bytes).ok()?;
-    if start > 0
-        && let Some(first_line_end) = bytes.iter().position(|byte| *byte == b'\n')
-    {
-        bytes.drain(..=first_line_end);
-    }
-    let text = String::from_utf8(bytes).ok()?;
-    extract_latest_claude_assistant_reply(&text)
-}
-
-fn extract_latest_claude_assistant_reply(jsonl: &str) -> Option<String> {
-    for line in jsonl.lines().rev() {
-        let Ok(row) = serde_json::from_str::<serde_json::Value>(line) else {
-            continue;
-        };
-        if row.get("type").and_then(|value| value.as_str()) != Some("assistant") {
-            continue;
-        }
-        let message = row.get("message")?;
-        if message.get("stop_reason").and_then(|value| value.as_str()) != Some("end_turn") {
-            continue;
-        }
-        let blocks = message.get("content")?.as_array()?;
-        let reply = blocks
-            .iter()
-            .filter(|block| block.get("type").and_then(|value| value.as_str()) == Some("text"))
-            .filter_map(|block| block.get("text").and_then(|value| value.as_str()))
-            .map(str::trim)
-            .filter(|text| !text.is_empty())
-            .collect::<Vec<_>>()
-            .join("\n\n");
-        if !reply.is_empty() {
-            return Some(reply);
-        }
-    }
-    None
-}
-
 #[cfg(test)]
 mod terminal_output_tests {
-    use super::{
-        OutputRelayState, approval_prompt_from_screen, extract_latest_claude_assistant_reply,
-        terminal_shell_reply_text,
+    use super::{TerminalIoBatch, strip_terminal_echo, terminal_io_batch_message};
+    use std::time::Instant;
+    use wecode_runtime_live::terminal_pty::{
+        TerminalIoDirection, TerminalIoEvent, TerminalIoOrigin,
     };
 
     #[test]
-    fn relay_allows_only_one_reply_per_incoming_turn() {
-        let mut relay = OutputRelayState::new("terminal-1".to_string(), Some("hello"));
-        assert_eq!(relay.turn, 1);
-        assert!(!relay.has_replied(1));
-        assert_eq!(relay.incoming_text, "hello");
+    fn keeps_slow_printable_input_buffered_until_enter() {
+        let mut batch = TerminalIoBatch {
+            direction: TerminalIoDirection::Input,
+            origin: TerminalIoOrigin::Local,
+            first_sequence: 1,
+            last_sequence: 1,
+            bytes: b"c".to_vec(),
+            updated_at: Instant::now() - std::time::Duration::from_secs(10),
+        };
+        assert!(!batch.input_ready());
 
-        relay.replied_turn = Some(1);
-        assert!(relay.has_replied(1));
+        batch.push_input(TerminalIoEvent {
+            sequence: 9,
+            direction: TerminalIoDirection::Input,
+            origin: TerminalIoOrigin::Local,
+            bytes: b"laude\r".to_vec(),
+        });
 
-        relay.begin_turn("next");
-        assert_eq!(relay.turn, 2);
-        assert!(!relay.has_replied(2));
-        assert_eq!(relay.incoming_text, "next");
-    }
-
-    #[test]
-    fn extracts_only_the_latest_completed_assistant_reply() {
-        let jsonl = r#"{"type":"assistant","message":{"stop_reason":"end_turn","content":[{"type":"text","text":"old"}]}}
-{"type":"assistant","message":{"stop_reason":null,"content":[{"type":"text","text":"working"},{"type":"tool_use","name":"Bash"}]}}
-{"type":"assistant","message":{"stop_reason":"end_turn","content":[{"type":"thinking","thinking":"private"},{"type":"text","text":"final answer"}]}}"#;
-
+        assert!(batch.input_ready());
         assert_eq!(
-            extract_latest_claude_assistant_reply(jsonl).as_deref(),
-            Some("final answer")
+            terminal_io_batch_message(&batch),
+            "【终端输入 #1-9】\nclaude↵\n"
         );
     }
 
     #[test]
-    fn joins_multiple_text_blocks_and_preserves_unicode() {
-        let jsonl = r#"{"type":"assistant","message":{"stop_reason":"end_turn","content":[{"type":"text","text":"第一段"},{"type":"tool_use","name":"Read"},{"type":"text","text":"第二段"}]}}"#;
+    fn formats_full_terminal_input_including_passwords_and_control_keys() {
+        let batch = TerminalIoBatch {
+            direction: TerminalIoDirection::Input,
+            origin: TerminalIoOrigin::Local,
+            first_sequence: 7,
+            last_sequence: 9,
+            bytes: "密码secret\r\u{3}".as_bytes().to_vec(),
+            updated_at: Instant::now(),
+        };
 
         assert_eq!(
-            extract_latest_claude_assistant_reply(jsonl).as_deref(),
-            Some("第一段\n\n第二段")
+            terminal_io_batch_message(&batch),
+            "【终端输入 #7-9】\n密码secret↵\n^C"
         );
     }
 
     #[test]
-    fn extracts_approval_prompt_from_visible_screen_tail() {
-        let screen = "old output\nmore output\nBash command\n  cargo test\nDo you want to proceed?\n❯ 1. Yes\n  2. No\nPress enter to confirm or esc to go back";
+    fn formats_terminal_output_without_ansi_sequences() {
+        let batch = TerminalIoBatch {
+            direction: TerminalIoDirection::Output,
+            origin: TerminalIoOrigin::Pty,
+            first_sequence: 10,
+            last_sequence: 10,
+            bytes: b"\x1b[32mok\x1b[0m\r\n".to_vec(),
+            updated_at: Instant::now(),
+        };
 
-        let prompt = approval_prompt_from_screen(screen).expect("approval prompt");
-        assert_eq!(
-            prompt,
-            "【需要确认】\n\nBash command\n\ncargo test\n\nDo you want to proceed?\n\n1. Yes\n\n2. No\n\n请回复 1 或 2"
-        );
-        assert!(!prompt.contains("Press enter"));
-        assert!(!prompt.contains('❯'));
+        assert_eq!(terminal_io_batch_message(&batch), "【终端输出 #10】\nok\n");
     }
 
     #[test]
-    fn formats_codex_hook_review_as_separate_wechat_options() {
-        let screen = "Hooks need review\n4 hooks are new or changed.\nHooks can run outside the sandbox after you trust them.\n› 1. Review hooks\n2. Trust all and continue\n3. Continue without trusting (hooks won't run)\nPress enter to confirm or esc to go back";
-
+    fn removes_the_command_echo_but_keeps_command_output() {
         assert_eq!(
-            approval_prompt_from_screen(screen).as_deref(),
-            Some(
-                "【需要确认】\n\nHooks need review\n\n4 hooks are new or changed.\n\nHooks can run outside the sandbox after you trust them.\n\n1. Review hooks\n\n2. Trust all and continue\n\n3. Continue without trusting (hooks won't run)\n\n请回复 1、2 或 3"
-            )
+            strip_terminal_echo("ls\nREADME.md\ndocs\n", "ls"),
+            "README.md\ndocs\n"
         );
-    }
-
-    #[test]
-    fn cleans_shell_output_and_stops_before_the_next_prompt() {
-        let raw = b"ls\r\n\x1b[32mCargo.toml\x1b[0m\r\n\xe4\xb8\xad\xe6\x96\x87.txt\r\n\x1b]133;A\x07prompt";
-
         assert_eq!(
-            terminal_shell_reply_text(raw, "ls").as_deref(),
-            Some("Cargo.toml\n中文.txt")
+            strip_terminal_echo("prompt $ ls\nREADME.md\n", "ls"),
+            "README.md\n"
         );
     }
 }

@@ -58,6 +58,47 @@ pub use manager::{DesktopTerminalSessionHandle, TerminalManager};
 pub use platform::default_shell;
 pub use session::{TerminalPtySession, TerminalPtySessionHandle};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TerminalIoDirection {
+    Input,
+    Output,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TerminalIoOrigin {
+    Local,
+    WeChat,
+    Pty,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TerminalIoEvent {
+    pub sequence: u64,
+    pub direction: TerminalIoDirection,
+    pub origin: TerminalIoOrigin,
+    pub bytes: Vec<u8>,
+}
+
+fn broadcast_io_event(
+    subscribers: &parking_lot::Mutex<Vec<flume::Sender<TerminalIoEvent>>>,
+    sequence: &AtomicU64,
+    direction: TerminalIoDirection,
+    origin: TerminalIoOrigin,
+    bytes: &[u8],
+) {
+    if bytes.is_empty() {
+        return;
+    }
+    let event = TerminalIoEvent {
+        sequence: sequence.fetch_add(1, Ordering::SeqCst).saturating_add(1),
+        direction,
+        origin,
+        bytes: bytes.to_vec(),
+    };
+    let mut subscribers = subscribers.lock();
+    subscribers.retain(|subscriber| subscriber.send(event.clone()).is_ok());
+}
+
 use capture::*;
 use config::*;
 use events::*;
