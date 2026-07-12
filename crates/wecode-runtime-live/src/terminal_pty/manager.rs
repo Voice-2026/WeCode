@@ -177,20 +177,12 @@ impl TerminalManager {
         self.session(session_id)?.write(data)
     }
 
-    pub fn write_from_wechat(&self, session_id: &str, data: &[u8]) -> Result<()> {
-        self.session(session_id)?.write_from_wechat(data)
-    }
-
     pub fn subscribe_output(
         &self,
         session_id: &str,
         replay_snapshot: bool,
     ) -> Result<flume::Receiver<Vec<u8>>> {
         Ok(self.session(session_id)?.subscribe_output(replay_snapshot))
-    }
-
-    pub fn subscribe_io(&self, session_id: &str) -> Result<flume::Receiver<TerminalIoEvent>> {
-        Ok(self.session(session_id)?.subscribe_io())
     }
 
     pub fn resize(&self, session_id: &str, cols: u16, rows: u16) -> Result<()> {

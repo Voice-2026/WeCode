@@ -28,6 +28,8 @@ impl WeCodeApp {
         );
         let runtime = RuntimeInventory::load();
         let runtime_service = RuntimeService::new(state.support_dir.clone());
+        let task_session_sort =
+            TaskSessionSort::from_setting(&runtime_service.ai_session_list_sort());
         let gateway_settings = GatewaySettings::load(state.support_dir.clone());
         let gateway_service = GatewayService::start(gateway_settings.clone());
         let _ = runtime_service.recover_interrupted_memory_extraction_queue();
@@ -88,13 +90,6 @@ impl WeCodeApp {
             Some(&mut boot_pending_terminals),
             cx,
         )?;
-        // The manager is installed before boot terminals exist so inbound
-        // WeChat messages can always resolve it. Refresh once the initial PTY
-        // has spawned as well, so persisted bindings begin mirroring desktop
-        // input immediately instead of waiting for the next WeChat message.
-        wecode_runtime::wechat_bridge_service::set_wechat_bridge_terminals(
-            terminal_manager.clone(),
-        );
         let collapsed_terminal_panes = collapsed_terminal_slots_from_layout(
             &state.terminal_layout,
             &state.terminal_runtime,
@@ -437,7 +432,8 @@ impl WeCodeApp {
             task_column_collapsed: false,
             task_column_primary_tab: TaskColumnPrimaryTab::Git,
             task_git_tab: TaskGitTab::Worktrees,
-            task_session_filter: TaskSessionFilter::Recent,
+            task_session_filter: TaskSessionFilter::All,
+            task_session_sort,
             task_session_source_filter: TaskSessionSourceFilter::All,
             project_list_state: None,
             remote_link_states: std::collections::HashMap::new(),

@@ -54,6 +54,17 @@ impl AIUsageStore {
         for (source, session_key) in &matched {
             tx.execute(
                 r#"
+                INSERT INTO ai_history_session_title_override (
+                    project_path, source, session_key, title, updated_at
+                ) VALUES (?1, ?2, ?3, ?4, ?5)
+                ON CONFLICT(project_path, source, session_key) DO UPDATE SET
+                    title = excluded.title,
+                    updated_at = excluded.updated_at;
+                "#,
+                params![project_path, source, session_key, title, now_seconds()],
+            )?;
+            tx.execute(
+                r#"
                 UPDATE ai_history_file_session_link
                 SET session_title = ?1
                 WHERE project_path = ?2 AND source = ?3 AND session_key = ?4;
@@ -78,6 +89,13 @@ impl AIUsageStore {
         }
         let tx = conn.unchecked_transaction()?;
         for (source, session_key) in &matched {
+            tx.execute(
+                r#"
+                DELETE FROM ai_history_session_title_override
+                WHERE project_path = ?1 AND source = ?2 AND session_key = ?3;
+                "#,
+                params![project_path, source, session_key],
+            )?;
             tx.execute(
                 r#"
                 DELETE FROM ai_history_file_usage_bucket

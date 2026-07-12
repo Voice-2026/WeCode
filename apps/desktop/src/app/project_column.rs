@@ -14,6 +14,12 @@ const PROJECT_TOOL_LABEL_WIDTH: f32 = 212.0;
 const PROJECT_TOOL_ICON_WIDTH: f32 = 40.0;
 
 #[derive(Clone)]
+enum ProjectListItem {
+    Project(ProjectInfo),
+    Add,
+}
+
+#[derive(Clone)]
 struct ProjectRowDrag {
     project_id: String,
     project: ProjectInfo,
@@ -146,6 +152,18 @@ impl Render for ProjectColumnView {
             .iter()
             .map(|project| project.id.clone())
             .collect::<Vec<_>>();
+        let mut project_items = projects
+            .iter()
+            .cloned()
+            .map(ProjectListItem::Project)
+            .collect::<Vec<_>>();
+        project_items.push(ProjectListItem::Add);
+        let project_items = Rc::new(project_items);
+        let add_project_label = project_column_text(
+            language.as_str(),
+            "sidebar.footer.add_project",
+            "Add Project",
+        );
 
         div()
             .flex()
@@ -174,41 +192,61 @@ impl Render for ProjectColumnView {
                     .overflow_hidden()
                     .child(wecode_uniform_list(
                         "project-list",
-                        projects.clone(),
+                        project_items,
                         scroll_handle,
                         None,
                         cx,
-                        move |project, _index, window, cx| {
-                            let project_id = project.id.clone();
-                            let active = selected_project_id
-                                .as_deref()
-                                .map(|selected| selected == project.id)
-                                .unwrap_or(false);
-                            let lifecycle_state = lifecycle
-                                .get(project.id.as_str())
-                                .copied()
-                                .filter(|state| *state != AgentLifecycleState::Idle);
-                            let link_state = project
-                                .host_device_id
-                                .as_deref()
-                                .map(|device_id| links.get(device_id).copied());
-                            div()
+                        move |item, _index, window, cx| match item {
+                            ProjectListItem::Project(project) => {
+                                let project_id = project.id.clone();
+                                let active = selected_project_id
+                                    .as_deref()
+                                    .map(|selected| selected == project.id)
+                                    .unwrap_or(false);
+                                let lifecycle_state = lifecycle
+                                    .get(project.id.as_str())
+                                    .copied()
+                                    .filter(|state| *state != AgentLifecycleState::Idle);
+                                let link_state = project
+                                    .host_device_id
+                                    .as_deref()
+                                    .map(|device_id| links.get(device_id).copied());
+                                div()
+                                    .w_full()
+                                    .pb(px(4.0))
+                                    .child(project_row(
+                                        project,
+                                        active,
+                                        app_entity.clone(),
+                                        project_id,
+                                        project_order.clone(),
+                                        lifecycle_state,
+                                        link_state,
+                                        collapsed,
+                                        row_menu_labels.clone(),
+                                        window,
+                                        cx,
+                                    ))
+                                    .into_any_element()
+                            }
+                            ProjectListItem::Add => div()
                                 .w_full()
+                                .flex()
+                                .when(collapsed, |this| this.justify_center())
                                 .pb(px(4.0))
-                                .child(project_row(
-                                    project,
-                                    active,
+                                .child(project_tool_button(
+                                    HeroIconName::Plus,
+                                    (!collapsed).then(|| add_project_label.clone()),
+                                    add_project_label.clone(),
+                                    "project-add-list",
                                     app_entity.clone(),
-                                    project_id,
-                                    project_order.clone(),
-                                    lifecycle_state,
-                                    link_state,
-                                    collapsed,
-                                    row_menu_labels.clone(),
                                     window,
                                     cx,
+                                    |app, _event, window, cx| {
+                                        app.open_project_create_window(window, cx)
+                                    },
                                 ))
-                                .into_any_element()
+                                .into_any_element(),
                         },
                     )),
             )
@@ -293,22 +331,10 @@ fn project_tools_snapshot(
         .py_3();
 
     if collapsed {
-        let add_project_label =
-            project_column_text(language, "sidebar.footer.add_project", "Add Project");
         let settings_label = project_column_text(language, "menu.settings", "Settings");
         let more_label = project_column_text(language, "sidebar.footer.more", "More");
         base.flex_col()
             .items_center()
-            .child(project_tool_button(
-                HeroIconName::Plus,
-                None,
-                add_project_label,
-                "project-add-footer",
-                app_entity.clone(),
-                window,
-                cx,
-                |app, _event, window, cx| app.open_project_create_window(window, cx),
-            ))
             .child(project_tool_button(
                 HeroIconName::Cog6Tooth,
                 None,
@@ -331,8 +357,6 @@ fn project_tools_snapshot(
             ))
             .into_any_element()
     } else {
-        let add_project_label =
-            project_column_text(language, "sidebar.footer.add_project", "Add Project");
         let settings_label = project_column_text(language, "menu.settings", "Settings");
         let more_label = project_column_text(language, "sidebar.footer.more", "More");
         let toggle_label = project_column_text(language, "sidebar.collapse", "Collapse Sidebar");
@@ -345,16 +369,6 @@ fn project_tools_snapshot(
                 app_entity.clone(),
                 window,
                 cx,
-            ))
-            .child(project_tool_button(
-                HeroIconName::Plus,
-                Some(add_project_label.clone()),
-                add_project_label,
-                "project-add-footer",
-                app_entity.clone(),
-                window,
-                cx,
-                |app, _event, window, cx| app.open_project_create_window(window, cx),
             ))
             .child(project_tool_button(
                 HeroIconName::Cog6Tooth,

@@ -75,11 +75,13 @@ struct TaskSessionRow {
     title: String,
     source: String,
     last_model: Option<String>,
+    first_seen_at: f64,
     last_seen_at: f64,
     total_tokens: i64,
     usage_amounts: Vec<wecode_runtime::ai_history::AIUsageAmount>,
     active: bool,
     pinned: bool,
+    archived: bool,
 }
 
 impl Render for TaskColumnView {
@@ -118,7 +120,18 @@ impl WeCodeApp {
             .map(|tab| tab.panes.len())
             .unwrap_or_default()
             + self.collapsed_terminal_panes.len();
-        let session_count = self.state.ai_history.sessions.len();
+        let session_metadata = self.runtime_service.ai_session_metadata();
+        let session_count = self
+            .state
+            .ai_history
+            .sessions
+            .iter()
+            .filter(|session| {
+                !session_metadata
+                    .get(&session.id)
+                    .is_some_and(|metadata| metadata.archived)
+            })
+            .count();
         let labels = task_column_labels(&self.state.settings.language);
         if let Some(view) = self.task_column_view.clone() {
             self.update_task_column_child_views(cx);
@@ -209,12 +222,16 @@ struct TaskColumnLabels {
     delete: String,
     bind_wechat: String,
     wechat_bound: String,
-    recent: String,
-    pinned: String,
+    archived: String,
     filter: String,
     all: String,
     pin: String,
     unpin: String,
+    archive: String,
+    unarchive: String,
+    sort: String,
+    sort_updated: String,
+    sort_created: String,
 }
 
 fn task_column_labels(language: &str) -> TaskColumnLabels {
@@ -251,12 +268,16 @@ fn task_column_labels(language: &str) -> TaskColumnLabels {
         delete: tr("common.delete", "Delete"),
         bind_wechat: tr("terminal.wechat.bind", "Bind WeChat to this terminal"),
         wechat_bound: tr("terminal.wechat.bound", "WeChat bound"),
-        recent: tr("common.recent", "Recent"),
-        pinned: tr("common.pinned", "Pinned"),
+        archived: tr("common.archived", "Archived"),
         filter: tr("common.filter", "Filter"),
         all: tr("common.all", "All"),
         pin: tr("common.pin", "Pin"),
         unpin: tr("common.unpin", "Unpin"),
+        archive: tr("common.archive", "Archive"),
+        unarchive: tr("common.unarchive", "Unarchive"),
+        sort: tr("common.sort", "Sort"),
+        sort_updated: tr("ai.sessions.sort_updated", "Recently updated"),
+        sort_created: tr("ai.sessions.sort_created", "Creation time"),
     }
 }
 
@@ -272,6 +293,7 @@ fn task_session_row(
         title: session.title.clone(),
         source: session.source.clone(),
         last_model: session.last_model.clone(),
+        first_seen_at: session.first_seen_at,
         last_seen_at: session.last_seen_at,
         total_tokens: session.total_tokens,
         usage_amounts: session.usage_amounts.clone(),
@@ -283,6 +305,7 @@ fn task_session_row(
             })
             .unwrap_or(false),
         pinned: metadata.is_some_and(|metadata| metadata.pinned),
+        archived: metadata.is_some_and(|metadata| metadata.archived),
     }
 }
 
@@ -308,9 +331,11 @@ pub(in crate::app) struct TaskColumnHeaderSnapshot {
     project_name: String,
     refreshing: bool,
     create_label: String,
-    branch_name_label: String,
     create_branch: bool,
     refresh_label: String,
+    language: String,
+    local_branches: Vec<(String, bool)>,
+    remote_branches: Vec<String>,
 }
 
 pub(in crate::app) struct TaskColumnHeaderView {
@@ -334,9 +359,11 @@ impl Render for TaskColumnHeaderView {
             self.snapshot.project_name.clone(),
             self.snapshot.refreshing,
             self.snapshot.create_label.clone(),
-            self.snapshot.branch_name_label.clone(),
             self.snapshot.create_branch,
             self.snapshot.refresh_label.clone(),
+            self.snapshot.language.clone(),
+            self.snapshot.local_branches.clone(),
+            self.snapshot.remote_branches.clone(),
             self.app_entity.clone(),
             cx,
         )
@@ -487,6 +514,7 @@ pub(in crate::app) struct TaskSessionListSnapshot {
     labels: TaskColumnLabels,
     sessions: Vec<TaskSessionRow>,
     filter: TaskSessionFilter,
+    sort: TaskSessionSort,
     source_filter: TaskSessionSourceFilter,
 }
 
@@ -512,6 +540,7 @@ impl Render for TaskSessionListView {
             self.snapshot.sessions.clone(),
             self.snapshot.labels.clone(),
             self.snapshot.filter,
+            self.snapshot.sort,
             self.snapshot.source_filter,
             self.scroll_handle.clone(),
             self.app_entity.clone(),
@@ -635,9 +664,17 @@ impl WeCodeApp {
             } else {
                 labels.create
             },
-            branch_name_label: labels.branch_name,
             create_branch,
             refresh_label: labels.refresh,
+            language: self.state.settings.language.clone(),
+            local_branches: self
+                .state
+                .git
+                .branches
+                .iter()
+                .map(|branch| (branch.name.clone(), branch.is_current))
+                .collect(),
+            remote_branches: self.state.git.remote_branches.clone(),
         }
     }
 
@@ -823,16 +860,18 @@ impl WeCodeApp {
             .filter(|session| task_session_matches_source(session, self.task_session_source_filter))
             .collect::<Vec<_>>();
         sessions.sort_by(|left, right| {
-            right
-                .pinned
-                .cmp(&left.pinned)
-                .then_with(|| right.last_seen_at.total_cmp(&left.last_seen_at))
+            let time_order = match self.task_session_sort {
+                TaskSessionSort::UpdatedAt => right.last_seen_at.total_cmp(&left.last_seen_at),
+                TaskSessionSort::CreatedAt => right.first_seen_at.total_cmp(&left.first_seen_at),
+            };
+            right.pinned.cmp(&left.pinned).then(time_order)
         });
 
         TaskSessionListSnapshot {
             labels,
             sessions,
             filter: self.task_session_filter,
+            sort: self.task_session_sort,
             source_filter: self.task_session_source_filter,
         }
     }
@@ -848,6 +887,41 @@ impl WeCodeApp {
                 } else {
                     "session unpinned".to_string()
                 };
+                self.invalidate_task_column(cx);
+            }
+            Err(error) => self.status_message = error,
+        }
+    }
+
+    fn set_ai_session_archived(
+        &mut self,
+        session_id: String,
+        archived: bool,
+        cx: &mut Context<Self>,
+    ) {
+        match self
+            .runtime_service
+            .set_ai_session_archived(&session_id, archived)
+        {
+            Ok(_) => {
+                self.status_message = if archived {
+                    "session archived".to_string()
+                } else {
+                    "session restored".to_string()
+                };
+                self.invalidate_task_column(cx);
+            }
+            Err(error) => self.status_message = error,
+        }
+    }
+
+    fn set_task_session_sort(&mut self, sort: TaskSessionSort, cx: &mut Context<Self>) {
+        match self
+            .runtime_service
+            .set_ai_session_list_sort(sort.as_setting())
+        {
+            Ok(_) => {
+                self.task_session_sort = sort;
                 self.invalidate_task_column(cx);
             }
             Err(error) => self.status_message = error,
@@ -1147,9 +1221,11 @@ fn task_column_header(
     project_name: String,
     refreshing: bool,
     create_label: String,
-    branch_name_label: String,
     create_branch: bool,
     refresh_label: String,
+    language: String,
+    local_branches: Vec<(String, bool)>,
+    remote_branches: Vec<String>,
     app_entity: gpui::Entity<WeCodeApp>,
     cx: &mut Context<TaskColumnHeaderView>,
 ) -> impl IntoElement {
@@ -1209,17 +1285,11 @@ fn task_column_header(
                                     )
                                     .on_click(move |_, window, cx| {
                                         if create_branch {
-                                            let entity = create_entity.clone();
-                                            super::quick_input::show_quick_input(
-                                                create_label.clone(),
-                                                branch_name_label.clone(),
-                                                generated_git_branch_name(),
-                                                false,
-                                                move |name, window, cx| {
-                                                    entity.update(cx, |app, cx| {
-                                                        app.create_git_branch(name, window, cx);
-                                                    });
-                                                },
+                                            super::git_actions::show_create_git_branch_dialog(
+                                                create_entity.clone(),
+                                                &language,
+                                                local_branches.clone(),
+                                                remote_branches.clone(),
                                                 window,
                                                 cx,
                                             );
@@ -1500,6 +1570,7 @@ fn recent_session_area(
     sessions: Vec<TaskSessionRow>,
     labels: TaskColumnLabels,
     filter: TaskSessionFilter,
+    sort: TaskSessionSort,
     source_filter: TaskSessionSourceFilter,
     scroll_handle: UniformListScrollHandle,
     app_entity: gpui::Entity<WeCodeApp>,
@@ -1519,6 +1590,7 @@ fn recent_session_area(
         .child(session_filter_tabs(
             app_entity,
             filter,
+            sort,
             source_filter,
             labels.clone(),
             cx,
@@ -1565,13 +1637,14 @@ fn recent_session_area(
 fn session_filter_tabs(
     app_entity: gpui::Entity<WeCodeApp>,
     filter: TaskSessionFilter,
+    sort: TaskSessionSort,
     source_filter: TaskSessionSourceFilter,
     labels: TaskColumnLabels,
     cx: &mut Context<TaskSessionListView>,
 ) -> impl IntoElement {
     let items = [
-        (TaskSessionFilter::Recent, labels.recent.clone()),
-        (TaskSessionFilter::Pinned, labels.pinned.clone()),
+        (TaskSessionFilter::All, labels.all.clone()),
+        (TaskSessionFilter::Archived, labels.archived.clone()),
     ];
     div()
         .h(px(34.0))
@@ -1637,6 +1710,11 @@ fn session_filter_tabs(
                                 .child(label),
                         )
                 }))
+                .child(session_sort_button(
+                    app_entity.clone(),
+                    sort,
+                    labels.clone(),
+                ))
                 .child(session_source_filter_button(
                     app_entity,
                     source_filter,
@@ -1644,6 +1722,49 @@ fn session_filter_tabs(
                     cx,
                 )),
         )
+}
+
+fn session_sort_button(
+    app_entity: gpui::Entity<WeCodeApp>,
+    sort: TaskSessionSort,
+    labels: TaskColumnLabels,
+) -> impl IntoElement {
+    let selected_label = match sort {
+        TaskSessionSort::UpdatedAt => labels.sort_updated.clone(),
+        TaskSessionSort::CreatedAt => labels.sort_created.clone(),
+    };
+    let options = [
+        (TaskSessionSort::UpdatedAt, labels.sort_updated),
+        (TaskSessionSort::CreatedAt, labels.sort_created),
+    ];
+    Button::new("task-session-sort")
+        .ghost()
+        .compact()
+        .with_size(Size::Small)
+        .size(px(26.0))
+        .tooltip(format!("{}: {selected_label}", labels.sort))
+        .icon(
+            Icon::new(HeroIconName::BarsArrowDown)
+                .size_3()
+                .text_color(color(theme::TEXT_DIM)),
+        )
+        .dropdown_menu_with_anchor(gpui::Anchor::TopRight, move |menu, _window, _cx| {
+            options
+                .iter()
+                .fold(menu.min_w(160.), |menu, (item_sort, label)| {
+                    let app_entity = app_entity.clone();
+                    let item_sort = *item_sort;
+                    menu.item(
+                        PopupMenuItem::new(label.clone())
+                            .checked(item_sort == sort)
+                            .on_click(move |_, _window, cx| {
+                                cx.update_entity(&app_entity, |app, cx| {
+                                    app.set_task_session_sort(item_sort, cx);
+                                });
+                            }),
+                    )
+                })
+        })
 }
 
 fn session_source_filter_button(
@@ -1770,8 +1891,22 @@ fn terminal_create_card(
     app_entity: gpui::Entity<WeCodeApp>,
     cx: &mut Context<TaskTerminalListView>,
 ) -> impl IntoElement {
-    div()
-        .id("task-terminal-create")
+    let gateway_status = GatewayService::global_status();
+    let gateway_ready = gateway_status.addr.is_some() && gateway_status.error.is_none();
+    let gateway_hint = if let Some(error) = gateway_status.error {
+        format!("Gateway failed: {error}")
+    } else if gateway_status.enabled {
+        "Gateway starting".to_string()
+    } else {
+        "Gateway disabled".to_string()
+    };
+    Button::new("task-terminal-create")
+        .custom(
+            ButtonCustomVariant::new(cx)
+                .color(theme::elevate(color(theme::BG_COLUMN), 0.035))
+                .hover(theme::elevate(color(theme::BG_COLUMN), 0.07))
+                .foreground(cx.theme().foreground),
+        )
         .w_full()
         .min_w_0()
         .h(px(36.0))
@@ -1780,19 +1915,93 @@ fn terminal_create_card(
         .flex()
         .items_center()
         .justify_center()
-        .bg(theme::elevate(color(theme::BG_COLUMN), 0.035))
         .cursor_pointer()
-        .hover(|style| style.bg(theme::elevate(color(theme::BG_COLUMN), 0.07)))
         .child(
             div()
                 .text_center()
                 .text_xs()
-                .text_color(cx.theme().muted_foreground)
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(color(theme::TEXT))
                 .child(format!("＋ {label}")),
         )
+        .dropdown_menu_with_anchor(gpui::Anchor::TopLeft, move |menu, _window, _cx| {
+            let shell_entity = app_entity.clone();
+            let mut menu = menu
+                .min_w(260.)
+                .item(
+                    PopupMenuItem::new("纯终端")
+                        .icon(HeroIconName::CommandLine)
+                        .on_click(move |_, window, cx| {
+                            cx.update_entity(&shell_entity, |app, cx| {
+                                app.split_terminal(window, cx);
+                            });
+                        }),
+                )
+                .separator()
+                .item(new_terminal_agent_menu_item(
+                    app_entity.clone(),
+                    "Claude Code",
+                    HeroIconName::CommandLine,
+                    "claude",
+                ))
+                .item(new_terminal_agent_menu_item(
+                    app_entity.clone(),
+                    "Codex",
+                    HeroIconName::CommandLine,
+                    "codex",
+                ))
+                .item(new_terminal_agent_menu_item(
+                    app_entity.clone(),
+                    "Kiro",
+                    HeroIconName::Sparkles,
+                    "kiro",
+                ))
+                .separator();
+            if gateway_ready {
+                for (label, target) in [
+                    ("Kiro Gateway · Claude · Opus 4.8", "kiro-gateway-claude"),
+                    ("Gateway · Haiku 4.5", "kiro-gateway-claude-haiku-4-5"),
+                    ("Gateway · Sonnet 4.6", "kiro-gateway-claude-sonnet-4-6"),
+                    ("Gateway · Opus 4.6", "kiro-gateway-claude-opus-4-6"),
+                    ("Gateway · Opus 4.7", "kiro-gateway-claude-opus-4-7"),
+                    ("Gateway · Opus 4.8", "kiro-gateway-claude-opus-4-8"),
+                    ("Gateway · DeepSeek 3.2", "kiro-gateway-claude-deepseek-3-2"),
+                    ("Gateway · GLM 5", "kiro-gateway-claude-glm-5"),
+                    ("Gateway · MiniMax M2.5", "kiro-gateway-claude-minimax-m2-5"),
+                    (
+                        "Gateway · Qwen3 Coder",
+                        "kiro-gateway-claude-qwen3-coder-next",
+                    ),
+                ] {
+                    menu = menu.item(new_terminal_agent_menu_item(
+                        app_entity.clone(),
+                        label,
+                        HeroIconName::ServerStack,
+                        target,
+                    ));
+                }
+            } else {
+                menu = menu.item(
+                    PopupMenuItem::new(gateway_hint.clone())
+                        .icon(HeroIconName::ServerStack)
+                        .disabled(true),
+                );
+            }
+            menu
+        })
+}
+
+fn new_terminal_agent_menu_item(
+    app_entity: gpui::Entity<WeCodeApp>,
+    label: &'static str,
+    icon: HeroIconName,
+    target: &'static str,
+) -> PopupMenuItem {
+    PopupMenuItem::new(label)
+        .icon(icon)
         .on_click(move |_, window, cx| {
             cx.update_entity(&app_entity, |app, cx| {
-                app.split_terminal(window, cx);
+                app.create_terminal_with_quick_agent(target, window, cx);
             });
         })
 }
@@ -2433,6 +2642,7 @@ fn ai_session_compact_row(
     let menu_session_id = session.id.clone();
     let menu_session_title = session.title.clone();
     let session_pinned = session.pinned;
+    let session_archived = session.archived;
     let source_label = ai_session_source_display_name(&session.source);
     let source_color = if source_label == "Claude" {
         color(theme::ORANGE)
@@ -2573,6 +2783,13 @@ fn ai_session_compact_row(
             } else {
                 labels.pin.clone()
             };
+            let archive_entity = app_entity.clone();
+            let archive_session_id = menu_session_id.clone();
+            let archive_label = if session_archived {
+                labels.unarchive.clone()
+            } else {
+                labels.archive.clone()
+            };
 
             menu.item(
                 PopupMenuItem::new(labels.open.clone())
@@ -2638,6 +2855,23 @@ fn ai_session_compact_row(
                     }),
             )
             .item(
+                PopupMenuItem::new(archive_label)
+                    .icon(if session_archived {
+                        HeroIconName::ArchiveBoxArrowDown
+                    } else {
+                        HeroIconName::ArchiveBox
+                    })
+                    .on_click(move |_, _window, cx| {
+                        cx.update_entity(&archive_entity, |app, cx| {
+                            app.set_ai_session_archived(
+                                archive_session_id.clone(),
+                                !session_archived,
+                                cx,
+                            );
+                        });
+                    }),
+            )
+            .item(
                 PopupMenuItem::new(labels.delete.clone())
                     .icon(HeroIconName::Trash)
                     .on_click(move |_, window, cx| {
@@ -2658,8 +2892,8 @@ fn session_usage_label(session: &TaskSessionRow) -> String {
 
 fn task_session_matches_filter(session: &TaskSessionRow, filter: TaskSessionFilter) -> bool {
     match filter {
-        TaskSessionFilter::Recent => true,
-        TaskSessionFilter::Pinned => session.pinned,
+        TaskSessionFilter::All => !session.archived,
+        TaskSessionFilter::Archived => session.archived,
     }
 }
 
@@ -2676,7 +2910,7 @@ fn task_session_matches_source(session: &TaskSessionRow, filter: TaskSessionSour
 mod session_filter_tests {
     use super::*;
 
-    fn row(source: &str, pinned: bool) -> TaskSessionRow {
+    fn row(source: &str, pinned: bool, archived: bool) -> TaskSessionRow {
         TaskSessionRow {
             id: "session-1".to_string(),
             session_key: "session-1".to_string(),
@@ -2684,29 +2918,25 @@ mod session_filter_tests {
             title: "Session".to_string(),
             source: source.to_string(),
             last_model: Some("claude-opus-4.8".to_string()),
+            first_seen_at: 0.5,
             last_seen_at: 1.0,
             total_tokens: 0,
             usage_amounts: Vec::new(),
             active: false,
             pinned,
+            archived,
         }
     }
 
     #[test]
     fn session_filters_combine_pin_and_source() {
-        let claude = row("claude", true);
-        let codex = row("codex", false);
+        let claude = row("claude", true, false);
+        let codex = row("codex", false, true);
+        assert!(task_session_matches_filter(&claude, TaskSessionFilter::All));
+        assert!(!task_session_matches_filter(&codex, TaskSessionFilter::All));
         assert!(task_session_matches_filter(
-            &claude,
-            TaskSessionFilter::Recent
-        ));
-        assert!(task_session_matches_filter(
-            &claude,
-            TaskSessionFilter::Pinned
-        ));
-        assert!(!task_session_matches_filter(
             &codex,
-            TaskSessionFilter::Pinned
+            TaskSessionFilter::Archived
         ));
         assert!(task_session_matches_source(
             &claude,

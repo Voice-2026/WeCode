@@ -1,4 +1,127 @@
 use super::*;
+use crate::app::quick_pick::QuickPickItem;
+
+pub(in crate::app) fn show_create_git_branch_dialog(
+    app_entity: gpui::Entity<WeCodeApp>,
+    language: &str,
+    local_branches: Vec<(String, bool)>,
+    remote_branches: Vec<String>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let locale = locale_from_language_setting(language);
+    let tr = |key: &str, fallback: &str| translate(&locale, key, fallback);
+    let new_branch_label = tr("git.branch.create_and_switch", "New Branch");
+    let branch_name_placeholder = tr("git.branch.new.message", "Enter a new branch name.");
+    let source_picker_label = tr("git.branch.select_source", "Select source branch");
+    let current_label = tr("git.branch.current_label", "Current branch");
+    let local_label = tr("git.branch.local", "Local branch");
+    let remote_label = tr("git.branch.remote", "Remote branch");
+    let action_picker_label = tr("git.branch.create_action", "Create branch");
+    let create_and_switch_label = tr("git.branch.create_and_switch", "Create and switch");
+    let create_only_label = tr("git.branch.create_only", "Create without switching");
+    let current_branch = local_branches
+        .iter()
+        .find(|(_, is_current)| *is_current)
+        .map(|(name, _)| name.clone())
+        .unwrap_or_else(|| "HEAD".to_string());
+    let title = format!("{new_branch_label} · {current_label}: {current_branch}");
+    let entity = app_entity.clone();
+    super::super::quick_input::show_quick_input(
+        title,
+        branch_name_placeholder,
+        generated_git_branch_name(),
+        false,
+        move |name, window, cx| {
+            let mut local_branches = local_branches.clone();
+            local_branches.sort_by(|left, right| {
+                right
+                    .1
+                    .cmp(&left.1)
+                    .then_with(|| left.0.to_lowercase().cmp(&right.0.to_lowercase()))
+            });
+            let mut items = local_branches
+                .iter()
+                .map(|(branch, is_current)| {
+                    QuickPickItem::new(branch.clone(), branch.clone())
+                        .icon(Icon::new(if *is_current {
+                            HeroIconName::Check
+                        } else {
+                            HeroIconName::ArrowPathRoundedSquare
+                        }))
+                        .description(if *is_current {
+                            current_label.clone()
+                        } else {
+                            local_label.clone()
+                        })
+                })
+                .collect::<Vec<_>>();
+            let mut seen = local_branches
+                .iter()
+                .map(|(branch, _)| branch.clone())
+                .collect::<HashSet<_>>();
+            items.extend(remote_branches.iter().filter_map(|branch| {
+                if !seen.insert(branch.clone()) {
+                    return None;
+                }
+                Some(
+                    QuickPickItem::new(branch.clone(), branch.clone())
+                        .icon(Icon::new(HeroIconName::GlobeAlt))
+                        .description(remote_label.clone()),
+                )
+            }));
+            if items.is_empty() {
+                entity.update(cx, |app, cx| app.create_git_branch(name, window, cx));
+                return;
+            }
+            let entity = entity.clone();
+            let action_picker_label = action_picker_label.clone();
+            let create_and_switch_label = create_and_switch_label.clone();
+            let create_only_label = create_only_label.clone();
+            super::super::quick_pick::show_quick_pick(
+                source_picker_label.clone(),
+                items,
+                move |source, window, cx| {
+                    const CREATE_AND_SWITCH: &str = "create-and-switch";
+                    const CREATE_ONLY: &str = "create-only";
+                    let preview = format!("{source} → {name}");
+                    let actions = vec![
+                        QuickPickItem::new(CREATE_AND_SWITCH, create_and_switch_label.clone())
+                            .icon(Icon::new(HeroIconName::ArrowRight))
+                            .description(preview.clone()),
+                        QuickPickItem::new(CREATE_ONLY, create_only_label.clone())
+                            .icon(Icon::new(HeroIconName::Plus))
+                            .description(preview),
+                    ];
+                    let entity = entity.clone();
+                    let name = name.clone();
+                    let source = source.to_string();
+                    super::super::quick_pick::show_quick_pick(
+                        action_picker_label.clone(),
+                        actions,
+                        move |action, window, cx| {
+                            entity.update(cx, |app, cx| {
+                                app.create_git_branch_from_with_checkout(
+                                    name.clone(),
+                                    source.clone(),
+                                    action.as_ref() == CREATE_AND_SWITCH,
+                                    window,
+                                    cx,
+                                );
+                            });
+                        },
+                        window,
+                        cx,
+                    );
+                },
+                window,
+                cx,
+            );
+        },
+        window,
+        cx,
+    );
+}
 
 impl WeCodeApp {
     pub(in crate::app) fn checkout_selected_git_branch(
@@ -362,19 +485,35 @@ impl WeCodeApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.create_git_branch_from_with_checkout(branch_name, from, true, _window, cx);
+    }
+
+    pub(in crate::app) fn create_git_branch_from_with_checkout(
+        &mut self,
+        branch_name: String,
+        from: String,
+        checkout: bool,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let worker_branch = branch_name.clone();
         let worker_from = from.clone();
+        let success_message = if checkout {
+            format!("created and checked out Git branch {branch_name} from {from}")
+        } else {
+            format!("created Git branch {branch_name} from {from}")
+        };
         self.run_simple_git_operation(
             format!("create-branch:{branch_name}"),
             false,
-            format!("created Git branch {branch_name} from {from}"),
+            success_message,
             "Git branch creation failed".to_string(),
             move |service, path| {
                 service.create_project_git_branch_from(
                     &path,
                     &worker_branch,
                     Some(&worker_from),
-                    true,
+                    checkout,
                 )
             },
             cx,

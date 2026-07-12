@@ -61,9 +61,17 @@ fn parse_claude_history_file_snapshot(
             });
             payload.session_key = Some(session_id.clone());
             payload.external_session_id = Some(session_id.clone());
-            payload.session_title = claude_title(&row)
-                .or(payload.session_title.clone())
-                .or_else(|| Some(project.name.clone()));
+            let existing_title = payload.session_title.clone();
+            payload.session_title = if existing_title
+                .as_deref()
+                .is_some_and(|title| title != project.name)
+            {
+                existing_title
+            } else {
+                claude_title(&row)
+                    .or(existing_title)
+                    .or_else(|| Some(project.name.clone()))
+            };
         }
         if row_type != Some("assistant") {
             last_processed_offset = end_offset;
@@ -105,7 +113,13 @@ fn parse_claude_history_file_snapshot(
             source: "claude".to_string(),
             session_id: session_id.clone(),
             external_session_id: Some(session_id),
-            session_title: claude_title(&row).or_else(|| Some(project.name.clone())),
+            // Assistant rows carry the token usage but normally do not carry a
+            // title. Keep the first meaningful user title accumulated in the
+            // checkpoint payload instead of falling back to the project name.
+            session_title: payload
+                .session_title
+                .clone()
+                .or_else(|| Some(project.name.clone())),
             timestamp,
             model,
             input_tokens,

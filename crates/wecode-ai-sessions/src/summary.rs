@@ -249,6 +249,7 @@ fn normalized_range_summary_to_summary(
                 project_name: Some(session.project_name),
                 project_path: Some(session.project_path),
                 last_model: session.last_model,
+                first_seen_at: session.first_seen_at,
                 last_seen_at: session.last_seen_at,
                 input_tokens: session.total_input_tokens,
                 output_tokens: session.total_output_tokens,

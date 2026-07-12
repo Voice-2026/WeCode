@@ -17,6 +17,42 @@ fn initialize_connection(conn: &Connection) -> Result<()> {
     if stored_version.as_deref() != Some(NORMALIZED_HISTORY_SCHEMA_VERSION) {
         migrate_schema(conn)?;
     }
+    repair_project_fallback_session_titles(conn)?;
+    Ok(())
+}
+
+fn repair_project_fallback_session_titles(conn: &Connection) -> Result<()> {
+    conn.execute(
+        r#"
+        UPDATE ai_history_file_session_link AS session
+        SET session_title = (
+            SELECT json_extract(checkpoint.payload_json, '$.sessionTitle')
+            FROM ai_history_file_checkpoint AS checkpoint
+            WHERE checkpoint.source = session.source
+              AND checkpoint.file_path = session.file_path
+              AND checkpoint.project_path = session.project_path
+            LIMIT 1
+        )
+        WHERE session.session_title = session.project_name
+          AND NOT EXISTS (
+              SELECT 1
+              FROM ai_history_session_title_override AS title_override
+              WHERE title_override.project_path = session.project_path
+                AND title_override.source = session.source
+                AND title_override.session_key = session.session_key
+          )
+          AND EXISTS (
+              SELECT 1
+              FROM ai_history_file_checkpoint AS checkpoint
+              WHERE checkpoint.source = session.source
+                AND checkpoint.file_path = session.file_path
+                AND checkpoint.project_path = session.project_path
+                AND TRIM(COALESCE(json_extract(checkpoint.payload_json, '$.sessionTitle'), '')) <> ''
+                AND TRIM(json_extract(checkpoint.payload_json, '$.sessionTitle')) <> session.project_name
+          );
+        "#,
+        [],
+    )?;
     Ok(())
 }
 
@@ -71,9 +107,12 @@ fn merge_usage_buckets(existing: &[AIUsageBucket], delta: &[AIUsageBucket]) -> V
                     .external_session_id
                     .clone()
                     .or(bucket.external_session_id.clone());
-                current.session_title =
-                    preferred_string(Some(&current.session_title), Some(&bucket.session_title))
-                        .unwrap_or_else(|| bucket.project_name.clone());
+                current.session_title = preferred_session_title(
+                    Some(&current.session_title),
+                    Some(&bucket.session_title),
+                    &bucket.project_name,
+                )
+                .unwrap_or_else(|| bucket.project_name.clone());
                 current.model = current.model.clone().or(bucket.model.clone());
             })
             .or_insert_with(|| bucket.clone());

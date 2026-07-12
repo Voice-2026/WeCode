@@ -30,8 +30,31 @@ pub(in crate::app) enum TaskGitTab {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::app) enum TaskSessionFilter {
-    Recent,
-    Pinned,
+    All,
+    Archived,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::app) enum TaskSessionSort {
+    UpdatedAt,
+    CreatedAt,
+}
+
+impl TaskSessionSort {
+    pub(in crate::app) fn from_setting(value: &str) -> Self {
+        if value == "createdAt" {
+            Self::CreatedAt
+        } else {
+            Self::UpdatedAt
+        }
+    }
+
+    pub(in crate::app) fn as_setting(self) -> &'static str {
+        match self {
+            Self::UpdatedAt => "updatedAt",
+            Self::CreatedAt => "createdAt",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -376,6 +399,7 @@ pub struct WeCodeApp {
     pub(in crate::app) task_column_primary_tab: TaskColumnPrimaryTab,
     pub(in crate::app) task_git_tab: TaskGitTab,
     pub(in crate::app) task_session_filter: TaskSessionFilter,
+    pub(in crate::app) task_session_sort: TaskSessionSort,
     pub(in crate::app) task_session_source_filter: TaskSessionSourceFilter,
     pub(in crate::app) project_list_state: Option<gpui::Entity<ProjectListState>>,
     /// Last polled client→host link state per host device id. Drives the project

@@ -33,6 +33,7 @@ pub(super) fn load_sessions(
                 l.session_title,
                 l.source,
                 l.last_model,
+                l.first_seen_at,
                 l.last_seen_at,
                 {input_tokens_expr} AS input_tokens,
                 {output_tokens_expr} AS output_tokens,
@@ -46,7 +47,7 @@ pub(super) fn load_sessions(
                 AND b.file_path = l.file_path
                 AND b.session_key = l.session_key
             WHERE l.project_path = ?1
-            GROUP BY l.session_key, l.external_session_id, l.session_title, l.source, l.last_model, l.last_seen_at
+            GROUP BY l.session_key, l.external_session_id, l.session_title, l.source, l.last_model, l.first_seen_at, l.last_seen_at
             ORDER BY l.last_seen_at DESC
             LIMIT 12
             "#
@@ -80,12 +81,13 @@ pub(super) fn load_sessions(
                 project_name: Some(project_path.to_string()),
                 project_path: Some(project_path.to_string()),
                 last_model: row.get(4)?,
-                last_seen_at: row.get(5)?,
-                input_tokens: row.get(6)?,
-                output_tokens: row.get(7)?,
-                total_tokens: row.get(8)?,
-                cached_input_tokens: row.get(9)?,
-                request_count: row.get(10)?,
+                first_seen_at: row.get(5)?,
+                last_seen_at: row.get(6)?,
+                input_tokens: row.get(7)?,
+                output_tokens: row.get(8)?,
+                total_tokens: row.get(9)?,
+                cached_input_tokens: row.get(10)?,
+                request_count: row.get(11)?,
                 active_duration_seconds: 0,
                 usage_amounts: amounts,
             })
@@ -127,6 +129,7 @@ pub(super) fn load_global_recent_sessions(
             {project_name_expr} AS project_name,
             MAX(l.project_path) AS project_path,
             l.last_model,
+            MIN(l.first_seen_at) AS first_seen_at,
             MAX(l.last_seen_at) AS last_seen_at,
             {input_tokens_expr} AS input_tokens,
             {output_tokens_expr} AS output_tokens,
@@ -173,12 +176,13 @@ pub(super) fn load_global_recent_sessions(
                 project_name: row.get(4)?,
                 project_path: row.get(5)?,
                 last_model: row.get(6)?,
-                last_seen_at: row.get(7)?,
-                input_tokens: row.get(8)?,
-                output_tokens: row.get(9)?,
-                total_tokens: row.get(10)?,
-                cached_input_tokens: row.get(11)?,
-                request_count: row.get(12)?,
+                first_seen_at: row.get(7)?,
+                last_seen_at: row.get(8)?,
+                input_tokens: row.get(9)?,
+                output_tokens: row.get(10)?,
+                total_tokens: row.get(11)?,
+                cached_input_tokens: row.get(12)?,
+                request_count: row.get(13)?,
                 active_duration_seconds: 0,
                 usage_amounts: amounts,
             })

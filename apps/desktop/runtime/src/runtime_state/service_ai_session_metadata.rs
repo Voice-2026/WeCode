@@ -27,4 +27,16 @@ impl RuntimeService {
     ) -> Result<AISessionMetadata, String> {
         AISessionMetadataService::new(self.support_dir.clone()).set_archived(session_id, archived)
     }
+
+    pub fn ai_session_list_sort(&self) -> String {
+        AISessionMetadataService::new(self.support_dir.clone())
+            .list_preferences()
+            .sort
+    }
+
+    pub fn set_ai_session_list_sort(&self, sort: &str) -> Result<String, String> {
+        AISessionMetadataService::new(self.support_dir.clone())
+            .set_list_sort(sort)
+            .map(|preferences| preferences.sort)
+    }
 }

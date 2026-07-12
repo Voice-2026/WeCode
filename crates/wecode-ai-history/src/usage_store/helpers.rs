@@ -177,6 +177,26 @@ fn preferred_string(left: Option<&str>, right: Option<&str>) -> Option<String> {
         .or_else(|| normalized_optional_string(right.unwrap_or("")))
 }
 
+fn preferred_session_title(
+    left: Option<&str>,
+    right: Option<&str>,
+    project_name: &str,
+) -> Option<String> {
+    let left = normalized_optional_string(left.unwrap_or(""));
+    let right = normalized_optional_string(right.unwrap_or(""));
+    left.as_ref()
+        .filter(|title| title.as_str() != project_name)
+        .cloned()
+        .or_else(|| {
+            right
+                .as_ref()
+                .filter(|title| title.as_str() != project_name)
+                .cloned()
+        })
+        .or(left)
+        .or(right)
+}
+
 fn normalized_optional_string(value: &str) -> Option<String> {
     let value = value.trim();
     (!value.is_empty()).then(|| value.to_string())

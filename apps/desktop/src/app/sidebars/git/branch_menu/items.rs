@@ -5,6 +5,7 @@ pub(super) fn checkout_to_item(
     labels: Rc<GitBranchMenuLabels>,
     branches: Vec<GitBranchSummary>,
     remote_refs: Vec<String>,
+    language: String,
     app_entity: gpui::Entity<WeCodeApp>,
 ) -> PopupMenuItem {
     const CREATE_ID: &str = "\u{0}create-branch";
@@ -37,22 +38,22 @@ pub(super) fn checkout_to_item(
             }
             let entity = app_entity.clone();
             let labels = labels.clone();
+            let create_branches = branches.clone();
+            let create_remote_refs = remote_refs.clone();
+            let create_language = language.clone();
             show_quick_pick(
                 labels.checkout_to.clone(),
                 items,
                 move |id, window, cx| {
                     if id.as_ref() == CREATE_ID {
-                        let entity = entity.clone();
-                        show_quick_input(
-                            labels.new_branch.clone(),
-                            labels.branch_name_placeholder.clone(),
-                            generated_git_branch_name(),
-                            false,
-                            move |name, window, cx| {
-                                entity.update(cx, |app, cx| {
-                                    app.create_git_branch(name, window, cx);
-                                });
-                            },
+                        super::super::super::super::git_actions::show_create_git_branch_dialog(
+                            entity.clone(),
+                            &create_language,
+                            create_branches
+                                .iter()
+                                .map(|branch| (branch.name.clone(), branch.is_current))
+                                .collect(),
+                            create_remote_refs.clone(),
                             window,
                             cx,
                         );

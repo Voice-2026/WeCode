@@ -23,6 +23,48 @@ mod tests {
     }
 
     #[test]
+    fn repairs_project_fallback_title_from_checkpoint() {
+        let root = std::env::temp_dir().join(format!("wecode-ai-usage-store-{}", Uuid::new_v4()));
+        let store = AIUsageStore::at_path(root.join("ai-usage.sqlite3"));
+        let conn = store.connect().unwrap();
+        conn.execute(
+            r#"
+            INSERT INTO ai_history_file_session_link (
+                source, file_path, project_path, session_key, external_session_id,
+                project_id, project_name, session_title, first_seen_at, last_seen_at,
+                last_model, active_duration_seconds
+            ) VALUES ('claude', 'session.jsonl', '/tmp/project', 's1', 's1',
+                'project', 'master', 'master', 1, 2, 'claude-sonnet', 1);
+            "#,
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            r#"
+            INSERT INTO ai_history_file_checkpoint (
+                source, file_path, project_path, file_modified_at, file_size,
+                last_offset, last_indexed_at, payload_json
+            ) VALUES ('claude', 'session.jsonl', '/tmp/project', 1, 10, 10, 1,
+                '{"sessionKey":"s1","sessionTitle":"真实提问"}');
+            "#,
+            [],
+        )
+        .unwrap();
+
+        repair_project_fallback_session_titles(&conn).unwrap();
+
+        let title: String = conn
+            .query_row(
+                "SELECT session_title FROM ai_history_file_session_link WHERE session_key = 's1';",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(title, "真实提问");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn unchanged_file_reuses_persisted_summary() {
         let root = std::env::temp_dir().join(format!("wecode-ai-usage-store-{}", Uuid::new_v4()));
         fs::create_dir_all(&root).unwrap();

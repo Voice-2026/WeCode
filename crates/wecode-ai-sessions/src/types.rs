@@ -99,6 +99,8 @@ pub struct AISessionSummary {
     #[serde(default)]
     pub project_path: Option<String>,
     pub last_model: Option<String>,
+    #[serde(default)]
+    pub first_seen_at: f64,
     pub last_seen_at: f64,
     #[serde(default)]
     pub input_tokens: i64,

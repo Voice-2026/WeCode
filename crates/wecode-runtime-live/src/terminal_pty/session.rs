@@ -8,8 +8,6 @@ pub struct TerminalPtySession {
     pub(super) history: Arc<parking_lot::Mutex<RingHistory>>,
     pub(super) screen: Arc<parking_lot::Mutex<HeadlessTerminalScreen>>,
     pub(super) output_subscribers: Arc<parking_lot::Mutex<Vec<flume::Sender<Vec<u8>>>>>,
-    pub(super) io_subscribers: Arc<parking_lot::Mutex<Vec<flume::Sender<TerminalIoEvent>>>>,
-    pub(super) io_sequence: Arc<AtomicU64>,
     pub(super) event_subscribers: Arc<parking_lot::Mutex<Vec<EventSubscriber>>>,
     pub(super) info: Arc<parking_lot::Mutex<TerminalSessionSnapshot>>,
     pub(super) ai_runtime_binding: AIRuntimeTerminalBinding,
@@ -91,8 +89,6 @@ impl TerminalPtySession {
             initial_remote_screen_scrollback,
         )));
         let output_subscribers = Arc::new(parking_lot::Mutex::new(Vec::new()));
-        let io_subscribers = Arc::new(parking_lot::Mutex::new(Vec::new()));
-        let io_sequence = Arc::new(AtomicU64::new(0));
         let event_subscribers = Arc::new(parking_lot::Mutex::new(Vec::new()));
         if let Some((event_key, event_sink)) = event_sink {
             if let Some(event_key) = event_key {
@@ -203,8 +199,6 @@ impl TerminalPtySession {
             history.clone(),
             screen.clone(),
             output_subscribers.clone(),
-            io_subscribers.clone(),
-            io_sequence.clone(),
             event_subscribers.clone(),
             info.clone(),
         );
@@ -217,8 +211,6 @@ impl TerminalPtySession {
                 history,
                 screen,
                 output_subscribers,
-                io_subscribers,
-                io_sequence,
                 event_subscribers,
                 info,
                 ai_runtime_binding,
@@ -278,24 +270,7 @@ impl TerminalPtySession {
     }
 
     pub fn write(&self, data: &[u8]) -> Result<()> {
-        self.write_with_io_origin(data, TerminalIoOrigin::Local)
-    }
-
-    pub fn write_from_wechat(&self, data: &[u8]) -> Result<()> {
-        self.write_with_io_origin(data, TerminalIoOrigin::WeChat)
-    }
-
-    fn write_with_io_origin(&self, data: &[u8], origin: TerminalIoOrigin) -> Result<()> {
         let mut writer = self.stdin_writer.lock();
-        if !data.is_empty() {
-            broadcast_io_event(
-                &self.io_subscribers,
-                &self.io_sequence,
-                TerminalIoDirection::Input,
-                origin,
-                data,
-            );
-        }
         writer.write_all(data)?;
         writer.flush()?;
         self.input_capture.lock().push(data);
@@ -325,12 +300,6 @@ impl TerminalPtySession {
             }
         }
         self.output_subscribers.lock().push(tx);
-        rx
-    }
-
-    pub fn subscribe_io(&self) -> flume::Receiver<TerminalIoEvent> {
-        let (tx, rx) = flume::unbounded();
-        self.io_subscribers.lock().push(tx);
         rx
     }
 

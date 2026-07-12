@@ -36,6 +36,8 @@ impl WeCodeApp {
         runtime: RuntimeInventory,
         runtime_service: RuntimeService,
     ) -> Self {
+        let task_session_sort =
+            TaskSessionSort::from_setting(&runtime_service.ai_session_list_sort());
         let selected_ai_provider_id = state
             .settings
             .ai_providers
@@ -352,7 +354,8 @@ impl WeCodeApp {
             task_column_collapsed: false,
             task_column_primary_tab: TaskColumnPrimaryTab::Git,
             task_git_tab: TaskGitTab::Worktrees,
-            task_session_filter: TaskSessionFilter::Recent,
+            task_session_filter: TaskSessionFilter::All,
+            task_session_sort,
             task_session_source_filter: TaskSessionSourceFilter::All,
             project_list_state: None,
             remote_link_states: std::collections::HashMap::new(),

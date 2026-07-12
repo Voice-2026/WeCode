@@ -256,6 +256,18 @@ impl AIUsageStore {
             }
 
             for session in build_session_links(&summary.usage_buckets) {
+                let overridden_title = conn
+                    .query_row(
+                        r#"
+                        SELECT title
+                        FROM ai_history_session_title_override
+                        WHERE project_path = ?1 AND source = ?2 AND session_key = ?3
+                        LIMIT 1;
+                        "#,
+                        params![summary.project_path, session.source, session.session_key],
+                        |row| row.get::<_, String>(0),
+                    )
+                    .optional()?;
                 conn.execute(
                     r#"
                     INSERT INTO ai_history_file_session_link (
@@ -272,7 +284,7 @@ impl AIUsageStore {
                         session.external_session_id,
                         session.project_id,
                         session.project_name,
-                        session.session_title,
+                        overridden_title.unwrap_or(session.session_title),
                         session.first_seen_at,
                         session.last_seen_at,
                         session.last_model,

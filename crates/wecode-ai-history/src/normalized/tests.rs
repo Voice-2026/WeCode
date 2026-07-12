@@ -24,6 +24,8 @@ mod tests {
             log_dir.join("session.jsonl"),
             r#"{"type":"user","sessionId":"s1","cwd":"/tmp/project-a","timestamp":"2026-05-17T00:00:00Z","message":{"content":"hello"}}
 {"type":"assistant","sessionId":"s1","cwd":"/tmp/project-a","timestamp":"2026-05-17T00:01:00Z","uuid":"a1","message":{"model":"claude-sonnet","usage":{"input_tokens":100,"output_tokens":50,"cache_read_input_tokens":10}}}
+{"type":"user","sessionId":"s1","cwd":"/tmp/project-a","timestamp":"2026-05-17T00:02:00Z","message":{"content":"second question"}}
+{"type":"assistant","sessionId":"s1","cwd":"/tmp/project-a","timestamp":"2026-05-17T00:03:00Z","uuid":"a2","message":{"model":"claude-sonnet","usage":{"input_tokens":20,"output_tokens":10}}}
 "#,
         )
         .unwrap();
@@ -38,10 +40,11 @@ mod tests {
             &mut |_, _| {},
         );
 
-        assert_eq!(snapshot.project_summary.project_total_tokens, 150);
+        assert_eq!(snapshot.project_summary.project_total_tokens, 180);
         assert_eq!(snapshot.project_summary.project_cached_input_tokens, 10);
         assert_eq!(snapshot.sessions.len(), 1);
-        assert_eq!(snapshot.sessions[0].request_count, 1);
+        assert_eq!(snapshot.sessions[0].request_count, 2);
+        assert_eq!(snapshot.sessions[0].session_title, "hello");
         let _ = fs::remove_dir_all(root);
     }
 

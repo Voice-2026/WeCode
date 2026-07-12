@@ -12,6 +12,8 @@ mod review;
 mod runner;
 mod stash_tags;
 
+pub(in crate::app) use branches::show_create_git_branch_dialog;
+
 pub(in crate::app) fn merge_git_review_status_files(
     review: &mut GitReviewSummary,
     git: &GitSummary,

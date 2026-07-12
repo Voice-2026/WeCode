@@ -76,6 +76,7 @@ pub(super) fn git_branch_dropdown_menu(
             labels.clone(),
             branches.clone(),
             remote_refs.clone(),
+            language.clone(),
             app_entity.clone(),
         ))
         .item(
@@ -302,6 +303,7 @@ pub(super) fn git_branch_dropdown_menu(
                     branch_labels.clone(),
                     branch_all.clone(),
                     branch_remote_refs.clone(),
+                    language.clone(),
                     branch_entity.clone(),
                 ))
                 .separator();
@@ -334,23 +336,22 @@ pub(super) fn git_branch_dropdown_menu(
             );
 
             // Create Branch… — Quick Input prefilled with a generated name.
-            let create_labels = branch_labels.clone();
             let create_entity = branch_entity.clone();
+            let create_language = language.clone();
+            let create_branches = branch_all.clone();
+            let create_remote_refs = branch_remote_refs.clone();
             let menu = menu.separator().item(
                 PopupMenuItem::new(format!("{}…", branch_labels.new_branch))
                     .icon(HeroIconName::Plus)
                     .on_click(move |_, window, cx| {
-                        let entity = create_entity.clone();
-                        show_quick_input(
-                            create_labels.new_branch.clone(),
-                            create_labels.branch_name_placeholder.clone(),
-                            generated_git_branch_name(),
-                            false,
-                            move |name, window, cx| {
-                                entity.update(cx, |app, cx| {
-                                    app.create_git_branch(name, window, cx);
-                                });
-                            },
+                        super::super::super::git_actions::show_create_git_branch_dialog(
+                            create_entity.clone(),
+                            &create_language,
+                            create_branches
+                                .iter()
+                                .map(|branch| (branch.name.clone(), branch.is_current))
+                                .collect(),
+                            create_remote_refs.clone(),
                             window,
                             cx,
                         );

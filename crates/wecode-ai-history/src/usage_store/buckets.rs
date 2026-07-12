@@ -60,9 +60,12 @@ fn build_session_links(usage_buckets: &[AIUsageBucket]) -> Vec<NormalizedSession
                     .external_session_id
                     .clone()
                     .or(bucket.external_session_id.clone());
-                session.session_title =
-                    preferred_string(Some(&session.session_title), Some(&bucket.session_title))
-                        .unwrap_or_else(|| bucket.project_name.clone());
+                session.session_title = preferred_session_title(
+                    Some(&session.session_title),
+                    Some(&bucket.session_title),
+                    &bucket.project_name,
+                )
+                .unwrap_or_else(|| bucket.project_name.clone());
                 session.first_seen_at = min_nonzero(session.first_seen_at, bucket.first_seen_at);
                 session.last_seen_at = session.last_seen_at.max(bucket.last_seen_at);
                 session.last_model = bucket.model.clone().or(session.last_model.clone());

@@ -18,6 +18,7 @@ fn restore_command_uses_interactive_session_flags() {
         project_name: None,
         project_path: None,
         last_model: None,
+        first_seen_at: 0.0,
         last_seen_at: 0.0,
         input_tokens: 0,
         output_tokens: 0,

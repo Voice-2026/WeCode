@@ -277,6 +277,27 @@ impl WeCodeApp {
         );
     }
 
+    pub(in crate::app) fn create_terminal_with_quick_agent(
+        &mut self,
+        target: &'static str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let pane_count_before = self
+            .main_terminal()
+            .map(|terminal| terminal.panes.len())
+            .unwrap_or(0);
+        self.split_terminal(window, cx);
+        let pane_count_after = self
+            .main_terminal()
+            .map(|terminal| terminal.panes.len())
+            .unwrap_or(0);
+        if pane_count_after <= pane_count_before {
+            return;
+        }
+        self.launch_quick_agent(target, window, cx);
+    }
+
     fn create_terminal_in_empty_layout(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         prepare_memory_launch_artifacts(&self.runtime_service, &self.state);
         let Some(launch_context) = self.current_terminal_launch_context() else {

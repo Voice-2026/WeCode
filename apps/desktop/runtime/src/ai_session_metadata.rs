@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, path::PathBuf, time::SystemTime};
 
 const AI_SESSION_METADATA_NAMESPACE: &str = "ai-session-metadata";
+const AI_SESSION_LIST_PREFERENCES_NAMESPACE: &str = "ai-session-list-preferences";
+const AI_SESSION_LIST_PREFERENCES_KEY: &str = "default";
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -19,6 +21,21 @@ pub struct AISessionMetadata {
 
 pub struct AISessionMetadataService {
     support_dir: PathBuf,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AISessionListPreferences {
+    #[serde(default = "default_session_sort")]
+    pub sort: String,
+}
+
+impl Default for AISessionListPreferences {
+    fn default() -> Self {
+        Self {
+            sort: default_session_sort(),
+        }
+    }
 }
 
 impl AISessionMetadataService {
@@ -54,6 +71,35 @@ impl AISessionMetadataService {
         archived: bool,
     ) -> Result<AISessionMetadata, String> {
         self.update(session_id, |metadata| metadata.archived = archived)
+    }
+
+    pub fn list_preferences(&self) -> AISessionListPreferences {
+        crate::persistent_cache::PersistentCacheStore::for_support_dir(self.support_dir.clone())
+            .and_then(|cache| {
+                cache.get_json::<AISessionListPreferences>(
+                    AI_SESSION_LIST_PREFERENCES_NAMESPACE,
+                    AI_SESSION_LIST_PREFERENCES_KEY,
+                )
+            })
+            .ok()
+            .flatten()
+            .map(sanitize_list_preferences)
+            .unwrap_or_default()
+    }
+
+    pub fn set_list_sort(&self, sort: &str) -> Result<AISessionListPreferences, String> {
+        let preferences = AISessionListPreferences {
+            sort: normalized_session_sort(sort).to_string(),
+        };
+        let cache = crate::persistent_cache::PersistentCacheStore::for_support_dir(
+            self.support_dir.clone(),
+        )?;
+        cache.put_json(
+            AI_SESSION_LIST_PREFERENCES_NAMESPACE,
+            AI_SESSION_LIST_PREFERENCES_KEY,
+            &preferences,
+        )?;
+        Ok(preferences)
     }
 
     fn update(
@@ -104,6 +150,25 @@ fn default_retention() -> String {
     "temporary".to_string()
 }
 
+fn sanitize_list_preferences(
+    mut preferences: AISessionListPreferences,
+) -> AISessionListPreferences {
+    preferences.sort = normalized_session_sort(&preferences.sort).to_string();
+    preferences
+}
+
+fn normalized_session_sort(sort: &str) -> &'static str {
+    if sort.trim() == "createdAt" {
+        "createdAt"
+    } else {
+        "updatedAt"
+    }
+}
+
+fn default_session_sort() -> String {
+    "updatedAt".to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -127,6 +192,9 @@ mod tests {
         assert!(metadata.pinned);
         assert_eq!(metadata.retention, "longTerm");
         assert!(metadata.archived);
+
+        service.set_list_sort("createdAt").unwrap();
+        assert_eq!(service.list_preferences().sort, "createdAt");
         let _ = std::fs::remove_dir_all(support_dir);
     }
 }

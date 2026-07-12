@@ -52,6 +52,16 @@ const SCHEMA_STATEMENTS: &[&str] = &[
     );
     "#,
     r#"
+    CREATE TABLE IF NOT EXISTS ai_history_session_title_override (
+        project_path TEXT NOT NULL,
+        source TEXT NOT NULL,
+        session_key TEXT NOT NULL,
+        title TEXT NOT NULL,
+        updated_at REAL NOT NULL,
+        PRIMARY KEY (project_path, source, session_key)
+    );
+    "#,
+    r#"
     CREATE TABLE IF NOT EXISTS ai_history_file_usage_bucket (
         source TEXT NOT NULL,
         file_path TEXT NOT NULL,
@@ -105,6 +115,7 @@ const SCHEMA_STATEMENTS: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS idx_ai_history_file_state_project_path ON ai_history_file_state(project_path);",
     "CREATE INDEX IF NOT EXISTS idx_ai_history_file_checkpoint_project_path ON ai_history_file_checkpoint(project_path);",
     "CREATE INDEX IF NOT EXISTS idx_ai_history_file_session_link_project_path ON ai_history_file_session_link(project_path);",
+    "CREATE INDEX IF NOT EXISTS idx_ai_history_session_title_override_project_path ON ai_history_session_title_override(project_path);",
     "CREATE INDEX IF NOT EXISTS idx_ai_history_file_usage_bucket_project_path ON ai_history_file_usage_bucket(project_path, bucket_start);",
     "CREATE INDEX IF NOT EXISTS idx_ai_history_file_usage_bucket_bucket_start ON ai_history_file_usage_bucket(bucket_start);",
     "CREATE INDEX IF NOT EXISTS idx_ai_history_file_usage_amount_project_path ON ai_history_file_usage_amount(project_path, bucket_start);",
