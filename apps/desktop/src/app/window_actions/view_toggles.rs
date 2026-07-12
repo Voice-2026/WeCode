@@ -59,7 +59,7 @@ impl WeCodeApp {
                 self.status_message = "no active review item to close".to_string();
                 self.invalidate_git_panel(cx);
             }
-            WorkspaceView::Stats => {
+            WorkspaceView::Stats | WorkspaceView::Attention => {
                 self.set_workspace_view(WorkspaceView::Terminal, window, cx);
             }
         }
@@ -86,6 +86,9 @@ impl WeCodeApp {
                 self.assistant_panel = None;
                 self.refresh_stats_workspace_data(false, cx);
             }
+            WorkspaceView::Attention => {
+                self.assistant_panel = None;
+            }
             WorkspaceView::Terminal => {
                 self.activate_first_terminal();
                 if let Err(error) = self.ensure_active_terminal_mounted(cx) {
@@ -97,18 +100,6 @@ impl WeCodeApp {
         }
         self.invalidate_workspace(cx);
         self.invalidate_status_bar(cx);
-    }
-
-    pub(in crate::app) fn show_stats_workspace_view(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if self.workspace_view == WorkspaceView::Stats {
-            self.set_workspace_view(WorkspaceView::Terminal, window, cx);
-        } else {
-            self.set_workspace_view(WorkspaceView::Stats, window, cx);
-        }
     }
 
     pub(in crate::app) fn refresh_stats_workspace_data(

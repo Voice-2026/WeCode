@@ -25,6 +25,7 @@ impl WeCodeApp {
             WorkspaceView::Files => 1,
             WorkspaceView::Review => 2,
             WorkspaceView::Stats => 3,
+            WorkspaceView::Attention => 4,
         };
         let pet_snapshot = self.pet_snapshot.clone();
         let has_project_context = self.state.selected_project.is_some();
@@ -92,6 +93,7 @@ impl WeCodeApp {
                             active_index,
                             &self.state.settings.language,
                             has_project_context,
+                            self.attention_feed.unread_count(),
                             cx,
                         )),
                 )
@@ -431,6 +433,7 @@ fn workspace_segmented_tabs(
     active_index: usize,
     language: &str,
     enabled: bool,
+    attention_unread: usize,
     cx: &mut Context<WeCodeApp>,
 ) -> impl IntoElement {
     let app_entity = cx.entity();
@@ -439,11 +442,17 @@ fn workspace_segmented_tabs(
     let files_label = translate(&locale, "titlebar.files", "Files");
     let review_label = translate(&locale, "titlebar.review", "Review");
     let stats_label = translate(&locale, "titlebar.stats", "Stats");
+    let attention_label = translate(&locale, "titlebar.attention", "Attention");
     let tabs = [
-        (HeroIconName::CommandLine, terminal_label),
-        (HeroIconName::Document, files_label),
-        (HeroIconName::ArrowPathRoundedSquare, review_label),
-        (HeroIconName::ChartBar, stats_label),
+        (HeroIconName::CommandLine, terminal_label, None),
+        (HeroIconName::Document, files_label, None),
+        (HeroIconName::ArrowPathRoundedSquare, review_label, None),
+        (HeroIconName::ChartBar, stats_label, None),
+        (
+            HeroIconName::BellAlert,
+            attention_label,
+            (attention_unread > 0).then_some(attention_unread),
+        ),
     ];
     div()
         .rounded(px(8.0))
@@ -453,47 +462,78 @@ fn workspace_segmented_tabs(
         .items_center()
         .gap(px(2.0))
         .when(!enabled, |this| this.opacity(0.45))
-        .children(tabs.into_iter().enumerate().map(|(index, (icon, label))| {
-            let active = index == active_index;
-            let click_entity = app_entity.clone();
-            div()
-                .id(SharedString::from(format!("workspace-view-tab-{index}")))
-                .flex()
-                .items_center()
-                .gap(px(6.0))
-                .h(px(24.0))
-                .px(px(12.0))
-                .rounded(px(6.0))
-                .text_size(WORKSPACE_TAB_TEXT_SIZE)
-                .line_height(WORKSPACE_TAB_LINE_HEIGHT)
-                .map(|this| {
-                    if active {
-                        this.bg(cx.theme().primary)
-                            .text_color(cx.theme().primary_foreground)
-                    } else {
-                        this.text_color(cx.theme().tab_foreground)
-                            .hover(|style| style.bg(cx.theme().secondary_hover))
-                    }
-                })
-                .when(enabled, |this| {
-                    this.cursor_pointer().on_click(move |_, window, cx| {
-                        cx.update_entity(&click_entity, |app, cx| {
-                            if index == 3 {
-                                app.show_stats_workspace_view(window, cx);
+        .children(
+            tabs.into_iter()
+                .enumerate()
+                .map(|(index, (icon, label, badge))| {
+                    let active = index == active_index;
+                    let click_entity = app_entity.clone();
+                    div()
+                        .id(SharedString::from(format!("workspace-view-tab-{index}")))
+                        .flex()
+                        .items_center()
+                        .gap(px(6.0))
+                        .h(px(24.0))
+                        .px(px(12.0))
+                        .rounded(px(6.0))
+                        .text_size(WORKSPACE_TAB_TEXT_SIZE)
+                        .line_height(WORKSPACE_TAB_LINE_HEIGHT)
+                        .map(|this| {
+                            if active {
+                                this.bg(cx.theme().primary)
+                                    .text_color(cx.theme().primary_foreground)
                             } else {
-                                let view = match index {
-                                    0 => WorkspaceView::Terminal,
-                                    1 => WorkspaceView::Files,
-                                    _ => WorkspaceView::Review,
-                                };
-                                app.set_workspace_view(view, window, cx);
+                                this.text_color(cx.theme().tab_foreground)
+                                    .hover(|style| style.bg(cx.theme().secondary_hover))
                             }
-                        });
-                    })
-                })
-                .child(Icon::new(icon).size_3p5())
-                .child(div().child(label))
-        }))
+                        })
+                        .when(enabled, |this| {
+                            this.cursor_pointer().on_click(move |_, window, cx| {
+                                cx.update_entity(&click_entity, |app, cx| {
+                                    let view = match index {
+                                        0 => WorkspaceView::Terminal,
+                                        1 => WorkspaceView::Files,
+                                        2 => WorkspaceView::Review,
+                                        3 => WorkspaceView::Stats,
+                                        _ => WorkspaceView::Attention,
+                                    };
+                                    app.set_workspace_view(view, window, cx);
+                                });
+                            })
+                        })
+                        .child(Icon::new(icon).size_3p5())
+                        .child(div().child(label))
+                        .when_some(badge, |this, badge| {
+                            this.child(
+                                div()
+                                    .min_w(px(16.0))
+                                    .h(px(16.0))
+                                    .px(px(4.0))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .rounded_full()
+                                    .bg(if active {
+                                        cx.theme().primary_foreground.opacity(0.2)
+                                    } else {
+                                        cx.theme().danger
+                                    })
+                                    .text_color(if active {
+                                        cx.theme().primary_foreground
+                                    } else {
+                                        cx.theme().danger_foreground
+                                    })
+                                    .text_size(px(9.0))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(if badge > 99 {
+                                        "99+".to_string()
+                                    } else {
+                                        badge.to_string()
+                                    }),
+                            )
+                        })
+                }),
+        )
 }
 
 fn workspace_toolbar_separator(cx: &mut Context<WeCodeApp>) -> impl IntoElement {

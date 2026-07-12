@@ -92,6 +92,10 @@ impl WeCodeApp {
                             view.update(cx, |_view, cx| cx.notify());
                         }
                     }
+                } else if self.workspace_view == WorkspaceView::Attention {
+                    if let Some(view) = &self.workspace_body_view {
+                        view.update(cx, |_view, cx| cx.notify());
+                    }
                 } else if let Some(view) = &self.workspace_body_view {
                     view.update(cx, |_view, cx| cx.notify());
                 }

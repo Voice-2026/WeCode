@@ -154,6 +154,8 @@ impl WeCodeApp {
         let pet_sprite_paths =
             pet_sprite_path_cache(&runtime.source_root, &state.support_dir, &pet_catalog);
         let ai_history_active_index_count = runtime_service.active_ai_history_index_count();
+        let mut attention_feed = AttentionFeed::default();
+        attention_feed.ingest(&[], &state.ai_runtime_state.sessions);
         let mut app = Self {
             window_mode: AppWindowMode::Main,
             root_focus_handle: None,
@@ -173,6 +175,7 @@ impl WeCodeApp {
             runtime,
             state,
             runtime_service,
+            attention_feed,
             gateway_settings,
             gateway_service,
             window_appearance: window.appearance(),

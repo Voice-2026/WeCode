@@ -135,6 +135,7 @@ pub struct WeCodeApp {
     pub(in crate::app) runtime: RuntimeInventory,
     pub(in crate::app) state: RuntimeState,
     pub(in crate::app) runtime_service: RuntimeService,
+    pub(in crate::app) attention_feed: AttentionFeed,
     pub(in crate::app) gateway_settings: GatewaySettings,
     pub(in crate::app) gateway_service: Arc<GatewayService>,
     pub(in crate::app) window_appearance: WindowAppearance,

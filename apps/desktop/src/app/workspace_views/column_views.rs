@@ -66,7 +66,12 @@ impl Render for WorkspaceBodyView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let app_entity = self.app_entity.clone();
         self.app_entity.update(cx, |app, app_cx| {
-            if app.state.selected_project.is_none() && app.workspace_view != WorkspaceView::Stats {
+            if app.state.selected_project.is_none()
+                && !matches!(
+                    app.workspace_view,
+                    WorkspaceView::Stats | WorkspaceView::Attention
+                )
+            {
                 if let Some(view) = &self.terminal_workspace_view {
                     view.update(app_cx, |view, cx| view.set_render_visible(false, cx));
                 }
@@ -296,6 +301,7 @@ pub(super) fn workspace_toolbar_fingerprint(app: &WeCodeApp) -> u64 {
             })
             .collect::<Vec<_>>(),
         workspace_pet_fingerprint(app),
+        app.attention_feed.revision(),
         workspace_view_hash(&(
             app.state.daily_level.tokens,
             app.state.daily_level.current_tier.id.clone(),
@@ -316,6 +322,7 @@ fn workspace_view_key(view: WorkspaceView) -> &'static str {
         WorkspaceView::Files => "files",
         WorkspaceView::Review => "review",
         WorkspaceView::Stats => "stats",
+        WorkspaceView::Attention => "attention",
     }
 }
 

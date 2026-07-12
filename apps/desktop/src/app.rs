@@ -109,6 +109,7 @@ mod app_lifecycle;
 mod app_render;
 mod app_select;
 mod app_state;
+mod attention_feed;
 mod db_actions;
 mod db_profile_editor;
 mod desktop_pet;
@@ -151,6 +152,7 @@ mod window_actions;
 mod window_shell;
 mod work_scheduler;
 mod workspace;
+mod workspace_attention;
 mod workspace_daily_level;
 mod workspace_files;
 mod workspace_pet_widgets;
@@ -210,6 +212,10 @@ use self::{
         resize_pet_custom_install_window, resize_pet_custom_install_window_handle,
         settings_with_active_restart_locked_values, worktree_summary_has_git_counts,
         worktree_summary_has_rows,
+    },
+    attention_feed::{
+        AttentionFeed, AttentionItem, AttentionReadState, AttentionSemantic,
+        attention_relative_time,
     },
     db_profile_editor::db_profile_editor_workspace,
     desktop_pet::*,

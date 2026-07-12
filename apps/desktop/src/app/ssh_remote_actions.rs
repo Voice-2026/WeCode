@@ -1247,12 +1247,16 @@ impl WeCodeApp {
                 && !self.state.ai_runtime_state.sessions.is_empty());
         let mut ai_activity_changed = false;
         let mut pane_lifecycle_changed = false;
+        let mut attention_feed_changed = false;
         if should_refresh_ai_state {
             let previous_project_states = self.state.ai_runtime_state.project_states.clone();
             let live_ai_snapshot = self.runtime_service.ai_runtime_state_snapshot();
             self.state.ai_runtime_state = self
                 .runtime_service
                 .summarize_ai_runtime_state_snapshot(&live_ai_snapshot);
+            attention_feed_changed = self
+                .attention_feed
+                .ingest(&drained.events, &self.state.ai_runtime_state.sessions);
             pane_lifecycle_changed = self.sync_pane_agent_lifecycle();
             self.state.refresh_ai_history_stats();
             ai_activity_changed = super::ai_runtime_status::ai_activity_project_states_changed(
@@ -1307,6 +1311,7 @@ impl WeCodeApp {
             || child_window_events > 0
             || !remote_events.is_empty()
             || ai_activity_changed
+            || attention_feed_changed
             || terminal_status_changed
             || pane_lifecycle_changed
             || remote_ai_stats_changed
@@ -1449,6 +1454,9 @@ impl WeCodeApp {
         self.state.ai_runtime_state = self
             .runtime_service
             .summarize_ai_runtime_state_snapshot(&live_ai_snapshot);
+        let attention_feed_changed = self
+            .attention_feed
+            .ingest(&drained.events, &self.state.ai_runtime_state.sessions);
         let pane_lifecycle_changed = self.sync_pane_agent_lifecycle();
         self.state.refresh_ai_history_stats();
         let ai_activity_changed = super::ai_runtime_status::ai_activity_project_states_changed(
@@ -1488,6 +1496,7 @@ impl WeCodeApp {
         }
         let memory_events = drained.memory.len() + usize::from(memory_update_event);
         let changed = ai_activity_changed
+            || attention_feed_changed
             || memory_events > 0
             || pane_lifecycle_changed
             || terminal_status_changed;

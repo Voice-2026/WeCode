@@ -109,6 +109,7 @@ impl WeCodeApp {
             runtime,
             state,
             runtime_service,
+            attention_feed: AttentionFeed::default(),
             gateway_settings,
             gateway_service,
             window_appearance: WindowAppearance::Dark,

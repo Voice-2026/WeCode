@@ -19,6 +19,7 @@
       "titlebar.stats": "Statistiken"
     },
     "en": {
+      "titlebar.attention": "Attention",
       "titlebar.agent_standby": "Agent standby",
       "titlebar.ai": "AI",
       "titlebar.ai_assistant": "AI Assistant",
@@ -145,6 +146,7 @@
       "titlebar.stats": "Статистика"
     },
     "zh-Hans": {
+      "titlebar.attention": "关注",
       "titlebar.agent_standby": "智能体待机中",
       "titlebar.ai": "AI",
       "titlebar.ai_assistant": "AI 助手",
@@ -163,6 +165,7 @@
       "titlebar.stats": "统计"
     },
     "zh-Hant": {
+      "titlebar.attention": "關注",
       "titlebar.agent_standby": "智能體待機中",
       "titlebar.ai": "AI",
       "titlebar.ai_assistant": "AI 助手",
