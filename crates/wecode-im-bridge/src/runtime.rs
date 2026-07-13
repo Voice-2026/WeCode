@@ -112,6 +112,8 @@ pub struct ReplyText {
     pub pairing_prompt: String,
     /// Sent to an allowed-but-unbound peer, e.g. "请在 WeCode 中选择会话".
     pub needs_binding: String,
+    /// Sent to a bound peer while another peer is active.
+    pub inactive: String,
     /// Sent to a rejected peer, e.g. "未授权".
     pub rejected: String,
     /// Sent after the desktop confirms a pairing, e.g. "绑定成功".
@@ -377,6 +379,10 @@ impl WeChatBridge {
                     }
                 }
             }
+            AccessDecision::Inactive => {
+                self.reply(&chat_id, &self.reply.inactive, &context_token)
+                    .await;
+            }
             AccessDecision::NeedsBinding => {
                 self.reply(&chat_id, &self.reply.needs_binding, &context_token)
                     .await;
@@ -431,6 +437,7 @@ impl WeChatBridge {
                 chat_id: chat_id.to_string(),
                 session_id: session_id.to_string(),
                 workspace_id,
+                note: None,
                 created_at: now_millis(),
             });
         }

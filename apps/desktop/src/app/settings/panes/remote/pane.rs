@@ -13,7 +13,7 @@ pub(in crate::app::settings) fn settings_remote_pane(
     language: &str,
     remote_reconnecting: bool,
     remote_pairing_creating: bool,
-    _window: &mut Window,
+    window: &mut Window,
     cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     let mut device_rows: Vec<AnyElement> = remote
@@ -257,7 +257,7 @@ pub(in crate::app::settings) fn settings_remote_pane(
                         // relay row (one card slot), and only when "custom" — so
                         // there's no empty slot drawing a stray separator.
                         let custom = (settings.remote_relay_preset == "custom").then(|| {
-                            settings_remote_relay_custom_fields(settings, _window, cx, language)
+                            settings_remote_relay_custom_fields(settings, window, cx, language)
                         });
                         let relay_row = settings_row(
                             settings_text(language, "settings.remote.relay_mode", "Relay Network"),
@@ -270,7 +270,7 @@ pub(in crate::app::settings) fn settings_remote_pane(
                                 "settings-remote-relay-preset",
                                 settings.remote_relay_preset.as_str(),
                                 remote_relay_preset_options(language),
-                                _window,
+                                window,
                                 cx,
                                 language,
                                 |app, value, window, cx| {
@@ -321,7 +321,7 @@ pub(in crate::app::settings) fn settings_remote_pane(
             )
             .into_any_element(),
             remote_mobile_download_banner(language, cx),
-            settings_remote_wechat_card(language, cx),
+            settings_remote_wechat_card(language, window, cx),
             settings_card_with_actions(
                 Some(settings_text(
                     language,

@@ -9,6 +9,7 @@
 //! desktop user must confirm it against a chosen terminal session.
 
 use std::collections::HashMap;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -43,10 +44,22 @@ pub struct WeChatBridgeSnapshot {
     pub has_credentials: bool,
     /// Number of WeChat peers bound to terminal sessions.
     pub binding_count: usize,
+    /// Bound peers with the currently active peer marked for the settings UI.
+    pub bindings: Vec<WeChatBindingSnapshot>,
     /// Number of peers authorized by the allowlist.
     pub allowlist_count: usize,
     /// A WeChat peer awaiting pairing confirmation: `(chat_id, code)`.
     pub pending_pairing: Option<(String, String)>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WeChatBindingSnapshot {
+    pub chat_id: String,
+    pub peer_label: String,
+    pub note: Option<String>,
+    pub session_id: String,
+    pub session_label: Option<String>,
+    pub active: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -127,18 +140,65 @@ fn masked_chat_id(chat_id: &str) -> String {
         .into_iter()
         .rev()
         .collect();
-    format!("{head}…{tail}")
+    let mut hasher = DefaultHasher::new();
+    chat_id.hash(&mut hasher);
+    let fingerprint = hasher.finish() & 0xffff;
+    format!("{head}…{tail} · {fingerprint:04x}")
 }
 
 /// Read the current snapshot (cheap; call from render).
 pub fn wechat_bridge_snapshot() -> WeChatBridgeSnapshot {
     let mut snapshot = status_cell().lock().clone();
     let paths = FileCredentialStore::default_paths();
-    if let Ok(text) = std::fs::read_to_string(paths.bindings_path)
-        && let Ok(state) = serde_json::from_str::<BindingState>(&text)
-    {
+    if paths.bindings_path.exists() {
+        let store = BindingStore::load(paths.bindings_path);
+        let state = store.state();
         snapshot.binding_count = state.bindings.len();
         snapshot.allowlist_count = state.allowlist.len();
+        let session_labels = terminals_cell()
+            .lock()
+            .as_ref()
+            .map(|manager| {
+                manager
+                    .list()
+                    .into_iter()
+                    .map(|session| {
+                        let label = if session.title.trim().is_empty() {
+                            session.project_name
+                        } else if session.project_name.trim().is_empty()
+                            || session.title == session.project_name
+                        {
+                            session.title
+                        } else {
+                            format!("{} · {}", session.project_name, session.title)
+                        };
+                        (session.id, label)
+                    })
+                    .collect::<HashMap<_, _>>()
+            })
+            .unwrap_or_default();
+        snapshot.bindings = state
+            .bindings
+            .values()
+            .map(|binding| WeChatBindingSnapshot {
+                chat_id: binding.chat_id.clone(),
+                peer_label: binding.chat_id.clone(),
+                note: binding.note.clone(),
+                session_id: binding.session_id.clone(),
+                session_label: session_labels.get(&binding.session_id).cloned(),
+                active: state.active_chat_id.as_deref() == Some(binding.chat_id.as_str()),
+            })
+            .collect();
+        snapshot.bindings.sort_by(|left, right| {
+            right
+                .active
+                .cmp(&left.active)
+                .then_with(|| left.peer_label.cmp(&right.peer_label))
+        });
+    } else {
+        snapshot.binding_count = 0;
+        snapshot.allowlist_count = 0;
+        snapshot.bindings.clear();
     }
     snapshot
 }
@@ -353,6 +413,7 @@ fn reply_text() -> ReplyText {
     ReplyText {
         pairing_prompt: "WeCode 配对码 / pairing code: {code}\n请在 WeCode 桌面端「远程 → 微信」中确认。 / Confirm it in WeCode desktop under Remote → WeChat.".to_string(),
         needs_binding: "该微信已授权，但还没有绑定终端会话。请在 WeCode 桌面端选择一个会话完成绑定。 / Authorized but not bound to a terminal session yet. Pick one in WeCode desktop.".to_string(),
+        inactive: "该微信已绑定但当前未启用。请在 WeCode 桌面端「远程 → 微信」中切换为活跃微信。 / This WeChat is bound but inactive. Switch to it in WeCode desktop under Remote → WeChat.".to_string(),
         rejected: "未授权访问。 / Not authorized.".to_string(),
         pairing_confirmed: "✅ 绑定成功。现在发送的消息会输入到绑定的 WeCode 终端。 / Paired. Your messages now go to the bound WeCode terminal.".to_string(),
     }
@@ -445,10 +506,9 @@ pub fn wechat_bridge_bind_existing_to_session(session_id: &str) -> bool {
         .and_then(|text| serde_json::from_str::<BindingState>(&text).ok())
         .and_then(|state| {
             state
-                .bindings
-                .keys()
-                .next()
-                .cloned()
+                .active_chat_id
+                .filter(|chat_id| state.bindings.contains_key(chat_id))
+                .or_else(|| state.bindings.keys().next().cloned())
                 .or_else(|| state.allowlist.first().cloned())
         })
     else {
@@ -475,6 +535,7 @@ pub fn wechat_bridge_bind_existing_to_session(session_id: &str) -> bool {
             chat_id: chat_id.clone(),
             session_id: session_id.clone(),
             workspace_id: None,
+            note: None,
             created_at: current_millis(),
         });
     });
@@ -487,6 +548,43 @@ pub fn wechat_bridge_bind_existing_to_session(session_id: &str) -> bool {
         ),
     );
     true
+}
+
+/// Select the only bound WeChat peer allowed to drive a terminal.
+pub fn wechat_bridge_set_active_binding(chat_id: &str) -> bool {
+    let chat_id = chat_id.trim();
+    if chat_id.is_empty() {
+        return false;
+    }
+    let bridge = ensure_bridge();
+    let changed = async_runtime::block_on(async {
+        let bindings = bridge.bindings();
+        let mut store = bindings.lock().await;
+        store.set_active(chat_id)
+    });
+    if changed {
+        output_relays_cell()
+            .lock()
+            .retain(|relay_chat_id, _| relay_chat_id == chat_id);
+        crate::runtime_trace::runtime_trace(
+            "wechat",
+            &format!("active_binding chat={}", masked_chat_id(chat_id)),
+        );
+    }
+    changed
+}
+
+pub fn wechat_bridge_set_binding_note(chat_id: &str, note: &str) -> bool {
+    let chat_id = chat_id.trim();
+    if chat_id.is_empty() {
+        return false;
+    }
+    let bridge = ensure_bridge();
+    async_runtime::block_on(async {
+        let bindings = bridge.bindings();
+        let mut store = bindings.lock().await;
+        store.set_note(chat_id, note)
+    })
 }
 
 fn current_millis() -> u64 {

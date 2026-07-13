@@ -9,11 +9,15 @@ use super::*;
 /// connection attempt is in flight.
 pub(in crate::app::settings) fn settings_remote_wechat_card(
     language: &str,
+    window: &mut Window,
     cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     let snapshot = wechat_bridge_service::wechat_bridge_snapshot();
 
     let mut children: Vec<AnyElement> = vec![wechat_status_row(&snapshot, language, cx)];
+    for binding in &snapshot.bindings {
+        children.extend(wechat_binding_rows(binding, language, window, cx));
+    }
 
     if snapshot.state == WeChatBridgeState::WaitingScan
         || snapshot.state == WeChatBridgeState::Scanned
@@ -62,6 +66,86 @@ pub(in crate::app::settings) fn settings_remote_wechat_card(
         cx,
     )
     .into_any_element()
+}
+
+fn wechat_binding_rows(
+    binding: &wechat_bridge_service::WeChatBindingSnapshot,
+    language: &str,
+    window: &mut Window,
+    cx: &mut Context<WeCodeApp>,
+) -> Vec<AnyElement> {
+    let label = settings_text(
+        language,
+        "settings.remote.wechat.binding.peer",
+        "WeChat {peer}",
+    )
+    .replace("{peer}", &binding.peer_label);
+    let description = binding
+        .session_label
+        .as_ref()
+        .map(|session_label| {
+            settings_text(
+                language,
+                "settings.remote.wechat.binding.session",
+                "Bound to {session}",
+            )
+            .replace("{session}", session_label)
+        })
+        .unwrap_or_else(|| {
+            settings_text(
+                language,
+                "settings.remote.wechat.binding.session_unavailable",
+                "Previous terminal is no longer available",
+            )
+        });
+    let active_action = if binding.active {
+        settings_status_tag(
+            settings_text(language, "settings.remote.wechat.binding.active", "Active"),
+            theme::GREEN,
+        )
+    } else {
+        let chat_id = binding.chat_id.clone();
+        settings_small_button_state(
+            format!("settings-remote-wechat-activate-{chat_id}"),
+            settings_text(language, "settings.remote.wechat.binding.switch", "Switch"),
+            false,
+            false,
+            cx,
+            move |app, _event, _window, cx| {
+                if wechat_bridge_service::wechat_bridge_set_active_binding(&chat_id) {
+                    app.invalidate_ui_region(cx, UiRegion::Root);
+                }
+            },
+        )
+    };
+
+    let chat_id = binding.chat_id.clone();
+    let note_input = settings_text_input(
+        format!("wechat-binding-note-{chat_id}"),
+        binding.note.clone().unwrap_or_default(),
+        settings_text(
+            language,
+            "settings.remote.wechat.binding.note_placeholder",
+            "Add a note",
+        ),
+        false,
+        window,
+        cx,
+        move |_app, value, _window, _cx| {
+            wechat_bridge_service::wechat_bridge_set_binding_note(&chat_id, &value);
+        },
+    );
+
+    let actions = div()
+        .w(px(232.0))
+        .flex()
+        .items_center()
+        .gap(px(8.0))
+        .child(div().w(px(160.0)).child(note_input))
+        .child(div().w(px(64.0)).flex().justify_end().child(active_action))
+        .into_any_element();
+
+    vec![settings_row(label, Some(description), actions).into_any_element()]
 }
 
 fn wechat_status_row(
@@ -298,6 +382,7 @@ impl WeCodeApp {
                     || snapshot.error != last.error
                     || snapshot.has_credentials != last.has_credentials
                     || snapshot.binding_count != last.binding_count
+                    || snapshot.bindings != last.bindings
                     || snapshot.allowlist_count != last.allowlist_count
                     || snapshot.pending_pairing != last.pending_pairing;
                 let done = matches!(
