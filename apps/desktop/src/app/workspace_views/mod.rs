@@ -55,6 +55,15 @@ impl Render for WorkspaceColumnView {
             .snapshot
             .panel
             .is_some_and(|panel| assistant_panel_available(panel, &assistant_snapshot.snapshot));
+        let assistant_width = self
+            .assistant_view
+            .read(cx)
+            .app_entity
+            .read(cx)
+            .state
+            .settings
+            .assistant_panel_width;
+        let resize_app_entity = self.assistant_view.read(cx).app_entity.clone();
 
         div()
             .flex()
@@ -80,45 +89,82 @@ impl Render for WorkspaceColumnView {
                     .min_w_0()
                     .min_h_0()
                     .overflow_hidden()
-                    .child(
-                        div()
-                            .flex()
-                            .flex_1()
-                            .flex_basis(px(0.0))
-                            .h_full()
-                            .min_w_0()
-                            .min_h_0()
-                            .overflow_hidden()
+                    .child(if show_assistant {
+                        h_resizable("workspace-body-assistant-split")
+                            .on_resize(move |state: &gpui::Entity<ResizableState>, window, cx| {
+                                let Some(width) = state.read(cx).sizes().get(1).copied() else {
+                                    return;
+                                };
+                                window.defer(cx, {
+                                    let app_entity = resize_app_entity.clone();
+                                    move |_window, cx| {
+                                        let _ = app_entity.update(cx, |app, _cx| {
+                                            let width = width.as_f32().max(0.0);
+                                            app.state.settings.assistant_panel_width = width;
+                                            if let Err(error) = app
+                                                .runtime_service
+                                                .update_app_settings(|settings| {
+                                                    settings.assistant_panel_width = width
+                                                })
+                                            {
+                                                app.status_message = format!(
+                                                    "failed to save assistant panel width: {error}"
+                                                );
+                                            }
+                                        });
+                                    }
+                                });
+                            })
                             .child(
-                                gpui::AnyView::from(self.body_view.clone()).cached(
-                                    gpui::StyleRefinement::default()
-                                        .flex()
-                                        .size_full()
-                                        .min_w(px(0.0))
-                                        .min_h(px(0.0)),
-                                ),
-                            ),
-                    )
-                    .when(show_assistant, |this| {
-                        this.child(
-                            div()
-                                .flex()
-                                .flex_none()
-                                .flex_shrink_0()
-                                .w(px(ASSISTANT_PANEL_WIDTH))
-                                .min_w(px(ASSISTANT_PANEL_WIDTH))
-                                .max_w(px(ASSISTANT_PANEL_WIDTH))
-                                .h_full()
-                                .overflow_hidden()
-                                .child(
-                                    gpui::AnyView::from(self.assistant_view.clone()).cached(
-                                        gpui::StyleRefinement::default().flex().size_full(),
-                                    ),
-                                ),
-                        )
+                                resizable_panel()
+                                    .size_range(px(0.0)..Pixels::MAX)
+                                    .child(workspace_body_panel(self.body_view.clone())),
+                            )
+                            .child(
+                                resizable_panel()
+                                    .size(px(assistant_width))
+                                    .size_range(px(0.0)..Pixels::MAX)
+                                    .child(workspace_assistant_panel(self.assistant_view.clone())),
+                            )
+                            .into_any_element()
+                    } else {
+                        workspace_body_panel(self.body_view.clone()).into_any_element()
                     }),
             )
     }
+}
+
+fn workspace_body_panel(body_view: gpui::Entity<WorkspaceBodyView>) -> gpui::Div {
+    div()
+        .flex()
+        .flex_1()
+        .flex_basis(px(0.0))
+        .size_full()
+        .min_w_0()
+        .min_h_0()
+        .overflow_hidden()
+        .child(
+            gpui::AnyView::from(body_view).cached(
+                gpui::StyleRefinement::default()
+                    .flex()
+                    .size_full()
+                    .min_w(px(0.0))
+                    .min_h(px(0.0)),
+            ),
+        )
+}
+
+fn workspace_assistant_panel(assistant_view: gpui::Entity<WorkspaceAssistantView>) -> gpui::Div {
+    div()
+        .flex()
+        .size_full()
+        .min_w_0()
+        .min_h_0()
+        .overflow_hidden()
+        .child(
+            gpui::AnyView::from(assistant_view)
+                .cached(gpui::StyleRefinement::default().flex().size_full()),
+        )
 }
 fn workspace_body_any_view<V>(view: gpui::Entity<V>) -> impl IntoElement
 where

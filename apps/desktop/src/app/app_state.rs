@@ -298,6 +298,7 @@ pub struct WeCodeApp {
     pub(in crate::app) pet_name_editing: bool,
     pub(in crate::app) pet_dex_spotlight: Option<PetDexSpotlight>,
     pub(in crate::app) selected_ai_session_id: Option<String>,
+    pub(in crate::app) context_menu_ai_session_id: Option<String>,
     pub(in crate::app) ai_session_delete_confirm_id: Option<String>,
     pub(in crate::app) selected_ai_provider_id: Option<String>,
     pub(in crate::app) ai_provider_testing_id: Option<String>,

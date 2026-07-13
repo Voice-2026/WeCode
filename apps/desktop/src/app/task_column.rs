@@ -80,6 +80,7 @@ struct TaskSessionRow {
     total_tokens: i64,
     usage_amounts: Vec<wecode_runtime::ai_history::AIUsageAmount>,
     active: bool,
+    context_selected: bool,
     pinned: bool,
     archived: bool,
 }
@@ -210,6 +211,8 @@ struct TaskColumnLabels {
     branch_name: String,
     refresh: String,
     open: String,
+    open_in_current_terminal: String,
+    open_in_new_terminal: String,
     rename: String,
     close: String,
     cancel: String,
@@ -256,6 +259,11 @@ fn task_column_labels(language: &str) -> TaskColumnLabels {
         branch_name: tr("git.branch.name", "Branch name"),
         refresh: tr("common.refresh", "Refresh"),
         open: tr("common.open", "Open"),
+        open_in_current_terminal: tr(
+            "ai.session.open.current_terminal",
+            "Replace Current Terminal",
+        ),
+        open_in_new_terminal: tr("ai.session.open.new_terminal", "Open in New Terminal"),
         rename: tr("common.rename", "Rename"),
         close: tr("common.close", "Close"),
         cancel: tr("common.cancel", "Cancel"),
@@ -304,6 +312,7 @@ fn task_session_row(
                     || session.external_session_id.as_deref() == Some(id)
             })
             .unwrap_or(false),
+        context_selected: false,
         pinned: metadata.is_some_and(|metadata| metadata.pinned),
         archived: metadata.is_some_and(|metadata| metadata.archived),
     }
@@ -329,6 +338,7 @@ fn task_branch_rows(branches: &[GitBranchSummary]) -> Vec<TaskBranchRow> {
 #[derive(Clone, PartialEq)]
 pub(in crate::app) struct TaskColumnHeaderSnapshot {
     project_name: String,
+    titlebar_leading_inset: bool,
     refreshing: bool,
     create_label: String,
     create_branch: bool,
@@ -357,6 +367,7 @@ impl Render for TaskColumnHeaderView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         task_column_header(
             self.snapshot.project_name.clone(),
+            self.snapshot.titlebar_leading_inset,
             self.snapshot.refreshing,
             self.snapshot.create_label.clone(),
             self.snapshot.create_branch,
@@ -658,6 +669,7 @@ impl WeCodeApp {
                 .as_ref()
                 .map(|project| project.name.clone())
                 .unwrap_or(labels.no_project),
+            titlebar_leading_inset: cfg!(target_os = "macos") && self.project_column_collapsed,
             refreshing: self.task_column_refreshing,
             create_label: if create_branch {
                 labels.new_branch
@@ -854,7 +866,11 @@ impl WeCodeApp {
             .sessions
             .iter()
             .map(|session| {
-                task_session_row(session, active_ai_session_id, metadata.get(&session.id))
+                let mut row =
+                    task_session_row(session, active_ai_session_id, metadata.get(&session.id));
+                row.context_selected =
+                    self.context_menu_ai_session_id.as_deref() == Some(session.id.as_str());
+                row
             })
             .filter(|session| task_session_matches_filter(session, self.task_session_filter))
             .filter(|session| task_session_matches_source(session, self.task_session_source_filter))
@@ -1219,6 +1235,7 @@ fn task_primary_tab_button(
 
 fn task_column_header(
     project_name: String,
+    titlebar_leading_inset: bool,
     refreshing: bool,
     create_label: String,
     create_branch: bool,
@@ -1234,7 +1251,12 @@ fn task_column_header(
     div()
         .h(px(52.0))
         .w_full()
-        .px(px(10.0))
+        .pl(if titlebar_leading_inset {
+            px(24.0)
+        } else {
+            px(10.0)
+        })
+        .pr(px(10.0))
         .flex_shrink_0()
         .flex()
         // No `items_center` on the outer div: the content row below stretches to
@@ -2660,6 +2682,8 @@ fn ai_session_compact_row(
         title: session.title.clone(),
     };
     let session_active = session.active;
+    let session_context_selected = session.context_selected;
+    let session_highlighted = session_active || session_context_selected;
     div()
         .id(SharedString::from(format!(
             "compact-session-{}",
@@ -2672,21 +2696,20 @@ fn ai_session_compact_row(
         .gap(px(4.0))
         .rounded(px(8.0))
         .border_1()
-        .border_color(if session_active {
-            color(theme::ACCENT)
-        } else {
-            cx.theme().transparent
-        })
+        .border_color(cx.theme().transparent)
         .px_3()
         .py(px(8.0))
         .cursor_pointer()
-        .when(session_active, |style| {
-            style.bg(theme::elevate(color(theme::BG_COLUMN), 0.11))
+        .when(session_highlighted, |style| {
+            style.bg(theme::elevate(
+                color(theme::BG_COLUMN),
+                if session_context_selected { 0.14 } else { 0.11 },
+            ))
         })
         .hover(move |style| {
             style.bg(theme::elevate(
                 color(theme::BG_COLUMN),
-                if session_active { 0.14 } else { 0.07 },
+                if session_highlighted { 0.14 } else { 0.07 },
             ))
         })
         .on_drag(drag_payload, move |drag, _, _, cx| {
@@ -2766,8 +2789,36 @@ fn ai_session_compact_row(
                 ))),
         )
         .context_menu(move |menu, _window, _cx| {
+            let context_session_id = menu_session_id.clone();
+            let context_entity = app_entity.clone();
+            _cx.update_entity(&context_entity, |app, cx| {
+                app.context_menu_ai_session_id = Some(context_session_id.clone());
+                app.invalidate_task_column(cx);
+            });
+            let dismiss_session_id = context_session_id.clone();
+            let dismiss_entity = app_entity.clone();
+            _cx.subscribe_self::<DismissEvent>(move |_, _, cx| {
+                cx.update_entity(&dismiss_entity, |app, cx| {
+                    if app.context_menu_ai_session_id.as_deref()
+                        == Some(dismiss_session_id.as_str())
+                    {
+                        app.context_menu_ai_session_id = None;
+                        app.invalidate_task_column(cx);
+                    }
+                });
+            })
+            .detach();
+
             let open_entity = app_entity.clone();
             let open_session_id = menu_session_id.clone();
+            let open_in_current_entity = app_entity.clone();
+            let open_in_current_session_id = menu_session_id.clone();
+            let open_in_current_label = labels.open_in_current_terminal.clone();
+            let open_in_new_label = labels.open_in_new_terminal.clone();
+            let can_replace_current = app_entity
+                .read(_cx)
+                .main_terminal()
+                .is_some_and(|terminal| !terminal.panes.is_empty());
             let fork_entity = app_entity.clone();
             let fork_session_id = menu_session_id.clone();
             let fork_label = labels.new_session.clone();
@@ -2791,15 +2842,38 @@ fn ai_session_compact_row(
                 labels.archive.clone()
             };
 
-            menu.item(
-                PopupMenuItem::new(labels.open.clone())
-                    .icon(HeroIconName::CommandLine)
-                    .on_click(move |_, window, cx| {
-                        cx.update_entity(&open_entity, |app, cx| {
-                            app.selected_ai_session_id = Some(open_session_id.clone());
-                            app.restore_selected_ai_session(window, cx);
-                        });
-                    }),
+            menu.submenu_with_icon(
+                Some(Icon::new(HeroIconName::CommandLine)),
+                labels.open.clone(),
+                _window,
+                _cx,
+                move |menu, _window, _cx| {
+                    let current_entity = open_in_current_entity.clone();
+                    let current_session_id = open_in_current_session_id.clone();
+                    let new_entity = open_entity.clone();
+                    let new_session_id = open_session_id.clone();
+                    menu.item(
+                        PopupMenuItem::new(open_in_current_label.clone())
+                            .icon(HeroIconName::ArrowPath)
+                            .disabled(!can_replace_current)
+                            .on_click(move |_, window, cx| {
+                                cx.update_entity(&current_entity, |app, cx| {
+                                    app.selected_ai_session_id = Some(current_session_id.clone());
+                                    app.restore_selected_ai_session_in_current_terminal(window, cx);
+                                });
+                            }),
+                    )
+                    .item(
+                        PopupMenuItem::new(open_in_new_label.clone())
+                            .icon(HeroIconName::Plus)
+                            .on_click(move |_, window, cx| {
+                                cx.update_entity(&new_entity, |app, cx| {
+                                    app.selected_ai_session_id = Some(new_session_id.clone());
+                                    app.restore_selected_ai_session(window, cx);
+                                });
+                            }),
+                    )
+                },
             )
             .submenu_with_icon(
                 Some(Icon::new(HeroIconName::Plus)),
@@ -2923,6 +2997,7 @@ mod session_filter_tests {
             total_tokens: 0,
             usage_amounts: Vec::new(),
             active: false,
+            context_selected: false,
             pinned,
             archived,
         }

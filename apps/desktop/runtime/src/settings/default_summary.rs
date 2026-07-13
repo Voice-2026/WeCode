@@ -7,6 +7,8 @@ impl Default for SettingsSummary {
             icon_style: "default".to_string(),
             window_style: "transparent".to_string(),
             window_opacity: "80".to_string(),
+            task_column_width: 240.0,
+            assistant_panel_width: 320.0,
             shows_dock_badge: true,
             terminal_font_family: String::new(),
             terminal_font_size: "14".to_string(),

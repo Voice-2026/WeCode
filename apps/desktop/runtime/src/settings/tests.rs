@@ -14,6 +14,31 @@ mod tests {
     }
 
     #[test]
+    fn panel_widths_round_trip_without_artificial_limits() {
+        let support_dir = temp_dir("settings-panel-widths");
+        let settings_path = support_dir.join("settings.json");
+        fs::write(
+            &settings_path,
+            serde_json::to_string_pretty(&serde_json::json!({
+                "taskColumnWidth": 12.5,
+                "assistantPanelWidth": 2048.0
+            }))
+            .expect("settings json"),
+        )
+        .expect("settings");
+
+        let app_settings = AppSettingsStore::from_settings_file(settings_path).snapshot();
+        assert_eq!(app_settings.task_column_width, 12.5);
+        assert_eq!(app_settings.assistant_panel_width, 2048.0);
+
+        let summary = SettingsService::new(support_dir.clone()).summary();
+        assert_eq!(summary.task_column_width, 12.5);
+        assert_eq!(summary.assistant_panel_width, 2048.0);
+
+        fs::remove_dir_all(support_dir).ok();
+    }
+
+    #[test]
     fn defaults_codex_effort_to_none() {
         let support_dir = temp_dir("settings-default-codex-effort");
         let tool_permissions =

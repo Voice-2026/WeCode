@@ -55,6 +55,10 @@ pub struct AppSettings {
     pub window_style: String,
     #[serde(default = "default_window_opacity")]
     pub window_opacity: String,
+    #[serde(default = "default_task_column_width")]
+    pub task_column_width: f32,
+    #[serde(default = "default_assistant_panel_width")]
+    pub assistant_panel_width: f32,
     #[serde(default)]
     pub notification_channels: HashMap<String, NotificationChannelSettings>,
     #[serde(default)]

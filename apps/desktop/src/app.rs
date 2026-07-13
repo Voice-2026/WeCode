@@ -5,13 +5,13 @@ use crate::{
 };
 use anyhow::Result;
 use gpui::{
-    AnyElement, AnyWindowHandle, App, AppContext, Bounds, ClipboardItem, Context, ElementId,
-    FocusHandle, FontWeight, ImageSource, InteractiveElement, IntoElement, KeyDownEvent, Length,
-    MouseButton, ObjectFit, ParentElement, PathBuilder, Pixels, Render, ScrollHandle, SharedString,
-    StatefulInteractiveElement, Styled, StyledImage, Subscription, UniformListScrollHandle, Window,
-    WindowAppearance, WindowBackgroundAppearance, WindowBounds, WindowControlArea, WindowKind,
-    WindowOptions, canvas, div, img, linear_color_stop, linear_gradient, point,
-    prelude::FluentBuilder as _, px, relative, rems, size,
+    AnyElement, AnyWindowHandle, App, AppContext, Bounds, ClipboardItem, Context, DismissEvent,
+    ElementId, FocusHandle, FontWeight, ImageSource, InteractiveElement, IntoElement, KeyDownEvent,
+    Length, MouseButton, ObjectFit, ParentElement, PathBuilder, Pixels, Render, ScrollHandle,
+    SharedString, StatefulInteractiveElement, Styled, StyledImage, Subscription,
+    UniformListScrollHandle, Window, WindowAppearance, WindowBackgroundAppearance, WindowBounds,
+    WindowControlArea, WindowKind, WindowOptions, canvas, div, img, linear_color_stop,
+    linear_gradient, point, prelude::FluentBuilder as _, px, relative, rems, size,
 };
 use gpui_component::{
     ActiveTheme, Disableable, ElementExt, Icon, Root, Sizable, Size, VirtualListScrollHandle,
@@ -171,12 +171,8 @@ pub(crate) const MAIN_WINDOW_DEFAULT_WIDTH: f32 = 1280.0;
 pub(crate) const MAIN_WINDOW_DEFAULT_HEIGHT: f32 = 820.0;
 pub(crate) const MAIN_WINDOW_MIN_WIDTH: f32 = 1240.0;
 pub(crate) const MAIN_WINDOW_MIN_HEIGHT: f32 = 640.0;
-pub(crate) const PROJECT_COLUMN_COLLAPSED_WIDTH: f32 = 80.0;
+pub(crate) const PROJECT_COLUMN_COLLAPSED_WIDTH: f32 = 60.0;
 pub(crate) const PROJECT_COLUMN_EXPANDED_WIDTH: f32 = 232.0;
-pub(crate) const TASK_COLUMN_FIXED_WIDTH: f32 = 240.0;
-pub(crate) const TASK_COLUMN_MIN_WIDTH: f32 = 200.0;
-pub(crate) const TASK_COLUMN_MAX_WIDTH: f32 = 420.0;
-pub(crate) const ASSISTANT_PANEL_WIDTH: f32 = 320.0;
 
 use self::{
     ai_history_mapping::{

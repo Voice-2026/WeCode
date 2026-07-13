@@ -1210,6 +1210,27 @@ impl WeCodeApp {
         self.restore_ai_session_in_main_split_internal(title, command, None, cx);
     }
 
+    pub(in crate::app) fn restore_ai_session_in_current_terminal(
+        &mut self,
+        title: String,
+        command: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let success_message = self.text(
+            "ai.session.open.current_success",
+            "Opened session in the current terminal.",
+        );
+        self.launch_command_in_current_terminal_internal(
+            title,
+            command,
+            None,
+            success_message,
+            window,
+            cx,
+        );
+    }
+
     fn restore_ai_session_in_main_split_internal(
         &mut self,
         title: String,
@@ -1244,6 +1265,44 @@ impl WeCodeApp {
             return true;
         };
         self.launch_command_in_main_split_internal(title, command, env, Some(window), cx);
+        true
+    }
+
+    pub(in crate::app) fn restore_ai_session_with_gateway_in_current_terminal(
+        &mut self,
+        session: &AISessionSummary,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if !session.source.to_lowercase().contains("claude") || !self.gateway_settings.enabled {
+            return false;
+        }
+        let resume_id = session
+            .external_session_id
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or(&session.session_key);
+        let model = gateway_resume_claude_model(
+            session.last_model.as_deref(),
+            &self.state.tool_permissions.kiro_model,
+        );
+        let Some((title, command, env)) = self.kiro_gateway_claude_launch(&model, Some(resume_id))
+        else {
+            self.invalidate_terminal_workspace(cx);
+            return true;
+        };
+        let success_message = self.text(
+            "ai.session.open.current_success",
+            "Opened session in the current terminal.",
+        );
+        self.launch_command_in_current_terminal_internal(
+            title,
+            command,
+            env,
+            success_message,
+            window,
+            cx,
+        );
         true
     }
 
@@ -1393,6 +1452,7 @@ impl WeCodeApp {
         title: String,
         command: String,
         env: Option<HashMap<String, String>>,
+        success_message: String,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -1468,10 +1528,7 @@ impl WeCodeApp {
         } else if let Err(error) = send_result {
             format!("AI tool switched; launch command failed: {error}")
         } else {
-            self.text(
-                "terminal.agent.switched_current",
-                "Switched AI tool in current terminal.",
-            )
+            success_message
         };
         self.invalidate_terminal_workspace(cx);
     }
@@ -1524,7 +1581,18 @@ impl WeCodeApp {
             self.invalidate_terminal_workspace(cx);
             return;
         };
-        self.launch_command_in_current_terminal_internal(title, command, env, window, cx);
+        let success_message = self.text(
+            "terminal.agent.switched_current",
+            "Switched AI tool in current terminal.",
+        );
+        self.launch_command_in_current_terminal_internal(
+            title,
+            command,
+            env,
+            success_message,
+            window,
+            cx,
+        );
     }
 
     fn kiro_gateway_quick_launch(

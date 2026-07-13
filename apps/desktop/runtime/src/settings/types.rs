@@ -7,6 +7,8 @@ pub struct SettingsSummary {
     pub icon_style: String,
     pub window_style: String,
     pub window_opacity: String,
+    pub task_column_width: f32,
+    pub assistant_panel_width: f32,
     pub shows_dock_badge: bool,
     pub terminal_font_family: String,
     pub terminal_font_size: String,

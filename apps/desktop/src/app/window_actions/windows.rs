@@ -259,6 +259,7 @@ impl WeCodeApp {
             pet_name_editing: false,
             pet_dex_spotlight: None,
             selected_ai_session_id: None,
+            context_menu_ai_session_id: None,
             ai_session_delete_confirm_id: None,
             selected_ai_provider_id,
             ai_provider_testing_id: None,

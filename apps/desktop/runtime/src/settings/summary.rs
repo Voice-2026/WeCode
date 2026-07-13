@@ -32,6 +32,16 @@ fn summary_from_raw(raw: &Map<String, Value>) -> SettingsSummary {
             .and_then(Value::as_str)
             .map(|value| sanitize_opacity_percent(value, 80))
             .unwrap_or(defaults.window_opacity),
+        task_column_width: panel_width_value(
+            raw,
+            "taskColumnWidth",
+            defaults.task_column_width,
+        ),
+        assistant_panel_width: panel_width_value(
+            raw,
+            "assistantPanelWidth",
+            defaults.assistant_panel_width,
+        ),
         shows_dock_badge: raw
             .get("showsDockBadge")
             .and_then(Value::as_bool)
@@ -465,5 +475,13 @@ fn string_value(raw: &Map<String, Value>, key: &str, fallback: String) -> String
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
+        .unwrap_or(fallback)
+}
+
+fn panel_width_value(raw: &Map<String, Value>, key: &str, fallback: f32) -> f32 {
+    raw.get(key)
+        .and_then(Value::as_f64)
+        .map(|value| value as f32)
+        .filter(|value| value.is_finite() && *value >= 0.0)
         .unwrap_or(fallback)
 }

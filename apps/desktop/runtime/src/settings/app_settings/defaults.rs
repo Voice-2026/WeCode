@@ -166,6 +166,14 @@ pub(super) fn default_window_opacity() -> String {
     "80".to_string()
 }
 
+pub(super) fn default_task_column_width() -> f32 {
+    240.0
+}
+
+pub(super) fn default_assistant_panel_width() -> f32 {
+    320.0
+}
+
 pub(super) fn default_developer_refresh() -> String {
     "3".to_string()
 }

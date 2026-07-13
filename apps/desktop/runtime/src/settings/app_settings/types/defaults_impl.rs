@@ -148,6 +148,8 @@ impl Default for AppSettings {
             icon_style: default_icon_style(),
             window_style: default_window_style(),
             window_opacity: default_window_opacity(),
+            task_column_width: default_task_column_width(),
+            assistant_panel_width: default_assistant_panel_width(),
             notification_channels: HashMap::new(),
             shortcuts: HashMap::new(),
             update: UpdateSettings::default(),

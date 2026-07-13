@@ -305,7 +305,7 @@ impl Render for WeCodeApp {
         } else {
             PROJECT_COLUMN_EXPANDED_WIDTH
         });
-        let task_column_width = px(TASK_COLUMN_FIXED_WIDTH);
+        let task_column_width = px(self.state.settings.task_column_width);
 
         self.ensure_pet_level_up_ticker(cx);
         let pet_level_up_overlay = self
@@ -429,16 +429,39 @@ fn main_workspace_split(
     cx: &mut Context<WeCodeApp>,
 ) -> AnyElement {
     if let Some(task_column_view) = task_column_view {
+        let app_entity = cx.entity();
         h_resizable("main-task-workspace-split")
+            .on_resize(move |state: &gpui::Entity<ResizableState>, window, cx| {
+                let Some(width) = state.read(cx).sizes().first().copied() else {
+                    return;
+                };
+                window.defer(cx, {
+                    let app_entity = app_entity.clone();
+                    move |_window, cx| {
+                        let _ = app_entity.update(cx, |app, _cx| {
+                            let width = width.as_f32().max(0.0);
+                            app.state.settings.task_column_width = width;
+                            if let Err(error) =
+                                app.runtime_service.update_app_settings(|settings| {
+                                    settings.task_column_width = width;
+                                })
+                            {
+                                app.status_message =
+                                    format!("failed to save task column width: {error}");
+                            }
+                        });
+                    }
+                });
+            })
             .child(
                 resizable_panel()
                     .size(task_column_width)
-                    .size_range(px(TASK_COLUMN_MIN_WIDTH)..px(TASK_COLUMN_MAX_WIDTH))
-                    .child(task_column_panel(task_column_view, cx)),
+                    .size_range(px(0.0)..Pixels::MAX)
+                    .child(task_column_panel(task_column_view)),
             )
             .child(
                 resizable_panel()
-                    .size_range(px(520.0)..Pixels::MAX)
+                    .size_range(px(0.0)..Pixels::MAX)
                     .child(workspace_column_panel(workspace_column_view)),
             )
             .into_any_element()
@@ -447,25 +470,17 @@ fn main_workspace_split(
     }
 }
 
-fn task_column_panel(
-    task_column_view: gpui::Entity<TaskColumnView>,
-    cx: &mut Context<WeCodeApp>,
-) -> gpui::Div {
-    div()
-        .size_full()
-        .overflow_hidden()
-        .border_r_1()
-        .border_color(cx.theme().border)
-        .child(
-            gpui::AnyView::from(task_column_view).cached(
-                gpui::StyleRefinement::default()
-                    .flex()
-                    .flex_none()
-                    .h_full()
-                    .min_w(px(TASK_COLUMN_MIN_WIDTH))
-                    .w_full(),
-            ),
-        )
+fn task_column_panel(task_column_view: gpui::Entity<TaskColumnView>) -> gpui::Div {
+    div().size_full().overflow_hidden().child(
+        gpui::AnyView::from(task_column_view).cached(
+            gpui::StyleRefinement::default()
+                .flex()
+                .flex_none()
+                .h_full()
+                .min_w(px(0.0))
+                .w_full(),
+        ),
+    )
 }
 
 fn workspace_column_panel(workspace_column_view: gpui::Entity<WorkspaceColumnView>) -> gpui::Div {

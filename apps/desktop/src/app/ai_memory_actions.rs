@@ -567,6 +567,30 @@ impl WeCodeApp {
         self.restore_ai_session_in_main_split(session.title.clone(), command, window, cx);
     }
 
+    pub(super) fn restore_selected_ai_session_in_current_terminal(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.state.selected_project.is_none() {
+            self.status_message = "no selected project for AI session restore".to_string();
+            self.invalidate_memory_panel(cx);
+            return;
+        }
+        let Some(session) = self.selected_ai_session().cloned() else {
+            self.status_message = "no AI session to restore".to_string();
+            self.invalidate_memory_panel(cx);
+            return;
+        };
+        prepare_memory_launch_artifacts(&self.runtime_service, &self.state);
+        self.state.tool_permissions = self.runtime_service.sync_tool_permissions();
+        if self.restore_ai_session_with_gateway_in_current_terminal(&session, window, cx) {
+            return;
+        }
+        let command = ai_session_restore_command(&session);
+        self.restore_ai_session_in_current_terminal(session.title.clone(), command, window, cx);
+    }
+
     pub(super) fn fork_ai_session_to_tool(
         &mut self,
         session_id: String,

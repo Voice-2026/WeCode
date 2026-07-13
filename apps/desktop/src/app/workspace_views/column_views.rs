@@ -184,7 +184,7 @@ impl Render for WorkspaceBodyView {
     }
 }
 pub(in crate::app) struct WorkspaceAssistantView {
-    app_entity: gpui::Entity<WeCodeApp>,
+    pub(super) app_entity: gpui::Entity<WeCodeApp>,
     pub(super) snapshot: WorkspaceAssistantSnapshot,
 }
 
@@ -220,15 +220,10 @@ impl Render for WorkspaceAssistantView {
             this.when(assistant_panel_available(panel, &snapshot), |this| {
                 this.flex()
                     .flex_col()
-                    .flex_none()
-                    .flex_shrink_0()
-                    .w(px(ASSISTANT_PANEL_WIDTH))
-                    .min_w(px(ASSISTANT_PANEL_WIDTH))
-                    .max_w(px(ASSISTANT_PANEL_WIDTH))
-                    .h_full()
+                    .size_full()
+                    .min_w_0()
+                    .min_h_0()
                     .bg(theme::vibrancy_panel(color(theme::BG_COLUMN)))
-                    .border_l_1()
-                    .border_color(cx.theme().sidebar_border)
                     .child(match panel {
                         AssistantPanel::AIStats => self.app_entity.update(cx, |app, cx| {
                             gpui::AnyView::from(app.ai_stats_sidebar_view(cx)).into_any_element()

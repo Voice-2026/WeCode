@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [2.0.0-rc.6] - 2026-07-13
+
+### Added
+
+- Added a dedicated Agent attention tab that groups active and completed Agent activity.
+- Added Kiro App credential discovery and management for multiple bound WeChat accounts, including aliases, active-state display, and account switching.
+- Added a session-open target choice for replacing the current terminal or creating a new terminal, with persistent card selection feedback for context-menu actions.
+
+### Changed
+
+- Unified the product name as WeCode across project metadata, interface copy, and related branding.
+- Optimized terminal rendering, snapshots, and partial refreshes to reduce UI and terminal input latency.
+- Refined terminal creation, switching, and closing flows, with a compact card-style creation entry in the sidebar.
+- Made both content sidebars freely resizable, narrowed the navigation rail, and unified the macOS title-bar background and separators.
+
+### Fixed
+
+- Fixed the default terminal remaining undeletable even when multiple terminals existed.
+- Fixed an inactive terminal-layout action, missing hover hints, and incorrect placement of the new-terminal entry.
+
 ## [2.0.0-rc.5] - 2026-07-07
 
 ### Added

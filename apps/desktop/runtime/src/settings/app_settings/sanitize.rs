@@ -50,6 +50,12 @@ pub(super) fn sanitize_settings(mut settings: AppSettings) -> AppSettings {
     if settings.window_opacity.trim().is_empty() {
         settings.window_opacity = default_window_opacity();
     }
+    if !settings.task_column_width.is_finite() || settings.task_column_width < 0.0 {
+        settings.task_column_width = default_task_column_width();
+    }
+    if !settings.assistant_panel_width.is_finite() || settings.assistant_panel_width < 0.0 {
+        settings.assistant_panel_width = default_assistant_panel_width();
+    }
     let remote_relay_url = settings.remote.relay_url.trim().to_string();
     settings.remote.relay_preset =
         sanitize_remote_relay_preset(&settings.remote.relay_preset, &remote_relay_url);

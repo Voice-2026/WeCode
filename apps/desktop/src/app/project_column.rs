@@ -164,6 +164,7 @@ impl Render for ProjectColumnView {
             "sidebar.footer.add_project",
             "Add Project",
         );
+        let macos_collapsed = collapsed && cfg!(target_os = "macos");
 
         div()
             .flex()
@@ -174,10 +175,12 @@ impl Render for ProjectColumnView {
                 PROJECT_COLUMN_EXPANDED_WIDTH
             }))
             .h_full()
-            .bg(theme::vibrancy(cx.theme().sidebar))
-            .border_r_1()
-            .border_color(cx.theme().sidebar_border)
-            .child(project_column_header(collapsed))
+            .when(!macos_collapsed, |this| {
+                this.bg(theme::vibrancy(cx.theme().sidebar))
+                    .border_r_1()
+                    .border_color(cx.theme().sidebar_border)
+            })
+            .child(project_column_header(collapsed, cx))
             .child(
                 div()
                     .id("project-list-scroll")
@@ -190,6 +193,11 @@ impl Render for ProjectColumnView {
                     .pb(if collapsed { px(10.0) } else { px(10.0) })
                     .relative()
                     .overflow_hidden()
+                    .when(macos_collapsed, |this| {
+                        this.bg(theme::vibrancy(cx.theme().sidebar))
+                            .border_r_1()
+                            .border_color(cx.theme().sidebar_border)
+                    })
                     .child(wecode_uniform_list(
                         "project-list",
                         project_items,
@@ -250,20 +258,31 @@ impl Render for ProjectColumnView {
                         },
                     )),
             )
-            .child(project_tools_snapshot(
-                collapsed,
-                self.language.as_str(),
-                self.has_project,
-                self.has_projects,
-                self.has_worktree,
-                self.app_entity.clone(),
-                window,
-                cx,
-            ))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .flex_none()
+                    .when(macos_collapsed, |this| {
+                        this.bg(theme::vibrancy(cx.theme().sidebar))
+                            .border_r_1()
+                            .border_color(cx.theme().sidebar_border)
+                    })
+                    .child(project_tools_snapshot(
+                        collapsed,
+                        self.language.as_str(),
+                        self.has_project,
+                        self.has_projects,
+                        self.has_worktree,
+                        self.app_entity.clone(),
+                        window,
+                        cx,
+                    )),
+            )
     }
 }
 
-fn project_column_header(collapsed: bool) -> impl IntoElement {
+fn project_column_header(collapsed: bool, cx: &App) -> impl IntoElement {
     if collapsed {
         titlebar_drag_area(
             "project-column-titlebar-drag-collapsed",
@@ -272,6 +291,9 @@ fn project_column_header(collapsed: bool) -> impl IntoElement {
                 .flex()
                 .items_center()
                 .justify_center()
+                .bg(theme::vibrancy(cx.theme().title_bar))
+                .border_b_1()
+                .border_color(cx.theme().border)
                 .when(!cfg!(target_os = "macos"), |this| {
                     this.child(
                         div()
