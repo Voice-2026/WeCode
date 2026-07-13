@@ -223,6 +223,7 @@ impl WeCodeApp {
         if self.window_mode == AppWindowMode::Main {
             self.apply_terminal_text_settings(cx);
             self.sync_desktop_pet_window(false, cx);
+            self.invalidate_project_shell(cx);
         }
         self.status_message = "settings updated".to_string();
         true

@@ -105,6 +105,10 @@ fn default_terminal_font_family() -> &'static str {
 const DEFAULT_TERMINAL_LINE_HEIGHT_MULTIPLIER: f32 = 1.45;
 const TERMINAL_SCROLL_FRAME_INTERVAL: Duration = Duration::from_millis(16);
 const TERMINAL_OUTPUT_FRAME_INTERVAL: Duration = Duration::from_millis(16);
+// Terminal snapshots rebuild the visible grid. Coalesce output arriving within
+// one display interval so a fast producer cannot enqueue more snapshots than
+// the renderer can present; 30fps remains responsive for terminal streaming.
+const TERMINAL_SNAPSHOT_FRAME_INTERVAL: Duration = Duration::from_millis(33);
 // Cap on how many output bytes are fed to the VT engine in a single flush.
 // A session restore (the AI CLI replaying its whole transcript) can deliver
 // hundreds of KB at once; processing it all in one synchronous call froze the
@@ -113,6 +117,7 @@ const TERMINAL_OUTPUT_FRAME_INTERVAL: Duration = Duration::from_millis(16);
 const TERMINAL_OUTPUT_MAX_BYTES_PER_FLUSH: usize = 256 * 1024;
 const TERMINAL_INITIAL_LAYOUT_WAIT: Duration = Duration::from_millis(120);
 const TERMINAL_SNAPSHOT_PUBLISH_SLOW: Duration = Duration::from_millis(24);
+const TERMINAL_SNAPSHOT_SLOW_LOG_INTERVAL: Duration = Duration::from_secs(1);
 // A model counts as "being painted" when its element prepaint synced within
 // this window; output-driven snapshot publishes are skipped outside of it.
 const TERMINAL_PAINT_RECENCY: Duration = Duration::from_millis(250);

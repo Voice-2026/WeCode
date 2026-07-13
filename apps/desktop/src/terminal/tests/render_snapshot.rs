@@ -90,6 +90,20 @@ fn updates_render_snapshot_after_output() {
     assert_eq!(snapshot.columns, 10);
     assert_eq!(snapshot.screen_lines, 4);
 }
+
+#[test]
+fn snapshot_publish_delay_caps_fast_republishes() {
+    let now = Instant::now();
+    let delay = terminal_snapshot_publish_delay(Some(now)).expect("recent publish is delayed");
+    assert!(delay > Duration::ZERO);
+    assert!(delay <= TERMINAL_SNAPSHOT_FRAME_INTERVAL);
+
+    assert!(terminal_snapshot_publish_delay(None).is_none());
+    assert!(
+        terminal_snapshot_publish_delay(Some(now - TERMINAL_SNAPSHOT_FRAME_INTERVAL)).is_none()
+    );
+}
+
 #[test]
 fn first_real_output_appends_to_restored_bootstrap() {
     let mut state = TerminalModel::new_for_test_with_restored_output(

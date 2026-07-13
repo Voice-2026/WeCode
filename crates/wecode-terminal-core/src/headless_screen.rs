@@ -1333,7 +1333,7 @@ impl TerminalScreenWorker {
         let cursor_visible =
             content.mode.contains(TermMode::SHOW_CURSOR) && cursor_shape != CursorShape::Hidden;
 
-        let mut cells = Vec::new();
+        let mut cells = Vec::with_capacity(rows.saturating_mul(cols) / 4);
         let mut wrapped_rows = vec![false; rows];
         for indexed in content.display_iter {
             let row = indexed.point.line.0 + display_offset as i32;
@@ -1361,17 +1361,6 @@ impl TerminalScreenWorker {
             {
                 continue;
             }
-            let mut text = String::new();
-            if cell.c != '\0' && !cell.c.is_control() {
-                text.push(cell.c);
-            }
-            if let Some(zerowidth) = cell.zerowidth() {
-                for ch in zerowidth {
-                    if !ch.is_control() {
-                        text.push(*ch);
-                    }
-                }
-            }
             let fg = terminal_screen_color(cell.fg);
             let bg = terminal_screen_color(cell.bg);
             // Skip blank, default-styled cells so the consumer's own theme
@@ -1381,12 +1370,13 @@ impl TerminalScreenWorker {
             // snapshot and into selection/URL reconstruction. Middle spaces are
             // rebuilt from cell-column gaps by consumers; styled/colored spaces
             // (non-default bg or visuals) are kept.
-            if text.trim().is_empty()
+            if cell_text_is_blank(cell)
                 && bg == TerminalScreenColor::Default
-                && !cell_has_visuals(cell)
+                && !cell_has_visuals(cell, &fg)
             {
                 continue;
             }
+            let text = terminal_screen_cell_text(cell);
             cells.push(TerminalScreenCellSnapshot {
                 row,
                 col,
@@ -1565,7 +1555,27 @@ fn terminal_input_mode(term: &Term<HeadlessEventProxy>) -> TerminalInputMode {
 
 /// Whether a blank cell still carries visible styling, so it must be retained
 /// in the snapshot even with no glyph and a default background.
-fn cell_has_visuals(cell: &Cell) -> bool {
+fn cell_text_is_blank(cell: &Cell) -> bool {
+    (cell.c == '\0' || cell.c.is_control() || cell.c.is_whitespace())
+        && cell.zerowidth().is_none_or(|characters| {
+            characters
+                .iter()
+                .all(|character| character.is_control() || character.is_whitespace())
+        })
+}
+
+fn terminal_screen_cell_text(cell: &Cell) -> String {
+    let mut text = String::new();
+    if cell.c != '\0' && !cell.c.is_control() {
+        text.push(cell.c);
+    }
+    if let Some(zerowidth) = cell.zerowidth() {
+        text.extend(zerowidth.iter().copied().filter(|ch| !ch.is_control()));
+    }
+    text
+}
+
+fn cell_has_visuals(cell: &Cell, foreground: &TerminalScreenColor) -> bool {
     cell.flags.intersects(
         Flags::BOLD
             | Flags::ITALIC
@@ -1574,7 +1584,7 @@ fn cell_has_visuals(cell: &Cell) -> bool {
             | Flags::HIDDEN
             | Flags::STRIKEOUT
             | Flags::ALL_UNDERLINES,
-    ) || terminal_screen_color(cell.fg) != TerminalScreenColor::Default
+    ) || *foreground != TerminalScreenColor::Default
 }
 
 /// Map an alacritty cell color to the engine-neutral snapshot color. Named ANSI
@@ -2321,6 +2331,19 @@ mod tests {
 
         assert_eq!(cell.fg, TerminalScreenColor::Default);
         assert_eq!(cell.bg, TerminalScreenColor::Default);
+    }
+
+    #[test]
+    fn blank_default_cells_are_omitted_but_styled_spaces_survive() {
+        let screen = HeadlessTerminalScreen::new(20, 4, 100);
+        assert!(screen.snapshot().cells.is_empty());
+
+        let mut screen = HeadlessTerminalScreen::new(20, 4, 100);
+        screen.process(b"\x1b[48;5;4m \x1b[0m");
+        let snapshot = screen.snapshot();
+        assert!(snapshot.cells.iter().any(|cell| {
+            cell.text == " " && cell.bg == TerminalScreenColor::Indexed { index: 4 }
+        }));
     }
 
     #[test]

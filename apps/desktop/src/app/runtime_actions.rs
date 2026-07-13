@@ -144,7 +144,6 @@ impl WeCodeApp {
                         }
                         if result.changed {
                             app.invalidate_for_runtime_activity(&result, cx);
-                            cx.refresh_windows();
                         }
                     })
                     .is_err()

@@ -1223,12 +1223,16 @@ impl WeCodeApp {
         if remote_terminal_layout_events > 0 {
             self.reconcile_remote_terminal_layout(cx);
         }
+        if !remote_events.is_empty() {
+            self.invalidate_remote_panel(cx);
+        }
         let scheduled_refresh = self.pending_runtime_refresh.take();
         let has_scheduled_refresh = scheduled_refresh.is_some();
         if let Some(refresh) = scheduled_refresh {
             self.state.runtime_activity = refresh.runtime_activity;
             self.state.remote = refresh.remote;
             self.normalize_selected_remote_device();
+            self.invalidate_remote_panel(cx);
         }
         let drained = self
             .runtime_service
@@ -1281,6 +1285,16 @@ impl WeCodeApp {
             self.refresh_global_today_ai_tokens();
         }
         let remote_ai_stats_changed = self.apply_pushed_remote_ai_stats();
+        if remote_ai_stats_changed {
+            self.invalidate_ui(
+                cx,
+                [
+                    UiRegion::WorkspaceAssistant,
+                    UiRegion::AIStatsSidebar,
+                    UiRegion::StatusBar,
+                ],
+            );
+        }
         let memory_event = current_memory_update_event();
         let memory_update_event = memory_event.revision > self.memory_seen_revision;
         if memory_update_event {
@@ -1351,9 +1365,10 @@ impl WeCodeApp {
             ai_history_events: applied_ai_history_events,
             pet_events: applied_pet_events,
             pet_update_events: applied_pet_update_events + usize::from(applied_runtime_pet_update),
-            ai_runtime_events: drained.events.len(),
+            ai_runtime_events: drained.events.len()
+                + usize::from(attention_feed_changed && drained.events.is_empty()),
             ai_activity_changed,
-            memory_events: drained.memory.len(),
+            memory_events: drained.memory.len() + usize::from(memory_update_event),
             dock_badge_count,
             changed,
             ai_state_error: None,
@@ -1513,7 +1528,8 @@ impl WeCodeApp {
         }
 
         RuntimeActivityTickResult {
-            ai_runtime_events: drained.events.len(),
+            ai_runtime_events: drained.events.len()
+                + usize::from(attention_feed_changed && drained.events.is_empty()),
             ai_activity_changed,
             memory_events,
             changed,

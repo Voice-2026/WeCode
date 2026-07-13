@@ -23,8 +23,12 @@ default-members = ["apps/desktop"]
 resolver = "2"
 
 [profile.dev]
+opt-level = 1               # keep local builds responsive on terminal/render hot paths
 debug = "line-tables-only"   # keep file:line for panics/backtraces, drop heavy var debuginfo
 split-debuginfo = "unpacked"  # debuginfo stays in .o files → faster linking, smaller binary
+
+[profile.dev.package."*"]
+opt-level = 2               # optimize GPUI, terminal parser, and other dependencies in dev builds
 
 [patch.crates-io]
 async-process = { git = "https://github.com/zed-industries/async-process.git", rev = "0b6d6713570af61806e1e5cb40e0f757cb93fd9d" }

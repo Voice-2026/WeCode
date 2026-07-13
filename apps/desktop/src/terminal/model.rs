@@ -7,6 +7,8 @@ struct TerminalModel {
     output_flush_pending: bool,
     snapshot_dirty: bool,
     snapshot_publish_pending: bool,
+    snapshot_publish_timer_pending: bool,
+    last_snapshot_publish_at: Option<Instant>,
     sync_output_depth: usize,
     sync_output_pending_notify: bool,
     sync_output_scan_tail: Vec<u8>,
@@ -178,6 +180,8 @@ impl TerminalModel {
             // paint publishes the real screen.
             snapshot_dirty: true,
             snapshot_publish_pending: false,
+            snapshot_publish_timer_pending: false,
+            last_snapshot_publish_at: None,
             sync_output_depth: 0,
             sync_output_pending_notify: false,
             sync_output_scan_tail: Vec::new(),
@@ -654,8 +658,24 @@ impl TerminalModel {
     }
 
     fn schedule_snapshot_publish(&mut self, cx: &mut Context<Self>) {
-        if !self.snapshot_dirty || self.snapshot_publish_pending || self.snapshot_publish_deferred()
+        if !self.snapshot_dirty
+            || self.snapshot_publish_pending
+            || self.snapshot_publish_timer_pending
+            || self.snapshot_publish_deferred()
         {
+            return;
+        }
+        if let Some(delay) = terminal_snapshot_publish_delay(self.last_snapshot_publish_at) {
+            self.snapshot_publish_timer_pending = true;
+            let timer = cx.background_executor().clone();
+            cx.spawn(async move |this: WeakEntity<Self>, cx| {
+                timer.timer(delay).await;
+                let _ = this.update(cx, |model, cx| {
+                    model.snapshot_publish_timer_pending = false;
+                    model.schedule_snapshot_publish(cx);
+                });
+            })
+            .detach();
             return;
         }
         let request = self.handle.snapshot_request();
@@ -668,6 +688,7 @@ impl TerminalModel {
                 .ok();
             let _ = this.update(cx, |model, cx| {
                 model.snapshot_publish_pending = false;
+                model.last_snapshot_publish_at = Some(Instant::now());
                 let mut content_changed = false;
                 if let Some(snapshot) = snapshot {
                     let elapsed = started_at.elapsed();
@@ -1073,6 +1094,8 @@ impl TerminalModel {
             output_flush_pending: false,
             snapshot_dirty: false,
             snapshot_publish_pending: false,
+            snapshot_publish_timer_pending: false,
+            last_snapshot_publish_at: None,
             sync_output_depth: 0,
             sync_output_pending_notify: false,
             sync_output_scan_tail: Vec::new(),
@@ -1239,13 +1262,29 @@ fn trace_snapshot_publish_result(
     cells: usize,
     dirty_queued: bool,
 ) {
-    if elapsed < TERMINAL_SNAPSHOT_PUBLISH_SLOW && !terminal_trace_enabled() {
+    let trace_all = terminal_trace_enabled();
+    if elapsed < TERMINAL_SNAPSHOT_PUBLISH_SLOW && !trace_all {
         return;
     }
+    let suppressed = if trace_all {
+        0
+    } else {
+        let now = Instant::now();
+        let mut state = TERMINAL_SNAPSHOT_SLOW_TRACE.lock();
+        if state
+            .last_reported_at
+            .is_some_and(|last| now.duration_since(last) < TERMINAL_SNAPSHOT_SLOW_LOG_INTERVAL)
+        {
+            state.suppressed = state.suppressed.saturating_add(1);
+            return;
+        }
+        state.last_reported_at = Some(now);
+        std::mem::take(&mut state.suppressed)
+    };
     wecode_runtime::runtime_trace::runtime_trace(
         "terminal-render",
         &format!(
-            "{label} elapsed_ms={} cols={} rows={} cells={} dirty_queued={}",
+            "{label} elapsed_ms={} cols={} rows={} cells={} dirty_queued={} suppressed={suppressed}",
             elapsed.as_millis(),
             cols,
             rows,
@@ -1253,6 +1292,21 @@ fn trace_snapshot_publish_result(
             dirty_queued
         ),
     );
+}
+
+#[derive(Default)]
+struct TerminalSnapshotSlowTraceState {
+    last_reported_at: Option<Instant>,
+    suppressed: u64,
+}
+
+static TERMINAL_SNAPSHOT_SLOW_TRACE: LazyLock<Mutex<TerminalSnapshotSlowTraceState>> =
+    LazyLock::new(|| Mutex::new(TerminalSnapshotSlowTraceState::default()));
+
+fn terminal_snapshot_publish_delay(last_publish_at: Option<Instant>) -> Option<Duration> {
+    let elapsed = last_publish_at?.elapsed();
+    (elapsed < TERMINAL_SNAPSHOT_FRAME_INTERVAL)
+        .then(|| TERMINAL_SNAPSHOT_FRAME_INTERVAL.saturating_sub(elapsed))
 }
 
 fn selected_text_from_content(content: &TerminalContent, range: SelectionRange) -> String {
