@@ -782,6 +782,11 @@
       "settings.remote.wechat.stop": "Disconnect",
       "settings.remote.wechat.title": "WeChat",
       "settings.remote.wechat.waiting_scan": "Waiting for scan…",
+      "settings.gateway.credential_source.kiro_app": "Kiro App",
+      "settings.gateway.kiro_app.credentials": "Kiro App Credentials",
+      "settings.gateway.kiro_app.credentials.description": "Automatically uses the account signed in to Kiro App. WeCode never modifies Kiro's credential file; sign in to Kiro App first if it is not detected.",
+      "settings.gateway.kiro_app.detected": "Detected",
+      "settings.gateway.kiro_app.not_found": "Not Found",
       "settings.tab.gateway": "Gateway"
     },
     "es": {
@@ -3476,6 +3481,11 @@
       "settings.remote.wechat.stop": "断开",
       "settings.remote.wechat.title": "微信",
       "settings.remote.wechat.waiting_scan": "等待扫码…",
+      "settings.gateway.credential_source.kiro_app": "Kiro App",
+      "settings.gateway.kiro_app.credentials": "Kiro App 凭证",
+      "settings.gateway.kiro_app.credentials.description": "自动使用已登录 Kiro App 的账号。WeCode 不会修改 Kiro 的凭证文件；如果未检测到，请先登录 Kiro App。",
+      "settings.gateway.kiro_app.detected": "已检测到",
+      "settings.gateway.kiro_app.not_found": "未检测到",
       "settings.tab.gateway": "网关"
     },
     "zh-Hant": {
@@ -3877,7 +3887,12 @@
       "settings.remote.wechat.scanned": "已掃碼，請在手機上確認…",
       "settings.remote.wechat.stop": "斷開",
       "settings.remote.wechat.title": "微信",
-      "settings.remote.wechat.waiting_scan": "等待掃碼…"
+      "settings.remote.wechat.waiting_scan": "等待掃碼…",
+      "settings.gateway.credential_source.kiro_app": "Kiro App",
+      "settings.gateway.kiro_app.credentials": "Kiro App 憑證",
+      "settings.gateway.kiro_app.credentials.description": "自動使用已登入 Kiro App 的帳號。WeCode 不會修改 Kiro 的憑證檔案；如果未偵測到，請先登入 Kiro App。",
+      "settings.gateway.kiro_app.detected": "已偵測到",
+      "settings.gateway.kiro_app.not_found": "未偵測到"
     }
   }
 }

@@ -1,10 +1,23 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 
 use super::Credentials;
 use crate::error::GatewayError;
+
+/// Resolve the Kiro App login file. An explicit path is supported for tests and
+/// managed installations; normal desktop users use the standard AWS SSO cache.
+pub fn resolve_kiro_app_path(path: Option<PathBuf>) -> PathBuf {
+    path.map(|path| expand(&path)).unwrap_or_else(|| {
+        home_dir()
+            .unwrap_or_default()
+            .join(".aws")
+            .join("sso")
+            .join("cache")
+            .join("kiro-auth-token.json")
+    })
+}
 
 /// Load credentials from a Kiro IDE style JSON file.
 pub fn load(path: &Path, creds: &mut Credentials) -> Result<(), GatewayError> {
@@ -182,6 +195,18 @@ pub fn expand(path: &Path) -> std::path::PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn explicit_kiro_app_path_is_expanded() {
+        let resolved = resolve_kiro_app_path(Some(PathBuf::from("~/custom-kiro-token.json")));
+        assert_eq!(resolved, home_dir().unwrap().join("custom-kiro-token.json"));
+    }
+
+    #[test]
+    fn default_kiro_app_path_uses_aws_sso_cache() {
+        let path = resolve_kiro_app_path(None);
+        assert!(path.ends_with(".aws/sso/cache/kiro-auth-token.json"));
+    }
 
     #[test]
     fn profile_arn_region_overrides_sso_region_for_runtime_api() {

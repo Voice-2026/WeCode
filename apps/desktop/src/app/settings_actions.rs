@@ -439,6 +439,12 @@ impl WeCodeApp {
     pub(super) fn set_gateway_credential_source(&mut self, source: String, cx: &mut Context<Self>) {
         let current = self.gateway_settings.config.credentials.clone();
         let next = match source.as_str() {
+            "kiro-app" => CredentialSource::KiroApp {
+                path: match current {
+                    CredentialSource::KiroApp { path } => path,
+                    _ => None,
+                },
+            },
             "file" => CredentialSource::File {
                 path: match current {
                     CredentialSource::File { path } => path,

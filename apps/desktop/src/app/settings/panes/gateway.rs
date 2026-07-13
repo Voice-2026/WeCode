@@ -2,6 +2,7 @@ use super::widgets::*;
 use super::*;
 use wecode_runtime::gateway_service::{
     CredentialSource, GatewayRuntimeStatus, GatewayService, GatewaySettings,
+    kiro_app_credentials_path,
 };
 
 pub(super) fn settings_gateway_pane(
@@ -228,6 +229,36 @@ fn credential_rows(
     ];
 
     match &settings.config.credentials {
+        CredentialSource::KiroApp { path } => {
+            let credentials_path = kiro_app_credentials_path(path.clone());
+            let (status, color) = if credentials_path.is_file() {
+                (
+                    settings_text(language, "settings.gateway.kiro_app.detected", "Detected"),
+                    theme::GREEN,
+                )
+            } else {
+                (
+                    settings_text(language, "settings.gateway.kiro_app.not_found", "Not Found"),
+                    theme::RED,
+                )
+            };
+            rows.push(
+                settings_row(
+                    settings_text(
+                        language,
+                        "settings.gateway.kiro_app.credentials",
+                        "Kiro App Credentials",
+                    ),
+                    Some(settings_text(
+                        language,
+                        "settings.gateway.kiro_app.credentials.description",
+                        "Automatically uses the account signed in to Kiro App. WeCode never modifies Kiro's credential file; sign in to Kiro App first if it is not detected.",
+                    )),
+                    settings_status_tag(status, color),
+                )
+                .into_any_element(),
+            );
+        }
         CredentialSource::KiroCli { path, readonly } => {
             rows.push(
                 settings_row(
@@ -355,6 +386,7 @@ fn credential_rows(
 
 fn credential_source_value(source: &CredentialSource) -> &'static str {
     match source {
+        CredentialSource::KiroApp { .. } => "kiro-app",
         CredentialSource::KiroCli { .. } => "kiro-cli",
         CredentialSource::File { .. } => "file",
         CredentialSource::RefreshToken { .. } => "refresh-token",
@@ -363,6 +395,14 @@ fn credential_source_value(source: &CredentialSource) -> &'static str {
 
 fn credential_source_options(language: &str) -> Vec<(String, SharedString)> {
     vec![
+        (
+            "kiro-app".to_string(),
+            SharedString::from(settings_text(
+                language,
+                "settings.gateway.credential_source.kiro_app",
+                "Kiro App",
+            )),
+        ),
         (
             "kiro-cli".to_string(),
             SharedString::from(settings_text(

@@ -2,6 +2,7 @@ mod file;
 mod refresh;
 mod sqlite;
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
@@ -10,6 +11,10 @@ use tokio::sync::Mutex;
 use crate::config::{CredentialSource, GatewayConfig};
 use crate::error::GatewayError;
 use crate::util::machine_fingerprint;
+
+pub fn kiro_app_credentials_path(path: Option<PathBuf>) -> PathBuf {
+    file::resolve_kiro_app_path(path)
+}
 
 /// Which refresh flow a set of credentials uses.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -98,6 +103,12 @@ impl KiroAuth {
                     tracing::warn!("failed to load credentials file: {e}");
                 }
             }
+            CredentialSource::KiroApp { path } => {
+                let token_path = file::resolve_kiro_app_path(path.clone());
+                if let Err(e) = file::load(&token_path, &mut creds) {
+                    tracing::warn!("failed to load Kiro App credentials: {e}");
+                }
+            }
             CredentialSource::KiroCli { path, .. } => {
                 let db_path = sqlite::resolve_db_path(path.clone());
                 if let Err(e) = sqlite::load(&db_path, &mut creds) {
@@ -181,15 +192,12 @@ impl KiroAuth {
             }
         }
 
-        // kiro-cli SQLite: reload first, it may have rotated the token out of band.
-        if let CredentialSource::KiroCli { path, .. } = &self.source {
-            if self.is_expiring_soon(&creds) {
-                let db_path = sqlite::resolve_db_path(path.clone());
-                let _ = sqlite::load(&db_path, &mut creds);
-                if let Some(token) = &creds.access_token {
-                    if !self.is_expiring_soon(&creds) {
-                        return Ok(token.clone());
-                    }
+        // Kiro may rotate credentials out of band. Reload external stores before
+        // refreshing so App-only and CLI-only users follow the latest login.
+        if self.is_expiring_soon(&creds) && self.reload_external_credentials(&mut creds) {
+            if let Some(token) = &creds.access_token {
+                if !self.is_expiring_soon(&creds) {
+                    return Ok(token.clone());
                 }
             }
         }
@@ -197,8 +205,12 @@ impl KiroAuth {
         match self.refresh_locked(&mut creds).await {
             Ok(()) => {}
             Err(e) => {
-                // Graceful degradation for SQLite: fall back to a still-valid access token.
-                if matches!(self.source, CredentialSource::KiroCli { .. }) {
+                // External stores can still contain a usable access token even
+                // when their refresh endpoint is temporarily unavailable.
+                if matches!(
+                    self.source,
+                    CredentialSource::KiroApp { .. } | CredentialSource::KiroCli { .. }
+                ) {
                     if let Some(token) = &creds.access_token {
                         if !self.is_expired(&creds) {
                             tracing::warn!(
@@ -221,6 +233,9 @@ impl KiroAuth {
     /// Force a refresh (used on HTTP 403).
     pub async fn force_refresh(&self) -> Result<String, GatewayError> {
         let mut creds = self.creds.lock().await;
+        if matches!(self.source, CredentialSource::KiroApp { .. }) {
+            self.reload_external_credentials(&mut creds);
+        }
         self.refresh_locked(&mut creds).await?;
         creds
             .access_token
@@ -257,7 +272,33 @@ impl KiroAuth {
                     tracing::warn!("failed to write kiro-cli sqlite credentials: {e}");
                 }
             }
+            CredentialSource::KiroApp { .. } => {}
             CredentialSource::RefreshToken { .. } => {}
+        }
+    }
+
+    fn reload_external_credentials(&self, creds: &mut Credentials) -> bool {
+        let mut latest = Credentials::default();
+        let loaded = match &self.source {
+            CredentialSource::KiroApp { path } => {
+                let token_path = file::resolve_kiro_app_path(path.clone());
+                file::load(&token_path, &mut latest)
+            }
+            CredentialSource::KiroCli { path, .. } => {
+                let db_path = sqlite::resolve_db_path(path.clone());
+                sqlite::load(&db_path, &mut latest)
+            }
+            _ => return false,
+        };
+        match loaded {
+            Ok(()) => {
+                *creds = latest;
+                true
+            }
+            Err(error) => {
+                tracing::warn!("failed to reload external credentials: {error}");
+                false
+            }
         }
     }
 
@@ -270,5 +311,54 @@ impl KiroAuth {
     }
     pub(crate) fn source(&self) -> &CredentialSource {
         &self.source
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn kiro_app_source_loads_an_explicit_token_file() {
+        let path = std::env::temp_dir().join(format!(
+            "wecode-kiro-app-{}-{}.json",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::write(
+            &path,
+            r#"{
+                "accessToken": "kiro-app-access-token",
+                "refreshToken": "kiro-app-refresh-token",
+                "profileArn": "arn:aws:codewhisperer:us-east-1:123456789012:profile/test",
+                "region": "us-east-1",
+                "expiresAt": "2099-01-01T00:00:00Z"
+            }"#,
+        )
+        .unwrap();
+
+        let auth = KiroAuth::new(
+            CredentialSource::KiroApp {
+                path: Some(path.clone()),
+            },
+            "us-east-1".into(),
+            None,
+            300,
+            reqwest::Client::new(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            auth.get_access_token().await.unwrap(),
+            "kiro-app-access-token"
+        );
+        assert_eq!(
+            auth.profile_arn().await.as_deref(),
+            Some("arn:aws:codewhisperer:us-east-1:123456789012:profile/test")
+        );
+        let _ = std::fs::remove_file(path);
     }
 }

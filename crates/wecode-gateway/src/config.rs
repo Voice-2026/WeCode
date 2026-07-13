@@ -69,6 +69,14 @@ fn default_provider_only() -> bool {
 pub enum CredentialSource {
     /// JSON credentials file (Kiro IDE style: refreshToken/accessToken/profileArn/...).
     File { path: PathBuf },
+    /// Kiro App credentials discovered from the platform's default login store.
+    ///
+    /// This source is intentionally read-only: WeCode may refresh credentials in
+    /// memory, but it never writes refreshed tokens back into Kiro's files.
+    KiroApp {
+        #[serde(default)]
+        path: Option<PathBuf>,
+    },
     /// kiro-cli SQLite database (auth_kv table).
     KiroCli {
         path: Option<PathBuf>,
@@ -304,5 +312,12 @@ mod tests {
     fn missing_provider_only_field_deserializes_to_enabled() {
         let config: GatewayConfig = serde_json::from_value(serde_json::json!({})).unwrap();
         assert!(config.provider_only);
+    }
+
+    #[test]
+    fn kiro_app_credentials_deserialize_without_a_custom_path() {
+        let source: CredentialSource =
+            serde_json::from_value(serde_json::json!({ "source": "kiro-app" })).unwrap();
+        assert!(matches!(source, CredentialSource::KiroApp { path: None }));
     }
 }

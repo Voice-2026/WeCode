@@ -1,7 +1,7 @@
 use chrono::{Duration, Utc};
 use serde_json::{json, Value};
 
-use super::sqlite;
+use super::{file, sqlite};
 use super::{Credentials, KiroAuth};
 use crate::config::{aws_sso_oidc_url, kiro_refresh_url, CredentialSource};
 use crate::error::GatewayError;
@@ -68,10 +68,20 @@ pub async fn refresh_aws_sso_oidc(
     match do_oidc_refresh(auth, creds).await {
         Ok(()) => Ok(()),
         Err(GatewayError::Upstream { status: 400, .. }) => {
-            if let CredentialSource::KiroCli { path, .. } = auth.source() {
-                tracing::warn!("OIDC refresh 400, reloading credentials from sqlite and retrying");
-                let db_path = sqlite::resolve_db_path(path.clone());
-                let _ = sqlite::load(&db_path, creds);
+            let reloaded = match auth.source() {
+                CredentialSource::KiroCli { path, .. } => {
+                    tracing::warn!("OIDC refresh 400, reloading Kiro CLI credentials and retrying");
+                    let db_path = sqlite::resolve_db_path(path.clone());
+                    sqlite::load(&db_path, creds).is_ok()
+                }
+                CredentialSource::KiroApp { path } => {
+                    tracing::warn!("OIDC refresh 400, reloading Kiro App credentials and retrying");
+                    let token_path = file::resolve_kiro_app_path(path.clone());
+                    file::load(&token_path, creds).is_ok()
+                }
+                _ => false,
+            };
+            if reloaded {
                 do_oidc_refresh(auth, creds).await
             } else {
                 Err(GatewayError::Upstream {

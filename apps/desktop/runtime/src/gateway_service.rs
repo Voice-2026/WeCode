@@ -30,6 +30,7 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 pub use wecode_gateway::GatewayConfig;
+pub use wecode_gateway::auth::kiro_app_credentials_path;
 pub use wecode_gateway::config::CredentialSource;
 
 use crate::async_runtime;
