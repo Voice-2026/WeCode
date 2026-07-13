@@ -83,6 +83,28 @@ for (const key of ["windows-x86_64", "windows-x86_64-nsis"]) {
   assert(manifest.platforms[key].url.endsWith(".exe"), `${key} should use NSIS exe`);
 }
 
+const unsignedArtifactsDir = path.join(tempDir, "unsigned-artifacts");
+writeAssetTo(unsignedArtifactsDir, "macos/wecode-1.5.0-macos-aarch64-updater.app.tar.gz", "mac-arm");
+writeAssetTo(unsignedArtifactsDir, "macos/wecode-1.5.0-macos-aarch64.dmg", "dmg-arm");
+
+const unsignedResult = runDryRun(unsignedArtifactsDir, "false");
+assertEqual(unsignedResult.status, 0);
+assert(
+  unsignedResult.stdout.includes("Prepared 2 public assets without updater metadata"),
+  `unexpected unsigned dry-run output: ${unsignedResult.stdout}`,
+);
+assert(
+  !fs.existsSync(path.join(unsignedArtifactsDir, "latest.json")),
+  "unsigned releases must not create updater metadata",
+);
+
+const requiredSignatureResult = runDryRun(unsignedArtifactsDir, "true");
+assert(requiredSignatureResult.status !== 0, "signed release mode must reject unsigned updater assets");
+assert(
+  requiredSignatureResult.stderr.includes("No signed updater assets found"),
+  `unexpected required-signature error: ${requiredSignatureResult.stderr}`,
+);
+
 fs.rmSync(tempDir, { recursive: true, force: true });
 console.log("release manifest test passed");
 
@@ -95,9 +117,30 @@ function releaseScriptUsesStableBetaReleaseFlag() {
 }
 
 function writeAsset(relativePath, content) {
-  const assetPath = path.join(artifactsDir, relativePath);
+  writeAssetTo(artifactsDir, relativePath, content);
+}
+
+function writeAssetTo(baseDir, relativePath, content) {
+  const assetPath = path.join(baseDir, relativePath);
   fs.mkdirSync(path.dirname(assetPath), { recursive: true });
   fs.writeFileSync(assetPath, content, "utf8");
+}
+
+function runDryRun(releaseArtifactsDir, requireSignature) {
+  return spawnSync("node", ["apps/desktop/scripts/release/publish-github-release.mjs", "--dry-run"], {
+    cwd: root,
+    stdio: "pipe",
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      RELEASE_VERSION: "1.5.0",
+      RELEASE_CHANNEL: "stable",
+      RELEASE_TAG: "v1.5.0",
+      RELEASE_ARTIFACTS_DIR: releaseArtifactsDir,
+      RELEASE_NOTES_PATH: notesPath,
+      RELEASE_REQUIRE_TAURI_SIGNATURE: requireSignature,
+    },
+  });
 }
 
 function assert(condition, message) {

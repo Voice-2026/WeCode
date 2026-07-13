@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [2.0.0-rc.8] - 2026-07-13
+
+### Fixed
+
+- Allowed unsigned test releases to publish installers without generating updater metadata, while preserving strict signature checks for signed releases.
+
 ## [2.0.0-rc.7] - 2026-07-13
 
 ### Fixed

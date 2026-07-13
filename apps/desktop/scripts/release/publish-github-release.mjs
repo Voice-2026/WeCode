@@ -25,6 +25,7 @@ const uploadLatest = process.env.RELEASE_UPLOAD_LATEST !== "false";
 const publishManifest = process.env.RELEASE_PUBLISH_MANIFEST !== "false";
 const uploadSigAssets = process.env.RELEASE_UPLOAD_SIG_ASSETS === "true";
 const mergeExistingLatest = process.env.RELEASE_MERGE_EXISTING_LATEST === "true";
+const requireTauriUpdaterSignature = isTauriUpdaterSignatureRequired();
 
 const assets = collectAssets(artifactsDir);
 if (!assets.length) {
@@ -32,19 +33,30 @@ if (!assets.length) {
 }
 const uploadAssets = assets.filter((asset) => shouldUploadPublicAsset(asset) || (uploadSigAssets && asset.name.endsWith(".sig")));
 
-const latestJson = mergeExistingLatest ? mergeWithExistingLatest(buildLatestJson(assets)) : buildLatestJson(assets);
 const latestPath = path.join(artifactsDir, "latest.json");
-fs.writeFileSync(latestPath, `${JSON.stringify(latestJson, null, 2)}\n`, "utf8");
+const hasUpdaterSignatures = assets.some((asset) => asset.name.endsWith(".sig"));
+let hasUpdateMetadata = false;
+
+if (hasUpdaterSignatures) {
+  const nextLatestJson = buildLatestJson(assets);
+  const latestJson = mergeExistingLatest ? mergeWithExistingLatest(nextLatestJson) : nextLatestJson;
+  fs.writeFileSync(latestPath, `${JSON.stringify(latestJson, null, 2)}\n`, "utf8");
+  hasUpdateMetadata = true;
+} else if (requireTauriUpdaterSignature) {
+  throw new Error("No signed updater assets found. Check Tauri updater signatures.");
+} else {
+  console.warn("No signed updater assets found; publishing installers without updater metadata.");
+}
 
 if (!dryRun) {
   upsertRelease();
   for (const asset of uploadAssets) {
     run("gh", ["release", "upload", tagName, "--repo", repo, "--clobber", `${asset.path}#${asset.name}`]);
   }
-  if (uploadLatest) {
+  if (uploadLatest && hasUpdateMetadata) {
     run("gh", ["release", "upload", tagName, "--repo", repo, "--clobber", `${latestPath}#latest.json`]);
   }
-  if (publishManifest) {
+  if (publishManifest && hasUpdateMetadata) {
     publishChannelManifest(latestPath);
   }
 }
@@ -83,8 +95,15 @@ function mergeWithExistingLatest(next) {
 }
 
 console.log(
-  `${dryRun ? "Prepared" : "Published"} ${uploadAssets.length} public assets and update metadata to ${repo}@${tagName} (${channel})`,
+  `${dryRun ? "Prepared" : "Published"} ${uploadAssets.length} public assets${hasUpdateMetadata ? " and update metadata" : " without updater metadata"} to ${repo}@${tagName} (${channel})`,
 );
+
+function isTauriUpdaterSignatureRequired() {
+  const configured = process.env.RELEASE_REQUIRE_TAURI_SIGNATURE?.trim().toLowerCase();
+  if (configured === "true") return true;
+  if (configured === "false") return false;
+  return Boolean(process.env.GITHUB_ACTIONS);
+}
 
 function requiredEnv(name) {
   const value = process.env[name]?.trim();

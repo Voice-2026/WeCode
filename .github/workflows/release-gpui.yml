@@ -268,6 +268,7 @@ jobs:
       RELEASE_TAG: ${{ needs.metadata.outputs.source_ref }}
       RELEASE_NOTES_PATH: dist/release-notes.md
       RELEASE_ARTIFACTS_DIR: release-artifacts
+      RELEASE_REQUIRE_TAURI_SIGNATURE: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' && 'true' || 'false' }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
