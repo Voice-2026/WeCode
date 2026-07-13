@@ -197,6 +197,7 @@ jobs:
       RELEASE_STAGE_DIR: release-artifacts
       RELEASE_ARTIFACT_SUFFIX: ${{ matrix.artifact_suffix || '' }}
       MACOS_ADHOC_SIGN: ${{ startsWith(matrix.id, 'macos-') && 'true' || '' }}
+      RELEASE_REQUIRE_TAURI_SIGNATURE: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' && 'true' || 'false' }}
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 

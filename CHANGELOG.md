@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [2.0.0-rc.7] - 2026-07-13
+
+### Fixed
+
+- Allowed GitHub release packaging to continue without Tauri updater signatures when the repository has no signing key configured, while still enforcing signatures whenever a key is present.
+
 ## [2.0.0-rc.6] - 2026-07-13
 
 ### Added

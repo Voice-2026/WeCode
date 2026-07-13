@@ -382,7 +382,7 @@ function withTempDir(prefix, callback) {
 function signTauriUpdaterArtifact(filePath) {
   const privateKey = process.env.TAURI_PRIVATE_KEY?.trim() || process.env.TAURI_SIGNING_PRIVATE_KEY?.trim();
   if (!privateKey) {
-    if (isReleaseBuild()) {
+    if (isTauriUpdaterSignatureRequired()) {
       throw new Error(`Tauri updater signature key is required for ${path.basename(filePath)}`);
     }
     console.warn(`skipping Tauri updater signature for ${path.basename(filePath)}: signing key is not configured`);
@@ -401,8 +401,11 @@ function signTauriUpdaterArtifact(filePath) {
   });
 }
 
-function isReleaseBuild() {
-  return Boolean(process.env.GITHUB_ACTIONS || process.env.RELEASE_REQUIRE_TAURI_SIGNATURE === "true");
+function isTauriUpdaterSignatureRequired() {
+  const configured = process.env.RELEASE_REQUIRE_TAURI_SIGNATURE?.trim().toLowerCase();
+  if (configured === "true") return true;
+  if (configured === "false") return false;
+  return Boolean(process.env.GITHUB_ACTIONS);
 }
 
 function windowsNsisScript(packageDir, installerPath) {
@@ -607,4 +610,8 @@ export function __testStageRuntimeAssets(destination) {
 
 export function __testPackageWindows() {
   packageWindows();
+}
+
+export function __testIsTauriUpdaterSignatureRequired() {
+  return isTauriUpdaterSignatureRequired();
 }

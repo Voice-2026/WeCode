@@ -9,7 +9,33 @@ import path from "node:path";
 process.env.WECODE_PACKAGE_GPUI_TEST_MODE = "true";
 process.env.RELEASE_STAGE_DIR = "target/release-package-test";
 
-const { __testPackageWindows, __testStageRuntimeAssets, __testWindowsNsisScript } = await import("./package-gpui.mjs");
+const {
+  __testIsTauriUpdaterSignatureRequired,
+  __testPackageWindows,
+  __testStageRuntimeAssets,
+  __testWindowsNsisScript,
+} = await import("./package-gpui.mjs");
+
+const oldGithubActions = process.env.GITHUB_ACTIONS;
+const oldSignatureRequirement = process.env.RELEASE_REQUIRE_TAURI_SIGNATURE;
+try {
+  delete process.env.GITHUB_ACTIONS;
+  delete process.env.RELEASE_REQUIRE_TAURI_SIGNATURE;
+  assert.equal(__testIsTauriUpdaterSignatureRequired(), false);
+
+  process.env.GITHUB_ACTIONS = "true";
+  assert.equal(__testIsTauriUpdaterSignatureRequired(), true);
+
+  process.env.RELEASE_REQUIRE_TAURI_SIGNATURE = "false";
+  assert.equal(__testIsTauriUpdaterSignatureRequired(), false);
+
+  delete process.env.GITHUB_ACTIONS;
+  process.env.RELEASE_REQUIRE_TAURI_SIGNATURE = "true";
+  assert.equal(__testIsTauriUpdaterSignatureRequired(), true);
+} finally {
+  restoreEnvironmentVariable("GITHUB_ACTIONS", oldGithubActions);
+  restoreEnvironmentVariable("RELEASE_REQUIRE_TAURI_SIGNATURE", oldSignatureRequirement);
+}
 
 const script = __testWindowsNsisScript(
   path.join("C:", "tmp", "WeCode"),
@@ -110,5 +136,13 @@ function assertNoSymlinks(root) {
     if (entry.isDirectory()) {
       assertNoSymlinks(entryPath);
     }
+  }
+}
+
+function restoreEnvironmentVariable(name, value) {
+  if (value === undefined) {
+    delete process.env[name];
+  } else {
+    process.env[name] = value;
   }
 }
