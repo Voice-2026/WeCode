@@ -155,11 +155,6 @@ function buildDownloadGuide() {
       usageZh: `Intel Mac 测试版本`,
     },
     {
-      name: `wecode-${version}-windows-x86_64-setup.exe`,
-      usageEn: `Windows 64-bit installer`,
-      usageZh: `Windows 64 位安装包`,
-    },
-    {
       name: `wecode-agent-${version}-macos-aarch64`,
       usageEn: `Apple Silicon Mac headless agent`,
       usageZh: `Apple Silicon Mac 主机端`,
@@ -178,11 +173,6 @@ function buildDownloadGuide() {
       name: `wecode-agent-${version}-linux-aarch64`,
       usageEn: `Linux ARM64 headless agent`,
       usageZh: `Linux ARM64 主机端`,
-    },
-    {
-      name: `wecode-agent-${version}-windows-x86_64.exe`,
-      usageEn: `Windows 64-bit headless agent`,
-      usageZh: `Windows 64 位主机端`,
     },
   ];
   return [

@@ -85,9 +85,6 @@ jobs:
             os: macos-26
             target: x86_64-apple-darwin
             artifact_suffix: -debug
-          - id: windows-x86_64
-            os: windows-latest
-            target: x86_64-pc-windows-msvc
 
     runs-on: ${{ matrix.os }}
     env:
@@ -131,26 +128,14 @@ jobs:
 
       - name: Build
         shell: bash
-        run: |
-          if [[ "${RUNNER_OS}" == "Windows" ]]; then
-            pwsh -NoProfile -ExecutionPolicy Bypass -File tools/build-windows.ps1 -Target "${CARGO_BUILD_TARGET}"
-          else
-            cargo build --release --target "${CARGO_BUILD_TARGET}"
-          fi
+        run: cargo build --release --target "${CARGO_BUILD_TARGET}"
 
       - name: Stage built binary
         shell: bash
         run: |
           rm -rf dist/binary
           mkdir -p dist/binary
-          if [[ "${RUNNER_OS}" == "Windows" ]]; then
-            cp "target/${CARGO_BUILD_TARGET}/release/wecode.exe" dist/binary/wecode.exe
-            cp "target/${CARGO_BUILD_TARGET}/release/wecode-wrapper-helper.exe" dist/binary/wecode-wrapper-helper.exe
-          elif [[ "${RUNNER_OS}" == "macOS" ]]; then
-            cp "target/${CARGO_BUILD_TARGET}/release/wecode" dist/binary/wecode
-          else
-            cp "target/${CARGO_BUILD_TARGET}/release/wecode" dist/binary/wecode
-          fi
+          cp "target/${CARGO_BUILD_TARGET}/release/wecode" dist/binary/wecode
 
       - name: Upload built binary
         uses: actions/upload-artifact@v4
@@ -186,9 +171,6 @@ jobs:
             os: macos-26
             target: x86_64-apple-darwin
             artifact_suffix: -debug
-          - id: windows-x86_64
-            os: windows-latest
-            target: x86_64-pc-windows-msvc
 
     runs-on: ${{ matrix.os }}
     env:
@@ -212,11 +194,6 @@ jobs:
         with:
           node-version: 22
 
-      - name: Install NSIS
-        if: runner.os == 'Windows'
-        shell: powershell
-        run: choco install nsis -y --no-progress
-
       - name: Apply release version
         shell: bash
         env:
@@ -235,16 +212,8 @@ jobs:
         shell: bash
         run: |
           mkdir -p "target/${CARGO_BUILD_TARGET}/release"
-          if [[ "${RUNNER_OS}" == "Windows" ]]; then
-            cp dist/binary/wecode.exe "target/${CARGO_BUILD_TARGET}/release/wecode.exe"
-            cp dist/binary/wecode-wrapper-helper.exe "target/${CARGO_BUILD_TARGET}/release/wecode-wrapper-helper.exe"
-          elif [[ "${RUNNER_OS}" == "macOS" ]]; then
-            cp dist/binary/wecode "target/${CARGO_BUILD_TARGET}/release/wecode"
-            chmod +x "target/${CARGO_BUILD_TARGET}/release/wecode"
-          else
-            cp dist/binary/wecode "target/${CARGO_BUILD_TARGET}/release/wecode"
-            chmod +x "target/${CARGO_BUILD_TARGET}/release/wecode"
-          fi
+          cp dist/binary/wecode "target/${CARGO_BUILD_TARGET}/release/wecode"
+          chmod +x "target/${CARGO_BUILD_TARGET}/release/wecode"
 
       - name: Package
         shell: bash

@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [2.0.0-rc.9] - 2026-07-13
+
+### Changed
+
+- Removed Windows targets from desktop and headless-agent release workflows; desktop releases now only build Apple Silicon and Intel macOS packages.
+
 ## [2.0.0-rc.8] - 2026-07-13
 
 ### Fixed

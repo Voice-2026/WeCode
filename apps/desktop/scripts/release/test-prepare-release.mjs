@@ -42,10 +42,6 @@ assert.match(
 );
 assert.match(
   notes,
-  /\| \[`wecode-1\.8\.0-windows-x86_64-setup\.exe`\]\(https:\/\/github\.com\/duxweb\/wecode\/releases\/download\/v1\.8\.0\/wecode-1\.8\.0-windows-x86_64-setup\.exe\) \| Windows 64-bit installer \| Windows 64 位安装包 \|/,
-);
-assert.match(
-  notes,
   /\| \[`wecode-agent-1\.8\.0-macos-aarch64`\]\(https:\/\/github\.com\/duxweb\/wecode\/releases\/download\/v1\.8\.0\/wecode-agent-1\.8\.0-macos-aarch64\) \| Apple Silicon Mac headless agent \| Apple Silicon Mac 主机端 \|/,
 );
 assert.match(
@@ -60,10 +56,7 @@ assert.match(
   notes,
   /\| \[`wecode-agent-1\.8\.0-linux-aarch64`\]\(https:\/\/github\.com\/duxweb\/wecode\/releases\/download\/v1\.8\.0\/wecode-agent-1\.8\.0-linux-aarch64\) \| Linux ARM64 headless agent \| Linux ARM64 主机端 \|/,
 );
-assert.match(
-  notes,
-  /\| \[`wecode-agent-1\.8\.0-windows-x86_64\.exe`\]\(https:\/\/github\.com\/duxweb\/wecode\/releases\/download\/v1\.8\.0\/wecode-agent-1\.8\.0-windows-x86_64\.exe\) \| Windows 64-bit headless agent \| Windows 64 位主机端 \|/,
-);
+assert.doesNotMatch(notes, /windows/i);
 assert.doesNotMatch(notes, /wecode-\*/);
 assert.doesNotMatch(notes, /latest\.json/);
 assert.doesNotMatch(notes, /updater\.app\.tar\.gz/);
