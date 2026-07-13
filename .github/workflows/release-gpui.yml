@@ -80,11 +80,9 @@ jobs:
           - id: macos-aarch64
             os: macos-26
             target: aarch64-apple-darwin
-            artifact_suffix: -debug
           - id: macos-x86_64
             os: macos-26
             target: x86_64-apple-darwin
-            artifact_suffix: -debug
 
     runs-on: ${{ matrix.os }}
     env:
@@ -166,18 +164,16 @@ jobs:
           - id: macos-aarch64
             os: macos-26
             target: aarch64-apple-darwin
-            artifact_suffix: -debug
           - id: macos-x86_64
             os: macos-26
             target: x86_64-apple-darwin
-            artifact_suffix: -debug
 
     runs-on: ${{ matrix.os }}
     env:
       CARGO_BUILD_TARGET: ${{ matrix.target }}
       RELEASE_BUILD_ID: ${{ matrix.id }}
       RELEASE_STAGE_DIR: release-artifacts
-      RELEASE_ARTIFACT_SUFFIX: ${{ matrix.artifact_suffix || '' }}
+      RELEASE_ARTIFACT_SUFFIX: ""
       MACOS_ADHOC_SIGN: ${{ startsWith(matrix.id, 'macos-') && 'true' || '' }}
       RELEASE_REQUIRE_TAURI_SIGNATURE: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' && 'true' || 'false' }}
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}

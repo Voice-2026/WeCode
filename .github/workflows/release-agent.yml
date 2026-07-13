@@ -1,9 +1,6 @@
 name: Release Agent
 
 on:
-  workflow_run:
-    workflows: ["Release GPUI Desktop"]
-    types: [completed]
   workflow_dispatch:
     inputs:
       tag:
@@ -28,7 +25,6 @@ env:
 
 jobs:
   metadata:
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && startsWith(github.event.workflow_run.head_branch, 'v')) }}
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.meta.outputs.version }}
@@ -39,11 +35,8 @@ jobs:
         id: ref
         shell: bash
         env:
-          DISPATCH_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || '' }}
-          WORKFLOW_TAG: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || '' }}
-        run: |
-          source_ref="${DISPATCH_TAG:-$WORKFLOW_TAG}"
-          echo "source_ref=$source_ref" >> "$GITHUB_OUTPUT"
+          DISPATCH_TAG: ${{ inputs.tag }}
+        run: echo "source_ref=${DISPATCH_TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -62,7 +55,7 @@ jobs:
           RELEASE_NOTES_PATH: dist/release-notes.md
         run: |
           mkdir -p dist
-          requested_channel="${{ github.event_name == 'workflow_dispatch' && inputs.channel || 'auto' }}"
+          requested_channel="${{ inputs.channel }}"
           node apps/desktop/scripts/release/prepare-release.mjs "${{ steps.ref.outputs.source_ref }}" "${requested_channel}"
 
   build:

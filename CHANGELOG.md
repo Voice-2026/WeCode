@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - Removed Windows targets from desktop and headless-agent release workflows; desktop releases now only build Apple Silicon and Intel macOS packages.
+- Simplified App Releases to two macOS DMGs; updater bundles and Agent assets are no longer attached automatically.
 
 ## [2.0.0-rc.8] - 2026-07-13
 

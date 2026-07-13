@@ -9,6 +9,7 @@
 ### 调整
 
 - 移除桌面版和主机端发布流程中的 Windows 目标；桌面版仅构建 Apple Silicon 和 Intel macOS 安装包。
+- App Release 收口为两个 macOS DMG，不再自动附加更新包和 Agent 文件。
 
 ## [2.0.0-rc.8] - 2026-07-13
 

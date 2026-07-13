@@ -90,7 +90,7 @@ writeAssetTo(unsignedArtifactsDir, "macos/wecode-1.5.0-macos-aarch64.dmg", "dmg-
 const unsignedResult = runDryRun(unsignedArtifactsDir, "false");
 assertEqual(unsignedResult.status, 0);
 assert(
-  unsignedResult.stdout.includes("Prepared 2 public assets without updater metadata"),
+  unsignedResult.stdout.includes("Prepared 1 public assets without updater metadata"),
   `unexpected unsigned dry-run output: ${unsignedResult.stdout}`,
 );
 assert(

@@ -144,36 +144,6 @@ function buildDownloadGuide() {
       usageEn: `Intel Mac stable release`,
       usageZh: `Intel Mac 正式版本`,
     },
-    {
-      name: `wecode-${version}-macos-aarch64-debug.dmg`,
-      usageEn: `Apple Silicon Mac debug build`,
-      usageZh: `Apple Silicon Mac 测试版本`,
-    },
-    {
-      name: `wecode-${version}-macos-x86_64-debug.dmg`,
-      usageEn: `Intel Mac debug build`,
-      usageZh: `Intel Mac 测试版本`,
-    },
-    {
-      name: `wecode-agent-${version}-macos-aarch64`,
-      usageEn: `Apple Silicon Mac headless agent`,
-      usageZh: `Apple Silicon Mac 主机端`,
-    },
-    {
-      name: `wecode-agent-${version}-macos-x86_64`,
-      usageEn: `Intel Mac headless agent`,
-      usageZh: `Intel Mac 主机端`,
-    },
-    {
-      name: `wecode-agent-${version}-linux-x86_64`,
-      usageEn: `Linux x86_64 headless agent`,
-      usageZh: `Linux x86_64 主机端`,
-    },
-    {
-      name: `wecode-agent-${version}-linux-aarch64`,
-      usageEn: `Linux ARM64 headless agent`,
-      usageZh: `Linux ARM64 主机端`,
-    },
   ];
   return [
     `## Downloads / 下载说明`,

@@ -31,8 +31,6 @@ const assets = collectAssets(artifactsDir);
 if (!assets.length) {
   throw new Error(`No release assets found in ${artifactsDir}`);
 }
-const uploadAssets = assets.filter((asset) => shouldUploadPublicAsset(asset) || (uploadSigAssets && asset.name.endsWith(".sig")));
-
 const latestPath = path.join(artifactsDir, "latest.json");
 const hasUpdaterSignatures = assets.some((asset) => asset.name.endsWith(".sig"));
 let hasUpdateMetadata = false;
@@ -47,6 +45,12 @@ if (hasUpdaterSignatures) {
 } else {
   console.warn("No signed updater assets found; publishing installers without updater metadata.");
 }
+
+const uploadAssets = assets.filter((asset) => {
+  if (uploadSigAssets && asset.name.endsWith(".sig")) return true;
+  if (!shouldUploadPublicAsset(asset)) return false;
+  return hasUpdateMetadata || asset.ext !== ".app.tar.gz";
+});
 
 if (!dryRun) {
   upsertRelease();
