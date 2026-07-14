@@ -159,10 +159,8 @@ brew install --cask duxweb/tap/wecode
 | プラットフォーム | ダウンロード |
 | :--- | :--- |
 | macOS · Apple Silicon | [⬇ `wecode-macos-aarch64.dmg`](https://github.com/duxweb/wecode/releases/latest/download/wecode-macos-aarch64.dmg) |
-| macOS · Intel | [⬇ `wecode-macos-x86_64.dmg`](https://github.com/duxweb/wecode/releases/latest/download/wecode-macos-x86_64.dmg) |
-| Windows 11 · x64 | [⬇ `wecode-windows-x86_64-setup.exe`](https://github.com/duxweb/wecode/releases/latest/download/wecode-windows-x86_64-setup.exe) |
 
-macOS では `.dmg` を開いて WeCode を Applications にドラッグします。Windows ではインストーラをダブルクリックします。その後、プロジェクトを開き、AI CLI を起動すれば使えます。
+macOS では `.dmg` を開いて WeCode を Applications にドラッグします。その後、プロジェクトを開き、AI CLI を起動すれば使えます。
 
 **モバイルアプリ**
 

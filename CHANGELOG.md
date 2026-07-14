@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [2.0.0-rc.10] - 2026-07-14
+
+### Added
+
+- Added scheduled automation management with project, existing workspace or new Worktree selection, Agent choice, session reuse, schedule, and catch-up configuration.
+- Added run-now, pause, resume, edit, and delete actions for automations, with persisted run history and results.
+
+### Changed
+
+- Reworked the automation editor and shared UI component layer for consistent cards, forms, selects, segmented controls, and action bars.
+- Improved task-list density, state visibility, and editor layout so enabled and paused tasks are easier to distinguish.
+- This prerelease provides a macOS Apple Silicon package only.
+
 ## [2.0.0-rc.9] - 2026-07-13
 
 ### Changed

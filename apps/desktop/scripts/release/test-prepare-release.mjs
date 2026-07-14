@@ -28,10 +28,7 @@ assert.match(
   notes,
   /\| \[`wecode-1\.8\.0-macos-aarch64\.dmg`\]\(https:\/\/github\.com\/duxweb\/wecode\/releases\/download\/v1\.8\.0\/wecode-1\.8\.0-macos-aarch64\.dmg\) \| Apple Silicon Mac stable release \| Apple Silicon Mac 正式版本 \|/,
 );
-assert.match(
-  notes,
-  /\| \[`wecode-1\.8\.0-macos-x86_64\.dmg`\]\(https:\/\/github\.com\/duxweb\/wecode\/releases\/download\/v1\.8\.0\/wecode-1\.8\.0-macos-x86_64\.dmg\) \| Intel Mac stable release \| Intel Mac 正式版本 \|/,
-);
+assert.doesNotMatch(notes, /macos-x86_64/);
 assert.doesNotMatch(notes, /windows/i);
 assert.doesNotMatch(notes, /debug/i);
 assert.doesNotMatch(notes, /wecode-agent/i);
