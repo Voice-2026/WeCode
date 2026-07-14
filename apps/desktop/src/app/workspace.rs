@@ -28,6 +28,9 @@ impl WeCodeApp {
                     .size_full()
                     .bg(color(theme::BG_TERMINAL))
                     .into_any_element(),
+                WorkspaceView::Automations => self
+                    .automation_workspace_body(window, cx)
+                    .into_any_element(),
                 WorkspaceView::Attention => {
                     self.attention_workspace_body(window, cx).into_any_element()
                 }

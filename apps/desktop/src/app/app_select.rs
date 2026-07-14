@@ -9,20 +9,7 @@ use gpui_component::{
 const WECODE_SELECT_TEXT_SIZE: Rems = Rems(0.875);
 const WECODE_SELECT_LINE_HEIGHT: Rems = Rems(1.125);
 
-#[derive(Clone)]
-pub(in crate::app) struct WeCodeSelectOption {
-    pub(in crate::app) value: String,
-    pub(in crate::app) label: SharedString,
-}
-
-impl WeCodeSelectOption {
-    pub(in crate::app) fn new(value: impl Into<String>, label: impl Into<SharedString>) -> Self {
-        Self {
-            value: value.into(),
-            label: label.into(),
-        }
-    }
-}
+pub(in crate::app) use crate::ui::select::SelectOption as WeCodeSelectOption;
 
 pub(in crate::app) fn wecode_select(
     id: impl Into<String>,
@@ -31,6 +18,35 @@ pub(in crate::app) fn wecode_select(
     placeholder: impl Into<SharedString>,
     width: impl Into<Length> + Clone,
     menu_width: Pixels,
+    disabled: bool,
+    window: &mut Window,
+    cx: &mut Context<WeCodeApp>,
+    action: impl Fn(&mut WeCodeApp, String, &mut Window, &mut Context<WeCodeApp>) + 'static,
+) -> AnyElement {
+    wecode_select_with_anchor(
+        id,
+        value,
+        options,
+        placeholder,
+        width,
+        menu_width,
+        Anchor::TopRight,
+        disabled,
+        window,
+        cx,
+        action,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(in crate::app) fn wecode_select_with_anchor(
+    id: impl Into<String>,
+    value: &str,
+    options: Vec<WeCodeSelectOption>,
+    placeholder: impl Into<SharedString>,
+    width: impl Into<Length> + Clone,
+    menu_width: Pixels,
+    anchor: Anchor,
     disabled: bool,
     _window: &mut Window,
     cx: &mut Context<WeCodeApp>,
@@ -86,7 +102,7 @@ pub(in crate::app) fn wecode_select(
                         }),
                 ),
         )
-        .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _window, _cx| {
+        .dropdown_menu_with_anchor(anchor, move |menu, _window, _cx| {
             options.iter().fold(
                 menu.min_w(menu_width).max_w(menu_width).scrollable(true),
                 |menu, item| {

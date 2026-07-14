@@ -1,6 +1,7 @@
 use super::*;
 use crate::app::app_events::{current_child_window_update_event, current_memory_update_event};
 use crate::app::app_state::WeCodeTooltipState;
+use crate::ui::select::new_select_state;
 
 impl WeCodeApp {
     pub(super) fn text(&self, key: &str, fallback: &str) -> String {
@@ -156,6 +157,55 @@ impl WeCodeApp {
         let ai_history_active_index_count = runtime_service.active_ai_history_index_count();
         let mut attention_feed = AttentionFeed::default();
         attention_feed.ingest(&[], &state.ai_runtime_state.sessions);
+        let automation_service = AutomationService::for_support_dir(&state.support_dir);
+        let _ = automation_service.recover_interrupted(app_now_seconds() as i64);
+        let automation_snapshot = automation_service.snapshot();
+        let automation_project_id = state
+            .selected_project
+            .as_ref()
+            .map(|project| project.id.clone())
+            .unwrap_or_default();
+        let automation_workspace_id = state
+            .worktrees
+            .selected_worktree_id
+            .clone()
+            .unwrap_or_else(|| automation_project_id.clone());
+        let automation_name_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("例如：每天检查待办"));
+        let automation_schedule_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .default_value("09:00")
+                .placeholder("09:00")
+        });
+        let automation_timezone_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .default_value("Asia/Shanghai")
+                .placeholder("Asia/Shanghai")
+        });
+        let automation_prompt_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .multi_line(true)
+                .rows(4)
+                .placeholder("描述要交给 Agent 完成的工作")
+        });
+        let automation_precheck_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("可选，例如：git status --short"));
+        let automation_precheck_timeout_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .default_value("60")
+                .placeholder("60")
+        });
+        let automation_project_select = new_select_state(Vec::new(), "", window, cx);
+        let automation_workspace_select = new_select_state(Vec::new(), "", window, cx);
+        let automation_branch_select = new_select_state(Vec::new(), "", window, cx);
+        let automation_agent_select = new_select_state(Vec::new(), "claude", window, cx);
+        let automation_schedule_select = new_select_state(Vec::new(), "daily", window, cx);
+        let automation_grace_select = new_select_state(
+            Vec::new(),
+            &DEFAULT_CATCH_UP_GRACE_SECONDS.to_string(),
+            window,
+            cx,
+        );
         let mut app = Self {
             window_mode: AppWindowMode::Main,
             root_focus_handle: None,
@@ -176,6 +226,32 @@ impl WeCodeApp {
             state,
             runtime_service,
             attention_feed,
+            automation_snapshot,
+            automation_selected_id: None,
+            automation_editor_open: false,
+            automation_editing_id: None,
+            automation_detail_tab: AutomationDetailTab::Overview,
+            automation_name_input: Some(automation_name_input),
+            automation_schedule_input: Some(automation_schedule_input),
+            automation_timezone_input: Some(automation_timezone_input),
+            automation_prompt_input: Some(automation_prompt_input),
+            automation_precheck_input: Some(automation_precheck_input),
+            automation_precheck_timeout_input: Some(automation_precheck_timeout_input),
+            automation_project_select: Some(automation_project_select),
+            automation_workspace_select: Some(automation_workspace_select),
+            automation_branch_select: Some(automation_branch_select),
+            automation_agent_select: Some(automation_agent_select),
+            automation_schedule_select: Some(automation_schedule_select),
+            automation_grace_select: Some(automation_grace_select),
+            automation_agent: AutomationAgent::Claude,
+            automation_project_id,
+            automation_workspace_id,
+            automation_workspace_mode: AutomationWorkspaceMode::Existing,
+            automation_base_branch: String::new(),
+            automation_reuse_session: false,
+            automation_catch_up_grace_seconds: DEFAULT_CATCH_UP_GRACE_SECONDS,
+            automation_schedule_preset: AutomationSchedulePreset::Daily,
+            automation_weekday: 1,
             gateway_settings,
             gateway_service,
             window_appearance: window.appearance(),

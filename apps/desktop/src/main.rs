@@ -9,6 +9,7 @@ mod assets;
 mod heroicons;
 mod terminal;
 mod theme;
+mod ui;
 
 use anyhow::Result;
 use app::{
@@ -220,6 +221,9 @@ fn open_main_window(
             view.update(cx, |app, cx| app.observe_main_window_bounds(window, cx));
             view.update(cx, |app, cx| {
                 app.initialize_main_window_focus(window, cx);
+            });
+            view.update(cx, |app, cx| {
+                app.observe_automation_selects(window, cx);
             });
             view.update(cx, |app, cx| app.start_runtime_event_loop(cx));
             // Attach any remote-hosted terminals restored at boot now that the

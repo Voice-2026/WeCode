@@ -88,6 +88,16 @@ impl WeCodeApp {
             pet_sprite_path_cache(&runtime.source_root, &state.support_dir, &pet_catalog);
         let gateway_settings = GatewaySettings::load(state.support_dir.clone());
         let gateway_service = GatewayService::inactive();
+        let automation_project_id = state
+            .selected_project
+            .as_ref()
+            .map(|project| project.id.clone())
+            .unwrap_or_default();
+        let automation_workspace_id = state
+            .worktrees
+            .selected_worktree_id
+            .clone()
+            .unwrap_or_else(|| automation_project_id.clone());
         Self {
             window_mode: AppWindowMode::Settings,
             root_focus_handle: None,
@@ -110,6 +120,32 @@ impl WeCodeApp {
             state,
             runtime_service,
             attention_feed: AttentionFeed::default(),
+            automation_snapshot: AutomationSnapshot::default(),
+            automation_selected_id: None,
+            automation_editor_open: false,
+            automation_editing_id: None,
+            automation_detail_tab: AutomationDetailTab::Overview,
+            automation_name_input: None,
+            automation_schedule_input: None,
+            automation_timezone_input: None,
+            automation_prompt_input: None,
+            automation_precheck_input: None,
+            automation_precheck_timeout_input: None,
+            automation_project_select: None,
+            automation_workspace_select: None,
+            automation_branch_select: None,
+            automation_agent_select: None,
+            automation_schedule_select: None,
+            automation_grace_select: None,
+            automation_agent: AutomationAgent::Claude,
+            automation_project_id,
+            automation_workspace_id,
+            automation_workspace_mode: AutomationWorkspaceMode::Existing,
+            automation_base_branch: String::new(),
+            automation_reuse_session: false,
+            automation_catch_up_grace_seconds: DEFAULT_CATCH_UP_GRACE_SECONDS,
+            automation_schedule_preset: AutomationSchedulePreset::Daily,
+            automation_weekday: 1,
             gateway_settings,
             gateway_service,
             window_appearance: WindowAppearance::Dark,

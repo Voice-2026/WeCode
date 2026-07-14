@@ -120,6 +120,7 @@ impl WeCodeApp {
                             app.apply_ai_runtime_activity_tick(cx)
                         };
                         if include_slow_tick {
+                            app.tick_automations(cx);
                             app.enqueue_automatic_memory_extraction_async(cx);
                             app.refresh_remote_link_states(cx);
                             app.reconcile_remote_terminal_bindings(cx);

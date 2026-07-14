@@ -38,6 +38,12 @@ use wecode_runtime::{
         AISessionSummary,
     },
     ai_history_indexer::AIHistoryEvent,
+    automation::{
+        AutomationAgent, AutomationCreateRequest, AutomationRun, AutomationRunPlan,
+        AutomationRunState, AutomationSchedule, AutomationSchedulePreset, AutomationService,
+        AutomationSnapshot, AutomationWorkspaceMode, DEFAULT_CATCH_UP_GRACE_SECONDS,
+        automation_output_snapshot, run_automation_precheck,
+    },
     db::{DBConnectionProfile, DBProfileSummary, DBProfileUpsertRequest, DBSummary},
     desktop_pet::{
         DESKTOP_PET_BASE_HEIGHT, DESKTOP_PET_BASE_WIDTH, DESKTOP_PET_HIDE, DESKTOP_PET_MUTE_1_HOUR,
@@ -86,14 +92,14 @@ use wecode_runtime::{
         SplitAxis, TerminalLayoutSummary, TerminalPaneSummary, TerminalSplitNode,
         TerminalTabSummary, TerminalTopGrid,
     },
-    terminal_pty::{TerminalManager, TerminalOutputSnapshot, TerminalPtyConfig},
+    terminal_pty::{TerminalEvent, TerminalManager, TerminalOutputSnapshot, TerminalPtyConfig},
     terminal_runtime::{
         TerminalInputSummary, TerminalRuntimeSessionInput, TerminalRuntimeSessionSummary,
         TerminalRuntimeSummary,
     },
     worktree::{
-        ProjectWorktreeGitSummary, WorktreeInfo, WorktreeSnapshot, WorktreeSummary,
-        WorktreeTaskInfo,
+        ProjectWorktreeGitSummary, WorktreeCreateRequest, WorktreeInfo, WorktreeService,
+        WorktreeSnapshot, WorktreeSummary, WorktreeTaskInfo,
     },
 };
 
@@ -153,6 +159,7 @@ mod window_shell;
 mod work_scheduler;
 mod workspace;
 mod workspace_attention;
+mod workspace_automations;
 mod workspace_daily_level;
 mod workspace_files;
 mod workspace_pet_widgets;
@@ -195,11 +202,11 @@ use self::{
         project_badge_text_from_name, reordered_ids,
     },
     app_state::{
-        AIProviderTestResult, DBProfileTestDisplay, GIT_CREDENTIALS_COMPACT_HEIGHT,
-        GIT_CREDENTIALS_WINDOW_WIDTH, GitOperationCompletion, PET_CUSTOM_INSTALL_ERROR_HEIGHT,
-        PET_CUSTOM_INSTALL_INPUT_HEIGHT, PET_CUSTOM_INSTALL_READY_HEIGHT,
-        PET_CUSTOM_INSTALL_WINDOW_WIDTH, PET_DEX_FRAME_INTERVAL, PendingTerminalClose,
-        ProjectSwitchLoad, ProjectSwitchPrimaryLoad, ProjectSwitchTaskLoad,
+        AIProviderTestResult, AutomationDetailTab, DBProfileTestDisplay,
+        GIT_CREDENTIALS_COMPACT_HEIGHT, GIT_CREDENTIALS_WINDOW_WIDTH, GitOperationCompletion,
+        PET_CUSTOM_INSTALL_ERROR_HEIGHT, PET_CUSTOM_INSTALL_INPUT_HEIGHT,
+        PET_CUSTOM_INSTALL_READY_HEIGHT, PET_CUSTOM_INSTALL_WINDOW_WIDTH, PET_DEX_FRAME_INTERVAL,
+        PendingTerminalClose, ProjectSwitchLoad, ProjectSwitchPrimaryLoad, ProjectSwitchTaskLoad,
         ProjectSwitchTerminalLoad, RuntimeActivityTickResult, RuntimeScheduledRefresh,
         SSHProfileTestDisplay, TaskColumnPrimaryTab, TaskGitTab, TaskSessionFilter,
         TaskSessionSort, TaskSessionSourceFilter, TerminalCloseTarget, UpdateDialogPhase,
