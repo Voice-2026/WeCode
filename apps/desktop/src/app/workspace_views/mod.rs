@@ -64,6 +64,10 @@ impl Render for WorkspaceColumnView {
             .settings
             .assistant_panel_width;
         let resize_app_entity = self.assistant_view.read(cx).app_entity.clone();
+        let rail_app_entity = resize_app_entity.clone();
+        let assistant_rail = rail_app_entity.update(cx, |app, cx| {
+            app.workspace_assistant_rail(cx).into_any_element()
+        });
 
         div()
             .flex()
@@ -89,47 +93,57 @@ impl Render for WorkspaceColumnView {
                     .min_w_0()
                     .min_h_0()
                     .overflow_hidden()
-                    .child(if show_assistant {
-                        h_resizable("workspace-body-assistant-split")
-                            .on_resize(move |state: &gpui::Entity<ResizableState>, window, cx| {
-                                let Some(width) = state.read(cx).sizes().get(1).copied() else {
-                                    return;
-                                };
-                                window.defer(cx, {
-                                    let app_entity = resize_app_entity.clone();
-                                    move |_window, cx| {
-                                        let _ = app_entity.update(cx, |app, _cx| {
-                                            let width = width.as_f32().max(0.0);
-                                            app.state.settings.assistant_panel_width = width;
-                                            if let Err(error) = app
-                                                .runtime_service
-                                                .update_app_settings(|settings| {
-                                                    settings.assistant_panel_width = width
-                                                })
-                                            {
-                                                app.status_message = format!(
-                                                    "failed to save assistant panel width: {error}"
-                                                );
+                    .child(
+                        div()
+                            .flex()
+                            .flex_1()
+                            .flex_basis(px(0.0))
+                            .min_w_0()
+                            .min_h_0()
+                            .overflow_hidden()
+                            .child(if show_assistant {
+                                h_resizable("workspace-body-assistant-split")
+                                    .on_resize(move |state: &gpui::Entity<ResizableState>, window, cx| {
+                                        let Some(width) = state.read(cx).sizes().get(1).copied() else {
+                                            return;
+                                        };
+                                        window.defer(cx, {
+                                            let app_entity = resize_app_entity.clone();
+                                            move |_window, cx| {
+                                                let _ = app_entity.update(cx, |app, _cx| {
+                                                    let width = width.as_f32().max(0.0);
+                                                    app.state.settings.assistant_panel_width = width;
+                                                    if let Err(error) = app
+                                                        .runtime_service
+                                                        .update_app_settings(|settings| {
+                                                            settings.assistant_panel_width = width
+                                                        })
+                                                    {
+                                                        app.status_message = format!(
+                                                            "failed to save assistant panel width: {error}"
+                                                        );
+                                                    }
+                                                });
                                             }
                                         });
-                                    }
-                                });
-                            })
-                            .child(
-                                resizable_panel()
-                                    .size_range(px(0.0)..Pixels::MAX)
-                                    .child(workspace_body_panel(self.body_view.clone())),
-                            )
-                            .child(
-                                resizable_panel()
-                                    .size(px(assistant_width))
-                                    .size_range(px(0.0)..Pixels::MAX)
-                                    .child(workspace_assistant_panel(self.assistant_view.clone())),
-                            )
-                            .into_any_element()
-                    } else {
-                        workspace_body_panel(self.body_view.clone()).into_any_element()
-                    }),
+                                    })
+                                    .child(
+                                        resizable_panel()
+                                            .size_range(px(0.0)..Pixels::MAX)
+                                            .child(workspace_body_panel(self.body_view.clone())),
+                                    )
+                                    .child(
+                                        resizable_panel()
+                                            .size(px(assistant_width))
+                                            .size_range(px(0.0)..Pixels::MAX)
+                                            .child(workspace_assistant_panel(self.assistant_view.clone())),
+                                    )
+                                    .into_any_element()
+                            } else {
+                                workspace_body_panel(self.body_view.clone()).into_any_element()
+                            }),
+                    )
+                    .child(assistant_rail),
             )
     }
 }

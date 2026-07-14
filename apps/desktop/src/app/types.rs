@@ -102,6 +102,7 @@ pub(in crate::app) enum WorkspaceView {
     Files,
     Review,
     Stats,
+    Automations,
     Attention,
 }
 

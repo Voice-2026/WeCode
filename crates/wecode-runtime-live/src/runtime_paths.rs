@@ -101,11 +101,7 @@ pub fn ai_runtime_binding_dir_in(runtime_temp_dir: &Path) -> PathBuf {
 }
 
 pub fn app_display_name() -> &'static str {
-    if cfg!(debug_assertions) {
-        "WeCode Dev"
-    } else {
-        "WeCode"
-    }
+    "WeCode"
 }
 
 pub fn app_slug() -> &'static str {
@@ -203,12 +199,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn display_name_matches_build_profile() {
-        if cfg!(debug_assertions) {
-            assert_eq!(app_display_name(), "WeCode Dev");
-        } else {
-            assert_eq!(app_display_name(), "WeCode");
-        }
+    fn display_name_is_product_name() {
+        assert_eq!(app_display_name(), "WeCode");
     }
 
     #[test]

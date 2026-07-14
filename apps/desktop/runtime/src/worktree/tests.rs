@@ -504,6 +504,50 @@ fn tauri_create_request_uses_requested_branch_and_task_title() {
 }
 
 #[test]
+fn automation_create_keeps_selected_worktree_and_base_branch() {
+    let repo = temp_dir("worktree-automation-create");
+    create_repo_with_commit(&repo);
+    let support_dir = temp_dir("worktree-automation-create-support");
+    fs::create_dir_all(&support_dir).unwrap();
+    let service = WorktreeService::new(support_dir.clone());
+    let project_path = repo.to_string_lossy().to_string();
+    let base_branch = super::GitRepository::open(&repo)
+        .unwrap()
+        .head()
+        .unwrap()
+        .shorthand()
+        .unwrap()
+        .to_string();
+
+    let snapshot = service
+        .create_unselected_from_request(WorktreeCreateRequest {
+            project_id: "project".to_string(),
+            project_path: project_path.clone(),
+            base_branch: Some(base_branch.clone()),
+            branch_name: "wecode/automation/task/run-1".to_string(),
+            task_title: Some("Automation run #1".to_string()),
+        })
+        .unwrap();
+
+    assert_eq!(snapshot.selected_worktree_id, "project");
+    let created = snapshot
+        .worktrees
+        .iter()
+        .find(|worktree| !worktree.is_default)
+        .expect("created worktree");
+    let task = snapshot
+        .tasks
+        .iter()
+        .find(|task| task.worktree_id == created.id)
+        .expect("created task");
+    assert_eq!(task.base_branch, base_branch);
+    assert_eq!(task.title, "Automation run #1");
+
+    fs::remove_dir_all(repo).ok();
+    fs::remove_dir_all(support_dir).ok();
+}
+
+#[test]
 fn generates_stable_worktree_ids() {
     assert_eq!(
         worktree_uuid("project", "/repo/.wecode/worktrees/feature-one"),

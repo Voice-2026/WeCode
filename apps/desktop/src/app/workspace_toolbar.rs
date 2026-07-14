@@ -25,7 +25,8 @@ impl WeCodeApp {
             WorkspaceView::Files => 1,
             WorkspaceView::Review => 2,
             WorkspaceView::Stats => 3,
-            WorkspaceView::Attention => 4,
+            WorkspaceView::Automations => 4,
+            WorkspaceView::Attention => 5,
         };
         let pet_snapshot = self.pet_snapshot.clone();
         let has_project_context = self.state.selected_project.is_some();
@@ -40,8 +41,6 @@ impl WeCodeApp {
                     == Some(&wecode_runtime::remote::ControllerLinkState::Connected))
                 .then(|| device_id.clone())
             });
-        let show_server_info_button = has_project_context
-            && (remote_project_device_id.is_none() || connected_remote_project_device_id.is_some());
         let pet_sprite_frame = self.visible_pet_sprite_frame(PET_IDLE_FRAME_COUNT);
         let pet_button = if self.state.settings.pet_enabled {
             if has_project_context {
@@ -124,59 +123,93 @@ impl WeCodeApp {
                                 ),
                             )
                         })
-                        .when(show_server_info_button, |this| {
-                            this.child(workspace_toolbar_separator(cx)).child(
-                                workspace_assistant_button(
-                                    "Server",
-                                    AssistantPanel::ServerInfo,
-                                    self.assistant_panel,
-                                    true,
-                                    cx,
-                                ),
-                            )
-                        })
-                        .child(workspace_toolbar_separator(cx))
-                        .child(workspace_assistant_button(
-                            "AI",
-                            AssistantPanel::AIStats,
-                            self.assistant_panel,
-                            has_project_context,
-                            cx,
-                        ))
-                        .child(workspace_assistant_button(
-                            "SSH",
-                            AssistantPanel::SSH,
-                            self.assistant_panel,
-                            has_project_context,
-                            cx,
-                        ))
-                        .child(workspace_assistant_button(
-                            "DB",
-                            AssistantPanel::DB,
-                            self.assistant_panel,
-                            has_project_context,
-                            cx,
-                        ))
-                        .child(workspace_assistant_button(
-                            "Files",
-                            AssistantPanel::FileManager,
-                            self.assistant_panel,
-                            has_project_context,
-                            cx,
-                        ))
-                        .child(workspace_assistant_button(
-                            "Git",
-                            AssistantPanel::Git,
-                            self.assistant_panel,
-                            has_project_context,
-                            cx,
-                        ))
                         .when(!cfg!(target_os = "macos"), |this| {
                             this.child(workspace_window_controls(cx))
                         }),
                 ),
             cx,
         )
+    }
+
+    pub(in crate::app) fn workspace_assistant_rail(&self, cx: &mut Context<Self>) -> AnyElement {
+        let has_project_context = self.state.selected_project.is_some();
+        let remote_project_device_id = self
+            .state
+            .selected_project
+            .as_ref()
+            .and_then(|project| project.host_device_id.as_ref());
+        let show_server_info_button = has_project_context
+            && (remote_project_device_id.is_none()
+                || remote_project_device_id.is_some_and(|device_id| {
+                    self.remote_link_states.get(device_id)
+                        == Some(&wecode_runtime::remote::ControllerLinkState::Connected)
+                }));
+
+        div()
+            .id("workspace-assistant-rail")
+            .w(px(44.0))
+            .h_full()
+            .flex_none()
+            .flex()
+            .flex_col()
+            .items_center()
+            .gap(px(4.0))
+            .pt(px(8.0))
+            .border_l_1()
+            .border_color(cx.theme().border)
+            .bg(theme::vibrancy_panel(color(theme::BG_COLUMN)))
+            .when(show_server_info_button, |this| {
+                this.child(workspace_assistant_rail_button(
+                    "Server",
+                    AssistantPanel::ServerInfo,
+                    self.assistant_panel,
+                    true,
+                    cx,
+                ))
+                .child(
+                    div()
+                        .w(px(22.0))
+                        .h(px(1.0))
+                        .my(px(3.0))
+                        .bg(theme::divider_for_surface(cx.theme().title_bar)),
+                )
+            })
+            .child(workspace_assistant_rail_button(
+                "AI",
+                AssistantPanel::AIStats,
+                self.assistant_panel,
+                has_project_context,
+                cx,
+            ))
+            .child(workspace_assistant_rail_button(
+                "SSH",
+                AssistantPanel::SSH,
+                self.assistant_panel,
+                true,
+                cx,
+            ))
+            .child(workspace_assistant_rail_button(
+                "DB",
+                AssistantPanel::DB,
+                self.assistant_panel,
+                has_project_context,
+                cx,
+            ))
+            .child(workspace_assistant_rail_button(
+                "Files",
+                AssistantPanel::FileManager,
+                self.assistant_panel,
+                has_project_context,
+                cx,
+            ))
+            .child(workspace_assistant_rail_button(
+                "Git",
+                AssistantPanel::Git,
+                self.assistant_panel,
+                has_project_context,
+                cx,
+            ))
+            .into_any_element()
     }
 }
 
@@ -429,6 +462,26 @@ fn workspace_assistant_button(
         label,
     )
 }
+
+fn workspace_assistant_rail_button(
+    label: &'static str,
+    panel: AssistantPanel,
+    active_panel: Option<AssistantPanel>,
+    enabled: bool,
+    cx: &mut Context<WeCodeApp>,
+) -> impl IntoElement {
+    div()
+        .w_full()
+        .flex()
+        .justify_center()
+        .child(workspace_assistant_button(
+            label,
+            panel,
+            active_panel,
+            enabled,
+            cx,
+        ))
+}
 fn workspace_segmented_tabs(
     active_index: usize,
     language: &str,
@@ -442,12 +495,14 @@ fn workspace_segmented_tabs(
     let files_label = translate(&locale, "titlebar.files", "Files");
     let review_label = translate(&locale, "titlebar.review", "Review");
     let stats_label = translate(&locale, "titlebar.stats", "Stats");
+    let automations_label = translate(&locale, "titlebar.automations", "Automations");
     let attention_label = translate(&locale, "titlebar.attention", "Attention");
     let tabs = [
         (HeroIconName::CommandLine, terminal_label, None),
         (HeroIconName::Document, files_label, None),
         (HeroIconName::ArrowPathRoundedSquare, review_label, None),
         (HeroIconName::ChartBar, stats_label, None),
+        (HeroIconName::Clock, automations_label, None),
         (
             HeroIconName::BellAlert,
             attention_label,
@@ -495,6 +550,7 @@ fn workspace_segmented_tabs(
                                         1 => WorkspaceView::Files,
                                         2 => WorkspaceView::Review,
                                         3 => WorkspaceView::Stats,
+                                        4 => WorkspaceView::Automations,
                                         _ => WorkspaceView::Attention,
                                     };
                                     app.set_workspace_view(view, window, cx);

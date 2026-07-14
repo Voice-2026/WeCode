@@ -69,7 +69,7 @@ impl Render for WorkspaceBodyView {
             if app.state.selected_project.is_none()
                 && !matches!(
                     app.workspace_view,
-                    WorkspaceView::Stats | WorkspaceView::Attention
+                    WorkspaceView::Stats | WorkspaceView::Automations | WorkspaceView::Attention
                 )
             {
                 if let Some(view) = &self.terminal_workspace_view {
@@ -317,6 +317,7 @@ fn workspace_view_key(view: WorkspaceView) -> &'static str {
         WorkspaceView::Files => "files",
         WorkspaceView::Review => "review",
         WorkspaceView::Stats => "stats",
+        WorkspaceView::Automations => "automations",
         WorkspaceView::Attention => "attention",
     }
 }

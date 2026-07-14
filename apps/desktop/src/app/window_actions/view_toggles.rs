@@ -59,7 +59,7 @@ impl WeCodeApp {
                 self.status_message = "no active review item to close".to_string();
                 self.invalidate_git_panel(cx);
             }
-            WorkspaceView::Stats | WorkspaceView::Attention => {
+            WorkspaceView::Stats | WorkspaceView::Automations | WorkspaceView::Attention => {
                 self.set_workspace_view(WorkspaceView::Terminal, window, cx);
             }
         }
@@ -85,6 +85,11 @@ impl WeCodeApp {
             WorkspaceView::Stats => {
                 self.assistant_panel = None;
                 self.refresh_stats_workspace_data(false, cx);
+            }
+            WorkspaceView::Automations => {
+                self.assistant_panel = None;
+                self.automation_snapshot =
+                    AutomationService::for_support_dir(&self.state.support_dir).snapshot();
             }
             WorkspaceView::Attention => {
                 self.assistant_panel = None;

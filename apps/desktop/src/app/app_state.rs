@@ -136,6 +136,38 @@ pub struct WeCodeApp {
     pub(in crate::app) state: RuntimeState,
     pub(in crate::app) runtime_service: RuntimeService,
     pub(in crate::app) attention_feed: AttentionFeed,
+    pub(in crate::app) automation_snapshot: AutomationSnapshot,
+    pub(in crate::app) automation_selected_id: Option<String>,
+    pub(in crate::app) automation_editor_open: bool,
+    pub(in crate::app) automation_editing_id: Option<String>,
+    pub(in crate::app) automation_detail_tab: AutomationDetailTab,
+    pub(in crate::app) automation_name_input: Option<gpui::Entity<InputState>>,
+    pub(in crate::app) automation_schedule_input: Option<gpui::Entity<InputState>>,
+    pub(in crate::app) automation_timezone_input: Option<gpui::Entity<InputState>>,
+    pub(in crate::app) automation_prompt_input: Option<gpui::Entity<InputState>>,
+    pub(in crate::app) automation_precheck_input: Option<gpui::Entity<InputState>>,
+    pub(in crate::app) automation_precheck_timeout_input: Option<gpui::Entity<InputState>>,
+    pub(in crate::app) automation_project_select:
+        Option<gpui::Entity<crate::ui::select::UiSelectState>>,
+    pub(in crate::app) automation_workspace_select:
+        Option<gpui::Entity<crate::ui::select::UiSelectState>>,
+    pub(in crate::app) automation_branch_select:
+        Option<gpui::Entity<crate::ui::select::UiSelectState>>,
+    pub(in crate::app) automation_agent_select:
+        Option<gpui::Entity<crate::ui::select::UiSelectState>>,
+    pub(in crate::app) automation_schedule_select:
+        Option<gpui::Entity<crate::ui::select::UiSelectState>>,
+    pub(in crate::app) automation_grace_select:
+        Option<gpui::Entity<crate::ui::select::UiSelectState>>,
+    pub(in crate::app) automation_agent: AutomationAgent,
+    pub(in crate::app) automation_project_id: String,
+    pub(in crate::app) automation_workspace_id: String,
+    pub(in crate::app) automation_workspace_mode: AutomationWorkspaceMode,
+    pub(in crate::app) automation_base_branch: String,
+    pub(in crate::app) automation_reuse_session: bool,
+    pub(in crate::app) automation_catch_up_grace_seconds: i64,
+    pub(in crate::app) automation_schedule_preset: AutomationSchedulePreset,
+    pub(in crate::app) automation_weekday: u32,
     pub(in crate::app) gateway_settings: GatewaySettings,
     pub(in crate::app) gateway_service: Arc<GatewayService>,
     pub(in crate::app) window_appearance: WindowAppearance,
@@ -480,6 +512,13 @@ pub struct WeCodeApp {
     pub(in crate::app) tooltip_state: WeCodeTooltipState,
     pub(in crate::app) ui_performance_counts: HashMap<String, u64>,
     pub(in crate::app) ui_performance_last_report_at: f64,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(in crate::app) enum AutomationDetailTab {
+    #[default]
+    Overview,
+    Runs,
 }
 
 #[derive(Clone)]

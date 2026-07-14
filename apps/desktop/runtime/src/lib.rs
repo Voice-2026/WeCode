@@ -21,6 +21,7 @@ pub mod app_icon;
 pub mod app_info;
 pub mod app_milestones;
 pub mod async_runtime;
+pub mod automation;
 pub mod background_queue;
 pub mod config;
 pub mod db;
