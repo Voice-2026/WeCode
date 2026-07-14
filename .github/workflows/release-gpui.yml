@@ -80,9 +80,6 @@ jobs:
           - id: macos-aarch64
             os: macos-26
             target: aarch64-apple-darwin
-          - id: macos-x86_64
-            os: macos-26
-            target: x86_64-apple-darwin
 
     runs-on: ${{ matrix.os }}
     env:
@@ -164,9 +161,6 @@ jobs:
           - id: macos-aarch64
             os: macos-26
             target: aarch64-apple-darwin
-          - id: macos-x86_64
-            os: macos-26
-            target: x86_64-apple-darwin
 
     runs-on: ${{ matrix.os }}
     env:

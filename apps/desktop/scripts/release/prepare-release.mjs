@@ -139,11 +139,6 @@ function buildDownloadGuide() {
       usageEn: `Apple Silicon Mac stable release`,
       usageZh: `Apple Silicon Mac 正式版本`,
     },
-    {
-      name: `wecode-${version}-macos-x86_64.dmg`,
-      usageEn: `Intel Mac stable release`,
-      usageZh: `Intel Mac 正式版本`,
-    },
   ];
   return [
     `## Downloads / 下载说明`,

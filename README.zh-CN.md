@@ -159,10 +159,8 @@ brew install --cask duxweb/tap/wecode
 | 平台 | 下载 |
 | :--- | :--- |
 | macOS · Apple 芯片 | [⬇ `wecode-macos-aarch64.dmg`](https://github.com/duxweb/wecode/releases/latest/download/wecode-macos-aarch64.dmg) |
-| macOS · Intel | [⬇ `wecode-macos-x86_64.dmg`](https://github.com/duxweb/wecode/releases/latest/download/wecode-macos-x86_64.dmg) |
-| Windows 11 · x64 | [⬇ `wecode-windows-x86_64-setup.exe`](https://github.com/duxweb/wecode/releases/latest/download/wecode-windows-x86_64-setup.exe) |
 
-macOS 打开 `.dmg` 拖进「应用程序」；Windows 双击安装。装好后打开一个项目、在终端启动 AI CLI 就行。
+macOS 打开 `.dmg` 拖进「应用程序」。装好后打开一个项目、在终端启动 AI CLI 就行。
 
 **移动端**
 

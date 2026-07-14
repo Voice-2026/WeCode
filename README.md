@@ -159,10 +159,8 @@ Or download directly:
 | Platform | Download |
 | :--- | :--- |
 | macOS · Apple Silicon | [⬇ `wecode-macos-aarch64.dmg`](https://github.com/duxweb/wecode/releases/latest/download/wecode-macos-aarch64.dmg) |
-| macOS · Intel | [⬇ `wecode-macos-x86_64.dmg`](https://github.com/duxweb/wecode/releases/latest/download/wecode-macos-x86_64.dmg) |
-| Windows 11 · x64 | [⬇ `wecode-windows-x86_64-setup.exe`](https://github.com/duxweb/wecode/releases/latest/download/wecode-windows-x86_64-setup.exe) |
 
-Open the macOS `.dmg` and drag WeCode to Applications; double-click the Windows installer. Then open a project, start your AI CLI, and go.
+Open the macOS `.dmg` and drag WeCode to Applications. Then open a project, start your AI CLI, and go.
 
 **Mobile app**
 
