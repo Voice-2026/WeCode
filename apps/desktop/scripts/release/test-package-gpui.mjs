@@ -93,19 +93,18 @@ console.log("package-gpui installer test passed");
 if (process.platform === "win32") {
   const binaryDir = fs.mkdtempSync(path.join(os.tmpdir(), "wecode-package-binaries-"));
   const packageDir = fs.mkdtempSync(path.join(os.tmpdir(), "wecode-package-output-"));
+  const oldBinaryDir = process.env.WECODE_RELEASE_BINARY_DIR;
+  const oldTestPackageDir = process.env.WECODE_TEST_PACKAGE_DIR;
+  const oldSkipMakensis = process.env.WECODE_TEST_SKIP_MAKENSIS;
+  const oldSignatureRequirement = process.env.RELEASE_REQUIRE_TAURI_SIGNATURE;
   try {
     fs.writeFileSync(path.join(binaryDir, "wecode.exe"), "gui");
     fs.writeFileSync(path.join(binaryDir, "wecode-wrapper-helper.exe"), "console-helper");
-    const oldBinaryDir = process.env.WECODE_RELEASE_BINARY_DIR;
-    const oldTestPackageDir = process.env.WECODE_TEST_PACKAGE_DIR;
-    const oldSkipMakensis = process.env.WECODE_TEST_SKIP_MAKENSIS;
     process.env.WECODE_RELEASE_BINARY_DIR = binaryDir;
     process.env.WECODE_TEST_PACKAGE_DIR = packageDir;
     process.env.WECODE_TEST_SKIP_MAKENSIS = "true";
+    process.env.RELEASE_REQUIRE_TAURI_SIGNATURE = "false";
     __testPackageWindows();
-    process.env.WECODE_RELEASE_BINARY_DIR = oldBinaryDir;
-    process.env.WECODE_TEST_PACKAGE_DIR = oldTestPackageDir;
-    process.env.WECODE_TEST_SKIP_MAKENSIS = oldSkipMakensis;
 
     assert.equal(
       fs.readFileSync(path.join(packageDir, "runtime-root", "scripts", "wrappers", "wecode-wrapper-helper.exe"), "utf8"),
@@ -124,6 +123,10 @@ if (process.platform === "win32") {
       "mock installer should be produced",
     );
   } finally {
+    restoreEnvironmentVariable("WECODE_RELEASE_BINARY_DIR", oldBinaryDir);
+    restoreEnvironmentVariable("WECODE_TEST_PACKAGE_DIR", oldTestPackageDir);
+    restoreEnvironmentVariable("WECODE_TEST_SKIP_MAKENSIS", oldSkipMakensis);
+    restoreEnvironmentVariable("RELEASE_REQUIRE_TAURI_SIGNATURE", oldSignatureRequirement);
     fs.rmSync(binaryDir, { recursive: true, force: true });
     fs.rmSync(packageDir, { recursive: true, force: true });
   }
