@@ -135,6 +135,9 @@ pub struct WeCodeApp {
     pub(in crate::app) runtime: RuntimeInventory,
     pub(in crate::app) state: RuntimeState,
     pub(in crate::app) runtime_service: RuntimeService,
+    pub(in crate::app) _local_control_server:
+        Option<wecode_runtime::local_control::LocalControlServer>,
+    pub(in crate::app) local_control_automation_rx: Option<flume::Receiver<AutomationRunPlan>>,
     pub(in crate::app) attention_feed: AttentionFeed,
     pub(in crate::app) automation_snapshot: AutomationSnapshot,
     pub(in crate::app) automation_selected_id: Option<String>,
@@ -155,11 +158,14 @@ pub struct WeCodeApp {
         Option<gpui::Entity<crate::ui::select::UiSelectState>>,
     pub(in crate::app) automation_agent_select:
         Option<gpui::Entity<crate::ui::select::UiSelectState>>,
+    pub(in crate::app) automation_model_select:
+        Option<gpui::Entity<crate::ui::select::UiSelectState>>,
     pub(in crate::app) automation_schedule_select:
         Option<gpui::Entity<crate::ui::select::UiSelectState>>,
     pub(in crate::app) automation_grace_select:
         Option<gpui::Entity<crate::ui::select::UiSelectState>>,
     pub(in crate::app) automation_agent: AutomationAgent,
+    pub(in crate::app) automation_model: String,
     pub(in crate::app) automation_project_id: String,
     pub(in crate::app) automation_workspace_id: String,
     pub(in crate::app) automation_workspace_mode: AutomationWorkspaceMode,

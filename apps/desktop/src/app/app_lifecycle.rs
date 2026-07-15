@@ -29,6 +29,21 @@ impl WeCodeApp {
         );
         let runtime = RuntimeInventory::load();
         let runtime_service = RuntimeService::new(state.support_dir.clone());
+        let (automation_dispatch_tx, automation_dispatch_rx) = flume::unbounded();
+        runtime_service.set_automation_dispatch_sender(automation_dispatch_tx);
+        let local_control_server = match wecode_runtime::local_control::LocalControlServer::start(
+            env!("CARGO_PKG_VERSION"),
+            runtime_service.clone(),
+        ) {
+            Ok(server) => Some(server),
+            Err(error) => {
+                wecode_runtime::runtime_trace::runtime_trace(
+                    "local-control",
+                    &format!("startup skipped: {error}"),
+                );
+                None
+            }
+        };
         let task_session_sort =
             TaskSessionSort::from_setting(&runtime_service.ai_session_list_sort());
         let gateway_settings = GatewaySettings::load(state.support_dir.clone());
@@ -198,7 +213,9 @@ impl WeCodeApp {
         let automation_project_select = new_select_state(Vec::new(), "", window, cx);
         let automation_workspace_select = new_select_state(Vec::new(), "", window, cx);
         let automation_branch_select = new_select_state(Vec::new(), "", window, cx);
-        let automation_agent_select = new_select_state(Vec::new(), "claude", window, cx);
+        let automation_agent_select =
+            new_select_state(Vec::new(), "kiro_gateway_claude", window, cx);
+        let automation_model_select = new_select_state(Vec::new(), "claude-opus-4.8", window, cx);
         let automation_schedule_select = new_select_state(Vec::new(), "daily", window, cx);
         let automation_grace_select = new_select_state(
             Vec::new(),
@@ -225,6 +242,8 @@ impl WeCodeApp {
             runtime,
             state,
             runtime_service,
+            _local_control_server: local_control_server,
+            local_control_automation_rx: Some(automation_dispatch_rx),
             attention_feed,
             automation_snapshot,
             automation_selected_id: None,
@@ -241,9 +260,11 @@ impl WeCodeApp {
             automation_workspace_select: Some(automation_workspace_select),
             automation_branch_select: Some(automation_branch_select),
             automation_agent_select: Some(automation_agent_select),
+            automation_model_select: Some(automation_model_select),
             automation_schedule_select: Some(automation_schedule_select),
             automation_grace_select: Some(automation_grace_select),
-            automation_agent: AutomationAgent::Claude,
+            automation_agent: AutomationAgent::KiroGatewayClaude,
+            automation_model: "claude-opus-4.8".to_string(),
             automation_project_id,
             automation_workspace_id,
             automation_workspace_mode: AutomationWorkspaceMode::Existing,

@@ -23,7 +23,6 @@ pub(crate) fn form_page(
         .child(
             div()
                 .w_full()
-                .max_w(FORM_PAGE_MAX_WIDTH)
                 .flex()
                 .flex_col()
                 .child(

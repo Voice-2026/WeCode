@@ -42,6 +42,8 @@ pub struct AutomationDefinition {
     pub reuse_session: bool,
     pub host_device_id: Option<String>,
     pub agent: AutomationAgent,
+    #[serde(default)]
+    pub model: Option<String>,
     pub prompt: String,
     pub precheck_command: Option<String>,
     #[serde(default = "default_precheck_timeout_seconds")]
@@ -68,6 +70,7 @@ pub enum AutomationWorkspaceMode {
 #[serde(rename_all = "snake_case")]
 pub enum AutomationAgent {
     Claude,
+    KiroGatewayClaude,
     Codex,
     Kiro,
 }
@@ -76,17 +79,31 @@ impl AutomationAgent {
     pub fn label(self) -> &'static str {
         match self {
             Self::Claude => "Claude Code",
+            Self::KiroGatewayClaude => "Claude + Kiro",
             Self::Codex => "Codex",
             Self::Kiro => "Kiro",
         }
     }
 
-    pub fn tool_name(self) -> &'static str {
+    pub fn id(self) -> &'static str {
         match self {
             Self::Claude => "claude",
+            Self::KiroGatewayClaude => "kiro_gateway_claude",
             Self::Codex => "codex",
             Self::Kiro => "kiro",
         }
+    }
+
+    pub fn tool_name(self) -> &'static str {
+        match self {
+            Self::Claude | Self::KiroGatewayClaude => "claude",
+            Self::Codex => "codex",
+            Self::Kiro => "kiro",
+        }
+    }
+
+    pub fn uses_claude_runtime(self) -> bool {
+        matches!(self, Self::Claude | Self::KiroGatewayClaude)
     }
 }
 
@@ -215,6 +232,28 @@ impl AutomationSchedule {
             }
             Self::Cron { expression } if expression == "0 * * * *" => "每小时".to_string(),
             Self::Cron { expression } => format!("Cron · {expression}"),
+        }
+    }
+
+    pub fn spec(&self) -> String {
+        match self {
+            Self::Once { at } => DateTimeLabel::from_timestamp(*at)
+                .map(|value| format!("once:{value}"))
+                .unwrap_or_else(|| format!("once:{at}")),
+            Self::Daily { hour, minute } => format!("daily:{hour:02}:{minute:02}"),
+            Self::Weekly {
+                weekdays,
+                hour,
+                minute,
+            } => format!(
+                "weekly:{}@{hour:02}:{minute:02}",
+                weekdays
+                    .iter()
+                    .map(u32::to_string)
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ),
+            Self::Cron { expression } => format!("cron:{expression}"),
         }
     }
 
@@ -418,6 +457,7 @@ pub struct AutomationCreateRequest {
     pub reuse_session: bool,
     pub host_device_id: Option<String>,
     pub agent: AutomationAgent,
+    pub model: Option<String>,
     pub prompt: String,
     pub precheck_command: Option<String>,
     pub precheck_timeout_seconds: u64,
@@ -442,6 +482,7 @@ pub struct AutomationRunPlan {
     pub resume_session_id: Option<String>,
     pub host_device_id: Option<String>,
     pub agent: AutomationAgent,
+    pub model: Option<String>,
     pub prompt: String,
     pub precheck_command: Option<String>,
     pub precheck_timeout_seconds: u64,
@@ -506,6 +547,7 @@ impl AutomationService {
                 && request.reuse_session,
             host_device_id: request.host_device_id,
             agent: request.agent,
+            model: normalize_automation_model(request.agent, request.model),
             prompt: prompt.to_string(),
             precheck_command: request
                 .precheck_command
@@ -571,6 +613,7 @@ impl AutomationService {
                 && request.reuse_session;
             definition.host_device_id = request.host_device_id;
             definition.agent = request.agent;
+            definition.model = normalize_automation_model(request.agent, request.model);
             definition.prompt = prompt.to_string();
             definition.precheck_command = request
                 .precheck_command
@@ -1003,7 +1046,7 @@ fn new_run(
     let id = Uuid::new_v4().to_string();
     let ai_session_id = resume_session_id
         .clone()
-        .or_else(|| (definition.agent == AutomationAgent::Claude).then(|| id.clone()));
+        .or_else(|| definition.agent.uses_claude_runtime().then(|| id.clone()));
     AutomationRun {
         id,
         automation_id: definition.id.clone(),
@@ -1064,10 +1107,23 @@ fn run_plan(definition: &AutomationDefinition, run: &AutomationRun) -> Automatio
         resume_session_id: run.resumed_from_session_id.clone(),
         host_device_id: definition.host_device_id.clone(),
         agent: definition.agent,
+        model: definition.model.clone(),
         prompt: definition.prompt.clone(),
         precheck_command: definition.precheck_command.clone(),
         precheck_timeout_seconds: definition.precheck_timeout_seconds,
     }
+}
+
+fn normalize_automation_model(agent: AutomationAgent, model: Option<String>) -> Option<String> {
+    if agent != AutomationAgent::KiroGatewayClaude {
+        return None;
+    }
+    Some(
+        model
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "claude-opus-4.8".to_string()),
+    )
 }
 
 fn reusable_session_id(
@@ -1484,6 +1540,34 @@ mod tests {
     }
 
     #[test]
+    fn kiro_gateway_claude_keeps_distinct_mode_and_claude_runtime() {
+        let agent = AutomationAgent::KiroGatewayClaude;
+        assert_eq!(
+            serde_json::to_string(&agent).unwrap(),
+            "\"kiro_gateway_claude\""
+        );
+        assert_eq!(
+            serde_json::from_str::<AutomationAgent>("\"kiro_gateway_claude\"").unwrap(),
+            agent
+        );
+        assert_eq!(agent.id(), "kiro_gateway_claude");
+        assert_eq!(agent.tool_name(), "claude");
+        assert!(agent.uses_claude_runtime());
+        assert_eq!(
+            normalize_automation_model(agent, Some(" deepseek-3.2 ".to_string())),
+            Some("deepseek-3.2".to_string())
+        );
+        assert_eq!(
+            normalize_automation_model(agent, None),
+            Some("claude-opus-4.8".to_string())
+        );
+        assert_eq!(
+            normalize_automation_model(AutomationAgent::Claude, Some("ignored".to_string())),
+            None
+        );
+    }
+
+    #[test]
     fn parses_supported_schedule_specs_and_computes_next_run() {
         let daily = AutomationSchedule::parse("daily:09:30", "Asia/Shanghai").unwrap();
         let weekly = AutomationSchedule::parse("weekly:1,3,5@09:30", "Asia/Shanghai").unwrap();
@@ -1528,6 +1612,7 @@ mod tests {
                     reuse_session: false,
                     host_device_id: None,
                     agent: AutomationAgent::Claude,
+                    model: None,
                     prompt: "Review changes".to_string(),
                     precheck_command: None,
                     precheck_timeout_seconds: 60,
@@ -1570,6 +1655,7 @@ mod tests {
                 reuse_session: false,
                 host_device_id: None,
                 agent: AutomationAgent::Codex,
+                model: None,
                 prompt: "hello".to_string(),
                 precheck_command: None,
                 precheck_timeout_seconds: 60,
@@ -1604,6 +1690,7 @@ mod tests {
                     reuse_session: false,
                     host_device_id: None,
                     agent: AutomationAgent::Codex,
+                    model: None,
                     prompt: "Review changes".to_string(),
                     precheck_command: None,
                     precheck_timeout_seconds: 60,
@@ -1643,6 +1730,7 @@ mod tests {
                     reuse_session: false,
                     host_device_id: None,
                     agent: AutomationAgent::Codex,
+                    model: None,
                     prompt: "Review changes".to_string(),
                     precheck_command: None,
                     precheck_timeout_seconds: 60,
@@ -1757,6 +1845,7 @@ mod tests {
                 reuse_session: false,
                 host_device_id: None,
                 agent: AutomationAgent::Codex,
+                model: None,
                 prompt: "Review changes".to_string(),
                 precheck_command: None,
                 precheck_timeout_seconds: 60,
@@ -1783,6 +1872,7 @@ mod tests {
                     reuse_session: true,
                     host_device_id: None,
                     agent: AutomationAgent::Codex,
+                    model: None,
                     prompt: "Review changes".to_string(),
                     precheck_command: None,
                     precheck_timeout_seconds: 60,
@@ -1845,6 +1935,7 @@ mod tests {
                     reuse_session: true,
                     host_device_id: None,
                     agent: AutomationAgent::Codex,
+                    model: None,
                     prompt: "Continue the report".to_string(),
                     precheck_command: None,
                     precheck_timeout_seconds: 60,

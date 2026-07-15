@@ -9,6 +9,8 @@ pub const RUNTIME_LOG_PREVIEW_FILE_NAME: &str = "runtime-log-preview.txt";
 pub const CLAUDE_SESSION_MAP_DIR_NAME: &str = "claude-session-map";
 pub const OPENCODE_SESSION_MAP_DIR_NAME: &str = "opencode-session-map";
 pub const AI_RUNTIME_BINDING_DIR_NAME: &str = "ai-runtime-bindings";
+pub const LOCAL_CONTROL_SOCKET_FILE_NAME: &str = "local-control.sock";
+pub const LOCAL_CONTROL_TOKEN_FILE_NAME: &str = "local-control.token";
 
 pub fn app_support_dir() -> PathBuf {
     app_support_candidates()
@@ -62,6 +64,14 @@ pub fn opencode_session_map_dir() -> PathBuf {
 
 pub fn ai_runtime_binding_dir() -> PathBuf {
     ai_runtime_binding_dir_in(&runtime_temp_dir())
+}
+
+pub fn local_control_socket_path() -> PathBuf {
+    runtime_temp_dir().join(LOCAL_CONTROL_SOCKET_FILE_NAME)
+}
+
+pub fn local_control_token_path() -> PathBuf {
+    runtime_temp_dir().join(LOCAL_CONTROL_TOKEN_FILE_NAME)
 }
 
 pub fn runtime_log_path_in(app_support_dir: &Path) -> PathBuf {
@@ -224,5 +234,18 @@ mod tests {
             // Windows release prepends the exe-relative Data dir.
             assert!(candidates.last().unwrap().ends_with("WeCode"));
         }
+    }
+
+    #[test]
+    fn local_control_paths_share_the_profile_specific_runtime_root() {
+        let runtime = runtime_temp_dir();
+        assert_eq!(
+            local_control_socket_path(),
+            runtime.join(LOCAL_CONTROL_SOCKET_FILE_NAME)
+        );
+        assert_eq!(
+            local_control_token_path(),
+            runtime.join(LOCAL_CONTROL_TOKEN_FILE_NAME)
+        );
     }
 }
