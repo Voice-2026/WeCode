@@ -86,6 +86,61 @@ mod tests {
     }
 
     #[test]
+    fn codex_history_preserves_wecode_kiro_provider_for_resume() {
+        let root = std::env::temp_dir().join(format!("wecode-history-test-{}", Uuid::new_v4()));
+        let project_path = root.join("project-a").to_string_lossy().to_string();
+        let codex_dir = root.join(".codex/sessions");
+        fs::create_dir_all(&codex_dir).unwrap();
+        fs::write(
+            codex_dir.join("rollout.jsonl"),
+            format!(
+                "{}\n{}\n{}\n",
+                serde_json::json!({
+                    "timestamp": "2026-07-16T00:00:00Z",
+                    "type": "session_meta",
+                    "payload": {
+                        "cwd": project_path.clone(),
+                        "id": "kiro-session",
+                        "model_provider": "wecode-kiro"
+                    }
+                }),
+                serde_json::json!({
+                    "timestamp": "2026-07-16T00:00:01Z",
+                    "type": "turn_context",
+                    "payload": { "cwd": project_path.clone(), "model": "gpt-5.6-terra" }
+                }),
+                serde_json::json!({
+                    "timestamp": "2026-07-16T00:00:02Z",
+                    "type": "event_msg",
+                    "payload": {
+                        "type": "token_count",
+                        "info": { "last_token_usage": { "input_tokens": 10, "output_tokens": 5 } }
+                    }
+                })
+            ),
+        )
+        .unwrap();
+
+        let snapshot = load_project_history_without_store(
+            AIHistoryProjectRequest {
+                id: "project-1".to_string(),
+                name: "Project".to_string(),
+                path: project_path,
+            },
+            &root,
+            &mut |_, _| {},
+        );
+
+        assert_eq!(snapshot.sessions.len(), 1);
+        assert_eq!(snapshot.sessions[0].last_tool.as_deref(), Some("kiro-codex"));
+        assert_eq!(
+            snapshot.sessions[0].last_model.as_deref(),
+            Some("gpt-5.6-terra")
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn codex_history_title_ignores_injected_launch_context() {
         let root = std::env::temp_dir().join(format!("wecode-history-test-{}", Uuid::new_v4()));
         let project_path = root.join("project-a").to_string_lossy().to_string();

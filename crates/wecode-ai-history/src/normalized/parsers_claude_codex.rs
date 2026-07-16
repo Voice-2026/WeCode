@@ -158,6 +158,10 @@ fn parse_codex_history_file_snapshot(
         .unwrap_or_else(|| file_path.display().to_string());
     let mut session_title: Option<String> = payload.session_title.clone();
     let mut model: Option<String> = payload.last_model.clone();
+    let mut source = payload
+        .source
+        .clone()
+        .unwrap_or_else(|| codex_history_source(file_path));
     let mut total_by_model = payload.model_total_tokens_by_name.clone();
     let mut pending_entries = Vec::new();
     let mut pending_events = Vec::new();
@@ -179,6 +183,11 @@ fn parse_codex_history_file_snapshot(
         let row_type = row.get("type").and_then(|value| value.as_str());
         let payload = row.get("payload").unwrap_or(&Value::Null);
         if row_type == Some("session_meta") {
+            if payload.get("model_provider").and_then(|value| value.as_str())
+                == Some("wecode-kiro")
+            {
+                source = "kiro-codex".to_string();
+            }
             if payload
                 .get("cwd")
                 .and_then(|value| value.as_str())
@@ -229,7 +238,7 @@ fn parse_codex_history_file_snapshot(
             session_title = codex_response_title(payload);
         }
         pending_events.push(HistoryEvent {
-            source: "codex".to_string(),
+            source: source.clone(),
             session_id: session_id.clone(),
             timestamp,
             role: codex_role(row_type),
@@ -291,7 +300,7 @@ fn parse_codex_history_file_snapshot(
             return true;
         }
         pending_entries.push(HistoryEntry {
-            source: "codex".to_string(),
+            source: source.clone(),
             session_id: session_id.clone(),
             external_session_id: Some(session_id.clone()),
             session_title: session_title.clone().or_else(|| Some(project.name.clone())),
@@ -319,11 +328,42 @@ fn parse_codex_history_file_snapshot(
         .or(payload.external_session_id.clone());
     payload.session_title = session_title.or(payload.session_title.clone());
     payload.last_model = model.or(payload.last_model.clone());
+    payload.source = Some(source);
     payload.model_total_tokens_by_name = total_by_model;
 
     JSONLParseSnapshot {
         result,
         last_processed_offset,
         payload_json: encode_checkpoint_payload(&payload),
+    }
+}
+
+fn codex_history_source(file_path: &Path) -> String {
+    const SESSION_META_MAX_BYTES: u64 = 64 * 1024;
+    let Ok(file) = fs::File::open(file_path) else {
+        return "codex".to_string();
+    };
+    let mut prefix = String::new();
+    if BufReader::new(file)
+        .take(SESSION_META_MAX_BYTES)
+        .read_to_string(&mut prefix)
+        .is_err()
+    {
+        return "codex".to_string();
+    }
+    let provider = prefix
+        .lines()
+        .next()
+        .and_then(|line| serde_json::from_str::<Value>(line).ok())
+        .and_then(|row| {
+            row.get("payload")
+                .and_then(|payload| payload.get("model_provider"))
+                .and_then(|provider| provider.as_str())
+                .map(str::to_string)
+        });
+    if provider.as_deref() == Some("wecode-kiro") {
+        "kiro-codex".to_string()
+    } else {
+        "codex".to_string()
     }
 }

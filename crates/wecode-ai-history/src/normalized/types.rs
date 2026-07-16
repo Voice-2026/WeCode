@@ -246,6 +246,8 @@ pub struct AIExternalFileCheckpointPayload {
     pub session_title: Option<String>,
     pub last_model: Option<String>,
     #[serde(default)]
+    pub source: Option<String>,
+    #[serde(default)]
     pub model_total_tokens_by_name: HashMap<String, i64>,
 }
 

@@ -185,7 +185,7 @@ pub fn gateway_codex_environment(api_key: &str, model: &str) -> HashMap<String, 
 
 pub fn gateway_codex_command(model: &str, base_url: &str, context_window_tokens: u64) -> String {
     let mut command = format!(
-        "codex --model {} -c {} -c {} -c {} -c {} -c {} -c {}",
+        "codex --model {} -c {} -c {} -c {} -c {} -c {} -c {} -c {}",
         shell_quote(model),
         shell_quote("model_provider=\"wecode-kiro\""),
         shell_quote("model_providers.wecode-kiro.name=\"WeCode Kiro Gateway\""),
@@ -195,6 +195,7 @@ pub fn gateway_codex_command(model: &str, base_url: &str, context_window_tokens:
         shell_quote("model_providers.wecode-kiro.env_key=\"WECODE_KIRO_GATEWAY_API_KEY\""),
         shell_quote("model_providers.wecode-kiro.wire_api=\"responses\""),
         shell_quote("model_providers.wecode-kiro.requires_openai_auth=false"),
+        shell_quote("check_for_update_on_startup=false"),
     );
     if context_window_tokens > 0 {
         command.push_str(" -c ");
@@ -334,5 +335,17 @@ impl Drop for GatewayService {
         if let Some(tx) = self.stop_tx.lock().take() {
             let _ = tx.send(());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::gateway_codex_command;
+
+    #[test]
+    fn codex_gateway_command_disables_interactive_update_prompt() {
+        let command = gateway_codex_command("gpt-5.6-terra", "http://127.0.0.1:18989/v1", 272_000);
+        assert!(command.contains("check_for_update_on_startup=false"));
+        assert!(command.contains("model_provider=\"wecode-kiro\""));
     }
 }

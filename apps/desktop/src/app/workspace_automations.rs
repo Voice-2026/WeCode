@@ -1541,6 +1541,7 @@ fn automation_agent_command(
                 .map(|entry| entry.context_window_tokens)
                 .unwrap_or_default();
             let mut command = gateway_codex_command(model, base_url, context_window_tokens);
+            command.push_str(" --disable hooks");
             if let Some(session_id) = resume_session_id {
                 command.push_str(" exec resume --dangerously-bypass-approvals-and-sandbox ");
                 command.push_str(&session_id);
@@ -1683,6 +1684,7 @@ mod tests {
             Some("http://127.0.0.1:8989/v1"),
         );
         assert!(codex.contains("model_provider=\"wecode-kiro\""));
+        assert!(codex.contains("--disable hooks"));
         assert!(codex.contains("exec resume --dangerously-bypass-approvals-and-sandbox"));
         assert!(codex.contains("'codex session' 'Review gateway'"));
     }

@@ -325,7 +325,7 @@ pub fn session_list(
                 "terminalId": Value::Null,
                 "externalSessionId": session.external_session_id,
                 "title": session.title,
-                "agentId": canonical_agent_id(&session.source),
+                "agentId": history_agent_id(&session.source, session.last_model.as_deref()),
                 "model": session.last_model,
                 "status": "completed",
                 "updatedAt": session.last_seen_at,
@@ -381,7 +381,7 @@ pub fn session_resume(
 ) -> Result<Value, ProductControlError> {
     let (project, session) = find_history_session(service, session_id, project_id)?;
     ensure_local_project(service, &project)?;
-    let agent_id = canonical_agent_id(&session.source);
+    let agent_id = history_agent_id(&session.source, session.last_model.as_deref());
     let agent = agent_spec(&agent_id)?;
     if !agent.supports_resume {
         return Err(ProductControlError::new(
@@ -524,7 +524,7 @@ pub fn session_status(
         "projectName": project.name,
         "externalSessionId": session.external_session_id,
         "title": session.title,
-        "agentId": canonical_agent_id(&session.source),
+        "agentId": history_agent_id(&session.source, session.last_model.as_deref()),
         "model": session.last_model,
         "status": "completed",
         "updatedAt": session.last_seen_at,
@@ -1486,7 +1486,7 @@ fn active_session_value(
         "terminalId": terminal.id,
         "externalSessionId": runtime.and_then(|session| session.ai_session_id.clone()),
         "title": runtime.map(|session| session.session_title.clone()).unwrap_or_else(|| terminal.title.clone()),
-        "agentId": runtime.map(|session| canonical_agent_id(&session.tool)).or_else(|| terminal.tool.as_deref().map(canonical_agent_id)),
+        "agentId": terminal.tool.as_deref().map(canonical_agent_id).or_else(|| runtime.map(|session| canonical_agent_id(&session.tool))),
         "model": runtime.and_then(|session| session.model.clone()),
         "status": status,
         "updatedAt": runtime.map(|session| session.updated_at),
@@ -1552,8 +1552,9 @@ fn agent_screen_accepts_prompt(screen: &str) -> bool {
     if normalized.chars().count() < 8 {
         return false;
     }
-    const STARTUP_GATES: [&str; 9] = [
+    const STARTUP_GATES: [&str; 11] = [
         "press enter to continue",
+        "press enter to confirm or esc to go back",
         "continue anyway? [y/n]",
         "sign in with chatgpt",
         "finish signing in via your browser",
@@ -1562,6 +1563,7 @@ fn agent_screen_accepts_prompt(screen: &str) -> bool {
         "starting mcp server",
         "starting mcp servers",
         "booting mcp server",
+        "hooks need review",
     ];
     !STARTUP_GATES.iter().any(|gate| normalized.contains(gate))
 }
@@ -1696,8 +1698,10 @@ fn prepare_gateway_session(
                 &format!("http://{addr}/v1"),
                 model.context_window_tokens,
             );
+            let mut command = apply_gateway_permission(command, client, permission);
+            command.push_str(" --disable hooks");
             (
-                apply_gateway_permission(command, client, permission),
+                command,
                 crate::gateway_service::gateway_codex_environment(
                     &settings.config.api_key,
                     &model.id,
@@ -1959,6 +1963,20 @@ fn canonical_agent_id(source: &str) -> String {
     .to_string()
 }
 
+fn history_agent_id(source: &str, model: Option<&str>) -> String {
+    let canonical = canonical_agent_id(source);
+    let catalog = crate::gateway_service::current_gateway_model_catalog();
+    if canonical == "codex"
+        && model
+            .and_then(|model| catalog.model(model))
+            .is_some_and(|model| model.compatibility.codex_cli)
+    {
+        "kiro-codex".to_string()
+    } else {
+        canonical
+    }
+}
+
 fn history_session_can_resume(session: &AISessionSummary) -> bool {
     let agent_id = canonical_agent_id(&session.source);
     let supports_resume = agent_spec(&agent_id)
@@ -2084,6 +2102,19 @@ mod tests {
     }
 
     #[test]
+    fn legacy_codex_history_uses_kiro_provider_only_for_compatible_models() {
+        assert_eq!(
+            history_agent_id("codex", Some("gpt-5.6-terra")),
+            "kiro-codex"
+        );
+        assert_eq!(history_agent_id("codex", Some("gpt-5.5")), "codex");
+        assert_eq!(
+            history_agent_id("kiro-codex", Some("gpt-5.6-terra")),
+            "kiro-codex"
+        );
+    }
+
+    #[test]
     fn terminal_snapshot_strips_ansi_and_control_sequences() {
         assert_eq!(
             strip_terminal_control_sequences("a\u{1b}[31mred\u{1b}[0m\u{1b}]0;title\u{7}\r\nb"),
@@ -2099,6 +2130,9 @@ mod tests {
         ));
         assert!(!agent_screen_accepts_prompt(
             "Starting MCP servers (1/2): codex_apps"
+        ));
+        assert!(!agent_screen_accepts_prompt(
+            "Hooks need review\n5 hooks are new or changed.\nPress enter to confirm or esc to go back"
         ));
         assert!(!agent_screen_accepts_prompt(
             "Finish signing in via your browser"
