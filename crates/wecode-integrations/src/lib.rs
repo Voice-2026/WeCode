@@ -83,18 +83,20 @@ pub struct IntegrationManager {
 impl IntegrationManager {
     pub fn discover() -> Result<Self, String> {
         let home_dir = home_dir()?;
+        let invoked_exe = env::current_exe().unwrap_or_default();
+        let resolved_exe = fs::canonicalize(&invoked_exe).unwrap_or_else(|_| invoked_exe.clone());
         let source_dir = env::var_os("WECODE_CONTROL_SKILL_SOURCE")
             .map(PathBuf::from)
-            .unwrap_or_else(discover_bundled_skill_source);
+            .unwrap_or_else(|| discover_bundled_skill_source(&resolved_exe));
         let support_root = env::var_os("WECODE_INTEGRATION_SUPPORT_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(|| default_support_root(&home_dir));
         let cli_source = env::var_os("WECODE_BUNDLED_CLI_PATH")
             .map(PathBuf::from)
-            .unwrap_or_else(discover_bundled_cli);
+            .unwrap_or_else(|| discover_bundled_cli(&resolved_exe));
         let cli_target = env::var_os("WECODE_CLI_INSTALL_PATH")
             .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("/usr/local/bin/wecode"));
+            .unwrap_or_else(|| default_cli_target(&invoked_exe, &cli_source));
         let mut manager = Self::new(
             source_dir,
             support_root.join("skills").join(CONTROL_SKILL_NAME),
@@ -370,8 +372,7 @@ fn default_support_root(home: &Path) -> PathBuf {
     }
 }
 
-fn discover_bundled_skill_source() -> PathBuf {
-    let exe = env::current_exe().unwrap_or_default();
+fn discover_bundled_skill_source(exe: &Path) -> PathBuf {
     let exe_dir = exe.parent().unwrap_or_else(|| Path::new(""));
     let candidates = [
         exe_dir.join("../Resources/skills").join(CONTROL_SKILL_NAME),
@@ -383,21 +384,34 @@ fn discover_bundled_skill_source() -> PathBuf {
     candidates
         .into_iter()
         .find(|path| path.join("SKILL.md").is_file())
+        .map(canonicalize_if_possible)
         .unwrap_or_else(|| exe_dir.join("../Resources/skills").join(CONTROL_SKILL_NAME))
 }
 
-fn discover_bundled_cli() -> PathBuf {
-    let exe = env::current_exe().unwrap_or_default();
+fn discover_bundled_cli(exe: &Path) -> PathBuf {
     let exe_dir = exe.parent().unwrap_or_else(|| Path::new(""));
     let candidates = [
         exe_dir.join("../Resources/bin/wecode"),
         exe_dir.join("../bin/wecode"),
-        exe.clone(),
+        exe.to_path_buf(),
     ];
     candidates
         .into_iter()
         .find(|path| path.is_file())
+        .map(canonicalize_if_possible)
         .unwrap_or_else(|| exe_dir.join("../Resources/bin/wecode"))
+}
+
+fn default_cli_target(invoked_exe: &Path, cli_source: &Path) -> PathBuf {
+    if invoked_exe.is_symlink() && symlink_points_to(invoked_exe, cli_source) {
+        invoked_exe.to_path_buf()
+    } else {
+        PathBuf::from("/usr/local/bin/wecode")
+    }
+}
+
+fn canonicalize_if_possible(path: PathBuf) -> PathBuf {
+    fs::canonicalize(&path).unwrap_or(path)
 }
 
 fn validate_skill_dir(path: &Path) -> Result<(), String> {
@@ -682,6 +696,53 @@ mod tests {
         assert!(manager.should_offer_setup());
         manager.mark_setup_offered().unwrap();
         assert!(!manager.should_offer_setup());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn resolves_bundle_resources_and_cli_status_through_homebrew_symlink() {
+        let root = env::temp_dir().join(format!(
+            "wecode-homebrew-integration-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let resources = root.join("Applications/WeCode.app/Contents/Resources");
+        let cli_source = resources.join("bin/wecode");
+        let skill_source = resources.join("skills/wecode-control");
+        fs::create_dir_all(&skill_source).unwrap();
+        fs::create_dir_all(cli_source.parent().unwrap()).unwrap();
+        fs::write(&cli_source, "cli").unwrap();
+        fs::write(
+            skill_source.join("SKILL.md"),
+            "---\nname: wecode-control\n---\n",
+        )
+        .unwrap();
+        let command_path = root.join("opt/homebrew/bin/wecode");
+        fs::create_dir_all(command_path.parent().unwrap()).unwrap();
+        create_file_symlink(&cli_source, &command_path).unwrap();
+
+        let resolved_exe = fs::canonicalize(&command_path).unwrap();
+        let discovered_skill = discover_bundled_skill_source(&resolved_exe);
+        let discovered_cli = discover_bundled_cli(&resolved_exe);
+        let cli_target = default_cli_target(&command_path, &discovered_cli);
+        let manager = IntegrationManager::new(
+            discovered_skill,
+            root.join("support/skills/wecode-control"),
+            root.join("home"),
+            discovered_cli,
+            cli_target,
+        );
+
+        assert!(manager.snapshot().source_available);
+        let status = manager.cli_status();
+        assert!(status.bundled);
+        assert!(status.installed);
+        assert!(status.managed);
+        assert_eq!(status.command_path, command_path);
+        assert_eq!(status.bundled_path, fs::canonicalize(cli_source).unwrap());
         let _ = fs::remove_dir_all(root);
     }
 }
