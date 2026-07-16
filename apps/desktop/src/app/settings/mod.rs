@@ -414,6 +414,9 @@ fn settings_pane_body(
         SettingsPane::Gateway => settings_gateway_pane(
             &app.gateway_settings,
             &app.gateway_service,
+            &app.gateway_model_catalog,
+            app.gateway_models_refreshing,
+            app.gateway_models_error.as_deref(),
             app.state.settings.language.as_str(),
             window,
             cx,

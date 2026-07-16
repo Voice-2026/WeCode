@@ -114,7 +114,8 @@ impl WeCodeApp {
         .into_iter()
         .map(|(value, label)| SelectOption::new(value, label))
         .collect::<Vec<_>>();
-        let model_options = automation_gateway_model_options(&self.automation_model);
+        let model_options =
+            automation_gateway_model_options(&self.gateway_model_catalog, &self.automation_model);
         let schedule_options = [
             ("hourly", "每小时"),
             ("daily", "每天"),

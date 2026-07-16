@@ -12,11 +12,12 @@ use serde_json::json;
 
 use crate::accounts::AccountManager;
 use crate::config::GatewayConfig;
-use crate::model_resolver::available_models;
+use crate::model_catalog::GatewayModelCatalog;
 
 #[derive(Clone)]
 pub struct AppState {
     pub config: Arc<GatewayConfig>,
+    pub model_catalog: Arc<GatewayModelCatalog>,
     pub accounts: Arc<AccountManager>,
     pub truncation: Arc<crate::truncation::TruncationStore>,
 }
@@ -69,20 +70,20 @@ async fn models(State(state): State<AppState>, headers: HeaderMap) -> Response {
     if let Err(resp) = verify_api_key(&headers, &state.config) {
         return resp;
     }
-    let ids = available_models(
-        &state.config.model_aliases,
-        &state.config.hidden_models,
-        &state.config.hidden_from_list,
-    );
+    let mut models = state.model_catalog.models.clone();
+    models.retain(|model| !state.config.hidden_from_list.contains(&model.id));
     let created = chrono::Utc::now().timestamp();
-    let data: Vec<_> = ids
+    let data: Vec<_> = models
         .into_iter()
-        .map(|id| {
+        .map(|model| {
             json!({
-                "id": id,
+                "id": model.id,
                 "object": "model",
                 "created": created,
-                "owned_by": "anthropic"
+                "owned_by": model.owned_by,
+                "context_window_tokens": model.context_window_tokens,
+                "rate_multiplier": model.rate_multiplier,
+                "compatibility": model.compatibility,
             })
         })
         .collect();

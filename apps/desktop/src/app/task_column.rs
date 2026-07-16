@@ -1922,6 +1922,15 @@ fn terminal_create_card(
     } else {
         "Gateway disabled".to_string()
     };
+    let gateway_models = wecode_runtime::gateway_service::current_gateway_model_catalog()
+        .claude_code_models()
+        .map(|model| {
+            (
+                format!("Gateway · {}", model.name),
+                format!("kiro-gateway-claude-model:{}", model.id),
+            )
+        })
+        .collect::<Vec<_>>();
     Button::new("task-terminal-create")
         .custom(
             ButtonCustomVariant::new(cx)
@@ -1980,26 +1989,12 @@ fn terminal_create_card(
                 ))
                 .separator();
             if gateway_ready {
-                for (label, target) in [
-                    ("Kiro Gateway · Claude · Opus 4.8", "kiro-gateway-claude"),
-                    ("Gateway · Haiku 4.5", "kiro-gateway-claude-haiku-4-5"),
-                    ("Gateway · Sonnet 4.6", "kiro-gateway-claude-sonnet-4-6"),
-                    ("Gateway · Opus 4.6", "kiro-gateway-claude-opus-4-6"),
-                    ("Gateway · Opus 4.7", "kiro-gateway-claude-opus-4-7"),
-                    ("Gateway · Opus 4.8", "kiro-gateway-claude-opus-4-8"),
-                    ("Gateway · DeepSeek 3.2", "kiro-gateway-claude-deepseek-3-2"),
-                    ("Gateway · GLM 5", "kiro-gateway-claude-glm-5"),
-                    ("Gateway · MiniMax M2.5", "kiro-gateway-claude-minimax-m2-5"),
-                    (
-                        "Gateway · Qwen3 Coder",
-                        "kiro-gateway-claude-qwen3-coder-next",
-                    ),
-                ] {
+                for (label, target) in &gateway_models {
                     menu = menu.item(new_terminal_agent_menu_item(
                         app_entity.clone(),
-                        label,
+                        label.clone(),
                         HeroIconName::ServerStack,
-                        target,
+                        target.clone(),
                     ));
                 }
             } else {
@@ -2015,15 +2010,16 @@ fn terminal_create_card(
 
 fn new_terminal_agent_menu_item(
     app_entity: gpui::Entity<WeCodeApp>,
-    label: &'static str,
+    label: impl Into<SharedString>,
     icon: HeroIconName,
-    target: &'static str,
+    target: impl Into<String>,
 ) -> PopupMenuItem {
-    PopupMenuItem::new(label)
+    let target = target.into();
+    PopupMenuItem::new(label.into())
         .icon(icon)
         .on_click(move |_, window, cx| {
             cx.update_entity(&app_entity, |app, cx| {
-                app.create_terminal_with_quick_agent(target, window, cx);
+                app.create_terminal_with_quick_agent(&target, window, cx);
             });
         })
 }

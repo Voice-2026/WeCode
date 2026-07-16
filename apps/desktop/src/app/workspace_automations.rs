@@ -496,7 +496,7 @@ impl WeCodeApp {
         self.automation_schedule_preset = AutomationSchedulePreset::Daily;
         self.automation_weekday = 1;
         self.automation_agent = AutomationAgent::KiroGatewayClaude;
-        self.automation_model = "claude-opus-4.8".to_string();
+        self.automation_model = self.gateway_settings.default_claude_model.clone();
         self.set_automation_inputs("", "09:00", "Asia/Shanghai", "", "", "60", window, cx);
         self.invalidate_ui(cx, [UiRegion::WorkspaceBody]);
     }
@@ -612,7 +612,7 @@ impl WeCodeApp {
         self.automation_schedule_preset = template.preset;
         self.automation_weekday = 1;
         self.automation_agent = AutomationAgent::KiroGatewayClaude;
-        self.automation_model = "claude-opus-4.8".to_string();
+        self.automation_model = self.gateway_settings.default_claude_model.clone();
         self.set_automation_inputs(
             template.title,
             "09:00",
@@ -1620,7 +1620,10 @@ mod tests {
             automation_agent_value(AutomationAgent::KiroGatewayClaude),
             "kiro_gateway_claude"
         );
-        let models = automation_gateway_model_options("deepseek-3.2");
+        let models = automation_gateway_model_options(
+            &wecode_runtime::gateway_service::GatewayModelCatalog::fallback(),
+            "deepseek-3.2",
+        );
         assert!(
             models
                 .iter()

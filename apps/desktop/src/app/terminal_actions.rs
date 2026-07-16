@@ -279,7 +279,7 @@ impl WeCodeApp {
 
     pub(in crate::app) fn create_terminal_with_quick_agent(
         &mut self,
-        target: &'static str,
+        target: &str,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -1553,44 +1553,24 @@ impl WeCodeApp {
 
     pub(in crate::app) fn launch_quick_agent(
         &mut self,
-        target: &'static str,
+        target: &str,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let launch = match target {
-            "codex" => Some(("Codex".to_string(), "codex".to_string(), None)),
-            "claude" => Some(("Claude Code".to_string(), "claude".to_string(), None)),
-            "kiro" => Some(("Kiro".to_string(), "kiro-cli".to_string(), None)),
-            "kiro-gateway-claude" => {
-                self.kiro_gateway_quick_launch("claude", Some("claude-opus-4.8"))
+        let launch = if let Some(model) = target.strip_prefix("kiro-gateway-claude-model:") {
+            self.kiro_gateway_quick_launch("claude", Some(model))
+        } else {
+            match target {
+                "codex" => Some(("Codex".to_string(), "codex".to_string(), None)),
+                "claude" => Some(("Claude Code".to_string(), "claude".to_string(), None)),
+                "kiro" => Some(("Kiro".to_string(), "kiro-cli".to_string(), None)),
+                "kiro-gateway-claude" => {
+                    let model = self.gateway_settings.default_claude_model.clone();
+                    self.kiro_gateway_quick_launch("claude", Some(&model))
+                }
+                "kiro-gateway-codex" => self.kiro_gateway_quick_launch("codex", None),
+                _ => None,
             }
-            "kiro-gateway-claude-haiku-4-5" => {
-                self.kiro_gateway_quick_launch("claude", Some("claude-haiku-4.5"))
-            }
-            "kiro-gateway-claude-sonnet-4-6" => {
-                self.kiro_gateway_quick_launch("claude", Some("claude-sonnet-4.6"))
-            }
-            "kiro-gateway-claude-opus-4-6" => {
-                self.kiro_gateway_quick_launch("claude", Some("claude-opus-4.6"))
-            }
-            "kiro-gateway-claude-opus-4-7" => {
-                self.kiro_gateway_quick_launch("claude", Some("claude-opus-4.7"))
-            }
-            "kiro-gateway-claude-opus-4-8" => {
-                self.kiro_gateway_quick_launch("claude", Some("claude-opus-4.8"))
-            }
-            "kiro-gateway-claude-deepseek-3-2" => {
-                self.kiro_gateway_quick_launch("claude", Some("deepseek-3.2"))
-            }
-            "kiro-gateway-claude-glm-5" => self.kiro_gateway_quick_launch("claude", Some("glm-5")),
-            "kiro-gateway-claude-minimax-m2-5" => {
-                self.kiro_gateway_quick_launch("claude", Some("minimax-m2.5"))
-            }
-            "kiro-gateway-claude-qwen3-coder-next" => {
-                self.kiro_gateway_quick_launch("claude", Some("qwen3-coder-next"))
-            }
-            "kiro-gateway-codex" => self.kiro_gateway_quick_launch("codex", None),
-            _ => None,
         };
         let Some((title, command, env)) = launch else {
             if self.status_message.is_empty() {
@@ -1631,7 +1611,11 @@ impl WeCodeApp {
         };
         let model = model_override
             .map(str::to_string)
-            .unwrap_or_else(|| quick_gateway_model(&self.state.tool_permissions.kiro_model));
+            .unwrap_or_else(|| match client {
+                "claude" => self.gateway_settings.default_claude_model.clone(),
+                "codex" => self.gateway_settings.default_codex_model.clone(),
+                _ => quick_gateway_model(&self.state.tool_permissions.kiro_model),
+            });
         match client {
             "claude" => self.kiro_gateway_claude_launch(&model, None),
             "codex" => {

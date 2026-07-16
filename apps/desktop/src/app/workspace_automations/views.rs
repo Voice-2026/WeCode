@@ -249,21 +249,14 @@ pub(super) fn automation_agent_from_value(value: &str) -> Option<AutomationAgent
     }
 }
 
-pub(super) fn automation_gateway_model_options(selected: &str) -> Vec<SelectOption> {
-    let mut options = [
-        ("claude-haiku-4.5", "Claude Haiku 4.5"),
-        ("claude-sonnet-4.6", "Claude Sonnet 4.6"),
-        ("claude-opus-4.6", "Claude Opus 4.6"),
-        ("claude-opus-4.7", "Claude Opus 4.7"),
-        ("claude-opus-4.8", "Claude Opus 4.8"),
-        ("deepseek-3.2", "DeepSeek 3.2"),
-        ("glm-5", "GLM 5"),
-        ("minimax-m2.5", "MiniMax M2.5"),
-        ("qwen3-coder-next", "Qwen3 Coder Next"),
-    ]
-    .into_iter()
-    .map(|(value, label)| SelectOption::new(value, label))
-    .collect::<Vec<_>>();
+pub(super) fn automation_gateway_model_options(
+    catalog: &wecode_runtime::gateway_service::GatewayModelCatalog,
+    selected: &str,
+) -> Vec<SelectOption> {
+    let mut options = catalog
+        .claude_code_models()
+        .map(|model| SelectOption::new(model.id.clone(), SharedString::from(model.name.clone())))
+        .collect::<Vec<_>>();
     let selected = selected.trim();
     if !selected.is_empty()
         && !options
