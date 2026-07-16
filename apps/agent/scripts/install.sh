@@ -5,7 +5,7 @@
 #           on your PATH as `wecode` (no build toolchain needed).
 # Uninstall stop the host, remove its OS service, and delete the binary.
 #
-#   curl -fsSL https://raw.githubusercontent.com/duxweb/wecode/main/apps/agent/scripts/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/Voice-2026/WeCode/main/apps/agent/scripts/install.sh | sh
 #   curl -fsSL .../install.sh | sh -s -- --uninstall
 #
 # Options (pass after `sh -s --`, or as env vars):
@@ -24,7 +24,7 @@
 #   --help              show this help
 set -eu
 
-REPO="duxweb/wecode"
+REPO="Voice-2026/WeCode"
 BIN_NAME="wecode"
 MODE="install"
 CHANNEL="${WECODE_CHANNEL:-stable}"
@@ -51,7 +51,7 @@ WeCode headless host (wecode) installer / uninstaller.
 Install   download the prebuilt wecode-agent binary and put it on PATH as `wecode`.
 Uninstall stop the host, remove its OS service, delete the binary.
 
-  curl -fsSL https://raw.githubusercontent.com/duxweb/wecode/main/apps/agent/scripts/install.sh | sh
+  curl -fsSL https://raw.githubusercontent.com/Voice-2026/WeCode/main/apps/agent/scripts/install.sh | sh
   curl -fsSL .../install.sh | sh -s -- --uninstall
 
 Options (pass after `sh -s --`, or as env vars):
@@ -105,7 +105,7 @@ detect_os() {
     Darwin) printf 'macos' ;;
     Linux)  printf 'linux' ;;
     MINGW*|MSYS*|CYGWIN*)
-      err "Windows isn't supported by this script. Download wecode-agent-<ver>-windows-x86_64.exe from https://github.com/$REPO/releases and add it to your PATH as wecode.exe" ;;
+      err "Windows isn't supported. WeCode Agent CLI currently targets macOS and Linux." ;;
     *) err "unsupported OS: $(uname -s)" ;;
   esac
 }

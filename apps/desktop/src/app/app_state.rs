@@ -192,6 +192,7 @@ pub struct WeCodeApp {
     pub(in crate::app) toast_message: Option<String>,
     pub(in crate::app) toast_revision: u64,
     pub(in crate::app) pending_restart_language: Option<String>,
+    pub(in crate::app) integration_action_in_flight: bool,
     pub(in crate::app) desktop_pet_window: Option<AnyWindowHandle>,
     pub(in crate::app) settings_window: Option<AnyWindowHandle>,
     pub(in crate::app) about_window: Option<AnyWindowHandle>,

@@ -1,6 +1,22 @@
 use super::*;
 
 impl WeCodeApp {
+    pub(crate) fn maybe_offer_integration_setup(&mut self, cx: &mut Context<Self>) {
+        let Ok(manager) = wecode_integrations::IntegrationManager::discover() else {
+            return;
+        };
+        if !manager.should_offer_setup() {
+            return;
+        }
+        if let Err(error) = manager.mark_setup_offered() {
+            self.runtime_trace(
+                "integrations",
+                &format!("failed to mark setup offer: {error}"),
+            );
+        }
+        self.open_settings_window_with_pane(SettingsPane::Integrations, cx);
+    }
+
     pub(in crate::app) fn open_settings_window(
         &mut self,
         _window: &mut Window,

@@ -5,6 +5,7 @@ mod ai_stats;
 mod cmd_app;
 mod cmd_config;
 mod cmd_device;
+mod cmd_integration;
 mod cmd_pair;
 mod cmd_product;
 mod cmd_service;
@@ -82,6 +83,11 @@ enum Command {
     Automation {
         #[command(subcommand)]
         command: AutomationCommand,
+    },
+    /// Install and manage the bundled WeCode control integration for external Agents.
+    Integration {
+        #[command(subcommand)]
+        command: IntegrationCommand,
     },
     /// Generate shell completion for the public WeCode command tree.
     Completion {
@@ -170,6 +176,25 @@ enum CompletionShell {
     Fish,
     PowerShell,
     Elvish,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum IntegrationAgentArg {
+    All,
+    Codex,
+    Claude,
+    Kiro,
+}
+
+impl IntegrationAgentArg {
+    fn agents(self) -> Vec<wecode_integrations::AgentKind> {
+        match self {
+            Self::All => wecode_integrations::AgentKind::ALL.to_vec(),
+            Self::Codex => vec![wecode_integrations::AgentKind::Codex],
+            Self::Claude => vec![wecode_integrations::AgentKind::ClaudeCode],
+            Self::Kiro => vec![wecode_integrations::AgentKind::Kiro],
+        }
+    }
 }
 
 impl From<CompletionShell> for clap_complete::Shell {
@@ -490,6 +515,40 @@ enum AutomationCommand {
     },
 }
 
+#[derive(Subcommand)]
+enum IntegrationCommand {
+    /// Show bundled CLI and Agent Skill installation state.
+    Status {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Install the bundled wecode-control Skill for one Agent or all detected Agents.
+    Install {
+        #[arg(long, value_enum, default_value = "all")]
+        agent: IntegrationAgentArg,
+        #[arg(long)]
+        confirm: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Refresh the canonical wecode-control Skill from the current WeCode bundle.
+    Update {
+        #[arg(long)]
+        confirm: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Remove WeCode-managed Skill links for one Agent or all Agents.
+    Uninstall {
+        #[arg(long, value_enum, default_value = "all")]
+        agent: IntegrationAgentArg,
+        #[arg(long)]
+        confirm: bool,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
 fn main() {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     match wecode_runtime_live::wrapper_helper::handle_args(&args) {
@@ -729,6 +788,28 @@ fn main() {
             id,
             json,
         ),
+        Some(Command::Integration {
+            command: IntegrationCommand::Status { json },
+        }) => cmd_integration::status(json),
+        Some(Command::Integration {
+            command:
+                IntegrationCommand::Install {
+                    agent,
+                    confirm,
+                    json,
+                },
+        }) => cmd_integration::install(&agent.agents(), confirm, json),
+        Some(Command::Integration {
+            command: IntegrationCommand::Update { confirm, json },
+        }) => cmd_integration::update(confirm, json),
+        Some(Command::Integration {
+            command:
+                IntegrationCommand::Uninstall {
+                    agent,
+                    confirm,
+                    json,
+                },
+        }) => cmd_integration::uninstall(&agent.agents(), confirm, json),
         Some(Command::Completion { shell }) => {
             let mut command = Cli::command();
             clap_complete::generate(
@@ -827,6 +908,7 @@ mod product_cli_contract_tests {
             "session",
             "terminal",
             "automation",
+            "integration",
         ];
         for group in expected_groups {
             assert!(
@@ -953,6 +1035,26 @@ mod product_cli_contract_tests {
             &["wecode", "automation", "run", "--id", "a", "--json"],
             &["wecode", "automation", "pause", "--id", "a", "--json"],
             &["wecode", "automation", "resume", "--id", "a", "--json"],
+            &["wecode", "integration", "status", "--json"],
+            &[
+                "wecode",
+                "integration",
+                "install",
+                "--agent",
+                "codex",
+                "--confirm",
+                "--json",
+            ],
+            &["wecode", "integration", "update", "--confirm", "--json"],
+            &[
+                "wecode",
+                "integration",
+                "uninstall",
+                "--agent",
+                "all",
+                "--confirm",
+                "--json",
+            ],
             &["wecode", "completion", "zsh"],
         ];
         for args in cases {

@@ -32,6 +32,17 @@ Failure:
 
 Preserve `requestId`, `error.code`, and `error.details` when reporting a failure.
 
+## App integrations
+
+```bash
+wecode integration status --json
+wecode integration install --agent all|codex|claude|kiro --confirm --json
+wecode integration update --confirm --json
+wecode integration uninstall --agent all|codex|claude|kiro --confirm --json
+```
+
+`status` is read-only and reports the bundled CLI, bundled Skill, canonical managed copy, per-Agent target paths, and whether an update is available. The other commands require `--confirm`; without it they return `CONFIRMATION_REQUIRED`. WeCode installs one canonical Skill copy and links it into supported Agent directories. It refuses to overwrite or remove an unmanaged file or directory.
+
 ## Discovery
 
 ```bash
@@ -134,6 +145,7 @@ Supported `Claude + Kiro` model IDs include `claude-haiku-4.5`, `claude-sonnet-4
 - `SESSION_NOT_READY` / `TERMINAL_NOT_READY`: poll and retry after readiness.
 - `SESSION_NOT_FOUND`: list sessions; after restart, resume a reliable history session.
 - `CONFIRMATION_REQUIRED`: present `error.details` and wait for explicit confirmation.
+- `INTEGRATION_CONFLICT`: an unmanaged CLI or Skill already occupies the target; preserve it and ask the user how to proceed.
 - `UNAUTHORIZED`: the requested model or permission mode exceeds WeCode configuration; do not bypass it.
 - `UNSUPPORTED_CAPABILITY`: use only the advertised surface; do not emulate it through internal files.
 - `AMBIGUOUS_TARGET`: list candidates and ask the user to choose.

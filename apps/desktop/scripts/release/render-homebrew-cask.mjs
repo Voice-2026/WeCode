@@ -4,11 +4,11 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const [, , versionArg, armSha256, intelSha256, outputPath] = process.argv;
+const [, , versionArg, armSha256, outputPath] = process.argv;
 const version = (versionArg || "").replace(/^v/, "");
 
-if (!version || !armSha256 || !intelSha256 || !outputPath) {
-  throw new Error("usage: render-homebrew-cask.mjs <version> <arm-sha256> <intel-sha256> <output-path>");
+if (!version || !armSha256 || !outputPath) {
+  throw new Error("usage: render-homebrew-cask.mjs <version> <arm-sha256> <output-path>");
 }
 
 fs.mkdirSync(path.dirname(outputPath), { recursive: true });
@@ -17,28 +17,24 @@ fs.writeFileSync(
   `cask "wecode" do
   version "${version}"
 
-  on_arm do
-    sha256 "${armSha256}"
-    url "https://github.com/duxweb/wecode/releases/download/v#{version}/wecode-#{version}-macos-aarch64.dmg"
-  end
+  sha256 "${armSha256}"
 
-  on_intel do
-    sha256 "${intelSha256}"
-    url "https://github.com/duxweb/wecode/releases/download/v#{version}/wecode-#{version}-macos-x86_64.dmg"
-  end
+  url "https://github.com/Voice-2026/WeCode/releases/download/v#{version}/wecode-#{version}-macos-aarch64.dmg"
 
   name "WeCode"
   desc "Native terminal workspace for AI coding tools"
-  homepage "https://github.com/duxweb/wecode"
+  homepage "https://github.com/Voice-2026/WeCode"
 
   livecheck do
     url :url
     strategy :github_latest
   end
 
-  depends_on macos: ">= :sonoma"
+  depends_on arch: :arm64
+  depends_on macos: :sonoma
 
   app "WeCode.app"
+  binary "#{appdir}/WeCode.app/Contents/Resources/bin/wecode", target: "wecode"
 
   zap trash: [
     "~/Library/Application Support/WeCode",

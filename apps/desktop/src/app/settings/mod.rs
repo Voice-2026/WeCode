@@ -47,6 +47,8 @@ mod gateway;
 mod general;
 #[path = "panes/git.rs"]
 mod git;
+#[path = "panes/integrations.rs"]
+mod integrations;
 #[path = "panes/memory.rs"]
 mod memory;
 #[path = "panes/notifications.rs"]
@@ -65,6 +67,7 @@ use self::{
     gateway::settings_gateway_pane,
     general::settings_general_pane,
     git::settings_git_pane,
+    integrations::settings_integrations_pane,
     memory::settings_memory_pane,
     notifications::settings_notifications_pane,
     pet::settings_pet_pane,
@@ -83,6 +86,7 @@ pub(super) enum SettingsPane {
     Pet,
     AI,
     Gateway,
+    Integrations,
     Git,
     Memory,
     Notifications,
@@ -99,6 +103,7 @@ impl SettingsPane {
             Self::Pet => "settings.tab.pet",
             Self::AI => "settings.tab.ai",
             Self::Gateway => "settings.tab.gateway",
+            Self::Integrations => "settings.tab.integrations",
             Self::Git => "settings.tab.git",
             Self::Memory => "settings.tab.memory",
             Self::Notifications => "settings.tab.notifications",
@@ -112,6 +117,7 @@ impl SettingsPane {
             Self::Pet => settings_text(language, key, "Pet"),
             Self::AI => settings_text(language, key, "AI"),
             Self::Gateway => settings_text(language, key, "Gateway"),
+            Self::Integrations => settings_text(language, key, "Integrations"),
             Self::Git => settings_text(language, key, "Git"),
             Self::Memory => settings_text(language, key, "Memory"),
             Self::Notifications => settings_text(language, key, "Notifications"),
@@ -128,6 +134,7 @@ impl SettingsPane {
             Self::Pet => HeroIconName::Heart,
             Self::AI => HeroIconName::CpuChip,
             Self::Gateway => HeroIconName::ServerStack,
+            Self::Integrations => HeroIconName::PuzzlePiece,
             Self::Git => HeroIconName::ArrowPathRoundedSquare,
             Self::Memory => HeroIconName::BookOpen,
             Self::Notifications => HeroIconName::Bell,
@@ -138,12 +145,13 @@ impl SettingsPane {
     }
 }
 
-const SETTINGS_PANES: [SettingsPane; 11] = [
+const SETTINGS_PANES: [SettingsPane; 12] = [
     SettingsPane::General,
     SettingsPane::Appearance,
     SettingsPane::Pet,
     SettingsPane::AI,
     SettingsPane::Gateway,
+    SettingsPane::Integrations,
     SettingsPane::Git,
     SettingsPane::Memory,
     SettingsPane::Notifications,
@@ -418,6 +426,12 @@ fn settings_pane_body(
             app.gateway_models_refreshing,
             app.gateway_models_error.as_deref(),
             app.state.settings.language.as_str(),
+            window,
+            cx,
+        ),
+        SettingsPane::Integrations => settings_integrations_pane(
+            &app.state.settings,
+            app.integration_action_in_flight,
             window,
             cx,
         ),

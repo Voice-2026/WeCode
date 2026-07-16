@@ -12,6 +12,7 @@ process.env.RELEASE_STAGE_DIR = "target/release-package-test";
 const {
   __testIsTauriUpdaterSignatureRequired,
   __testPackageWindows,
+  __testStageProductIntegrations,
   __testStageRuntimeAssets,
   __testWindowsNsisScript,
 } = await import("./package-gpui.mjs");
@@ -86,6 +87,27 @@ try {
   assertNoSymlinks(runtimeRoot);
 } finally {
   fs.rmSync(tempDir, { recursive: true, force: true });
+}
+
+const integrationTempDir = fs.mkdtempSync(path.join(os.tmpdir(), "wecode-package-integrations-"));
+try {
+  const resourcesDir = path.join(integrationTempDir, "Resources");
+  const agentBinary = path.join(integrationTempDir, "wecode-agent");
+  fs.writeFileSync(agentBinary, "product-cli");
+  __testStageProductIntegrations(resourcesDir, agentBinary);
+  assert.equal(
+    fs.readFileSync(path.join(resourcesDir, "bin", "wecode"), "utf8"),
+    "product-cli",
+    "macOS bundle should include the Product CLI",
+  );
+  assert.equal(
+    fs.existsSync(path.join(resourcesDir, "skills", "wecode-control", "SKILL.md")),
+    true,
+    "macOS bundle should include wecode-control",
+  );
+  assertNoSymlinks(path.join(resourcesDir, "skills", "wecode-control"));
+} finally {
+  fs.rmSync(integrationTempDir, { recursive: true, force: true });
 }
 
 console.log("package-gpui installer test passed");

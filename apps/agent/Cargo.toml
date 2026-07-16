@@ -16,6 +16,7 @@ base64 = "0.22"
 wecode-ai-history = { path = "../../crates/wecode-ai-history" }
 wecode-ai-sessions = { path = "../../crates/wecode-ai-sessions" }
 wecode-git = { path = "../../crates/wecode-git" }
+wecode-integrations = { path = "../../crates/wecode-integrations" }
 wecode-memory = { path = "../../crates/wecode-memory" }
 wecode-protocol = { path = "../../crates/wecode-protocol" }
 wecode-remote-transport = { path = "../../crates/wecode-remote-transport" }

@@ -93,7 +93,9 @@ Environment directives include WeCode memory plus runtime commands such as `weco
 
 ## Product CLI & Automations
 
-The bundled `wecode` product CLI lets other agents control the running Desktop through a stable JSON protocol. It can discover projects and models, create or resume sessions, send prompts, manage worktrees and terminals, and operate scheduled automations.
+The macOS app bundles the `wecode` product CLI and the `wecode-control` Skill. Homebrew exposes the CLI automatically; DMG installs can enable it from **Settings > Integrations**. The same page installs the Skill for detected Codex, Claude Code, and Kiro agents without overwriting unmanaged copies.
+
+The CLI lets other agents control the running Desktop through a stable JSON protocol. It can discover projects and models, create or resume sessions, send prompts, manage worktrees and terminals, and operate scheduled automations.
 
 ```bash
 wecode app status --json
@@ -102,7 +104,7 @@ wecode automation list --json
 wecode automation run --id <automation-id> --json
 ```
 
-The included `wecode-control` Skill documents the complete contract for Codex and other external agents. New automation tasks default to **Claude + Kiro** with **Opus 4.8**, while the editor and CLI also support explicit model selection.
+The included `wecode-control` Skill documents the complete contract for Codex and other external agents. Run `wecode integration status --json` to inspect the installation. New automation tasks default to **Claude + Kiro** with **Opus 4.8**, while the editor and CLI also support explicit model selection.
 
 ## One Workspace, Every Device
 

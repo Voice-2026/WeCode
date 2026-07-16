@@ -2136,6 +2136,97 @@ impl WeCodeApp {
         self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
+    pub(super) fn install_bundled_cli(&mut self, cx: &mut Context<Self>) {
+        self.run_integration_action(
+            "installing wecode CLI",
+            |manager| {
+                let status = manager.install_cli()?;
+                Ok(format!(
+                    "wecode CLI installed at {}",
+                    status.command_path.display()
+                ))
+            },
+            cx,
+        );
+    }
+
+    pub(super) fn install_agent_integration(
+        &mut self,
+        agent: wecode_integrations::AgentKind,
+        cx: &mut Context<Self>,
+    ) {
+        self.run_integration_action(
+            "installing Agent integration",
+            move |manager| {
+                manager.install(&[agent])?;
+                Ok(format!("{} integration installed", agent.display_name()))
+            },
+            cx,
+        );
+    }
+
+    pub(super) fn uninstall_agent_integration(
+        &mut self,
+        agent: wecode_integrations::AgentKind,
+        cx: &mut Context<Self>,
+    ) {
+        self.run_integration_action(
+            "removing Agent integration",
+            move |manager| {
+                manager.uninstall(&[agent])?;
+                Ok(format!("{} integration removed", agent.display_name()))
+            },
+            cx,
+        );
+    }
+
+    pub(super) fn update_agent_integrations(&mut self, cx: &mut Context<Self>) {
+        self.run_integration_action(
+            "updating Agent integrations",
+            |manager| {
+                manager.update()?;
+                Ok("wecode-control Skill updated".to_string())
+            },
+            cx,
+        );
+    }
+
+    fn run_integration_action(
+        &mut self,
+        status: &'static str,
+        task: impl FnOnce(wecode_integrations::IntegrationManager) -> Result<String, String>
+        + Send
+        + 'static,
+        cx: &mut Context<Self>,
+    ) {
+        if self.integration_action_in_flight {
+            return;
+        }
+        self.integration_action_in_flight = true;
+        self.status_message = status.to_string();
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            let result = wecode_runtime::async_runtime::run_limited_blocking(move || {
+                let manager = wecode_integrations::IntegrationManager::discover()?;
+                task(manager)
+            })
+            .await
+            .unwrap_or_else(|error| Err(format!("failed to join integration task: {error}")));
+
+            let _ = this.update(cx, |app, cx| {
+                app.integration_action_in_flight = false;
+                let message = match result {
+                    Ok(message) => message,
+                    Err(error) => format!("Integration failed: {error}"),
+                };
+                app.status_message = message.clone();
+                app.show_toast(message, cx);
+                app.invalidate_ui_region(cx, UiRegion::Root);
+            });
+        })
+        .detach();
+        self.invalidate_ui_region(cx, UiRegion::Root);
+    }
+
     pub(super) fn normalize_selected_ai_provider(&mut self) {
         let selected_still_exists = self
             .selected_ai_provider_id

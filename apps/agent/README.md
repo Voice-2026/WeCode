@@ -10,10 +10,9 @@ no window. One binary, `wecode`, drives everything.
 
 ## Cross-platform
 
-Builds and runs on **macOS, Linux and Windows** (x86_64 and arm64). PTYs use
-`portable-pty` (ConPTY on Windows), and transport/Git/AI are all
-platform-neutral. The service installer targets launchd (macOS), `systemd --user`
-(Linux) and Task Scheduler (Windows).
+Builds and runs on **macOS and Linux** (x86_64 and arm64). Transport, Git, AI,
+and PTY support are shared across both platforms. The service installer targets
+launchd on macOS and `systemd --user` on Linux.
 
 ## Install
 
@@ -21,7 +20,7 @@ One line (macOS / Linux) — downloads the right prebuilt binary, installs it as
 `wecode` on your `PATH`, no build toolchain needed:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/duxweb/wecode/main/apps/agent/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Voice-2026/WeCode/main/apps/agent/scripts/install.sh | sh
 ```
 
 Flags: `--beta` (newest beta-tagged release), `--version <x.y.z>` (pin a version),
@@ -30,18 +29,18 @@ Flags: `--beta` (newest beta-tagged release), `--version <x.y.z>` (pin a version
 Pass them after `sh -s --`, e.g. install the beta and set it up as a service:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/duxweb/wecode/main/apps/agent/scripts/install.sh | sh -s -- --beta --setup
+curl -fsSL https://raw.githubusercontent.com/Voice-2026/WeCode/main/apps/agent/scripts/install.sh | sh -s -- --beta --setup
 ```
 
 Uninstall — stops the host, removes its OS service, deletes the binary (add
 `--purge` to also wipe `~/.wecode-agent` config + pairings):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/duxweb/wecode/main/apps/agent/scripts/install.sh | sh -s -- --uninstall
+curl -fsSL https://raw.githubusercontent.com/Voice-2026/WeCode/main/apps/agent/scripts/install.sh | sh -s -- --uninstall
 ```
 
 Or do it by hand — download the `wecode-agent-<version>-<os>-<arch>` binary from
-[Releases](https://github.com/duxweb/wecode/releases), put it on your `PATH`, then:
+[Releases](https://github.com/Voice-2026/WeCode/releases), put it on your `PATH`, then:
 
 ```bash
 wecode config     # set it up (device name, relay)

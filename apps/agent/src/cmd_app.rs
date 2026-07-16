@@ -216,7 +216,7 @@ fn exit_with_response(
     std::process::exit(exit_code);
 }
 
-fn uuid_request_id() -> String {
+pub(crate) fn uuid_request_id() -> String {
     let mut bytes = [0_u8; 16];
     if getrandom::getrandom(&mut bytes).is_err() {
         return format!(

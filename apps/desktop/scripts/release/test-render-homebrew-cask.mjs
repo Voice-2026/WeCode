@@ -18,7 +18,6 @@ try {
       "apps/desktop/scripts/release/render-homebrew-cask.mjs",
       "v1.8.0",
       "arm-sha",
-      "intel-sha",
       caskPath,
     ],
     { cwd: root, stdio: "pipe", encoding: "utf8" },
@@ -31,12 +30,14 @@ try {
   }
 
   const cask = fs.readFileSync(caskPath, "utf8");
-  assert.match(cask, /on_arm do/);
   assert.match(cask, /sha256 "arm-sha"/);
   assert.match(cask, /wecode-#\{version\}-macos-aarch64\.dmg/);
-  assert.match(cask, /on_intel do/);
-  assert.match(cask, /sha256 "intel-sha"/);
-  assert.match(cask, /wecode-#\{version\}-macos-x86_64\.dmg/);
+  assert.match(cask, /depends_on arch: :arm64/);
+  assert.match(cask, /Contents\/Resources\/bin\/wecode/);
+  assert.match(cask, /target: "wecode"/);
+  assert.match(cask, /Voice-2026\/WeCode/);
+  assert.doesNotMatch(cask, /github\.com\/duxweb/);
+  assert.doesNotMatch(cask, /on_intel do/);
   assert.doesNotMatch(cask, /macos-universal-formal/);
 } finally {
   fs.rmSync(tempDir, { recursive: true, force: true });

@@ -153,7 +153,7 @@ jobs:
 
       - name: Build
         shell: bash
-        run: cargo build --release --target "${CARGO_BUILD_TARGET}"
+        run: cargo build --release --target "${CARGO_BUILD_TARGET}" -p wecode -p wecode-agent
 
       - name: Package formal macOS bundle
         shell: bash

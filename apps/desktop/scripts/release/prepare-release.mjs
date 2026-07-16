@@ -17,10 +17,12 @@ if (!dryRun) {
   updateCargoVersion("apps/desktop/runtime/Cargo.toml", version);
   updateCargoVersion("apps/agent/Cargo.toml", version);
   updateCargoVersion("apps/wrapper-helper/Cargo.toml", version);
+  updateCargoVersion("crates/wecode-integrations/Cargo.toml", version);
   updateCargoLockPackageVersion("Cargo.lock", "wecode", version);
   updateCargoLockPackageVersion("Cargo.lock", "wecode-agent", version);
   updateCargoLockPackageVersion("Cargo.lock", "wecode-wrapper-helper", version);
   updateCargoLockPackageVersion("Cargo.lock", "wecode-runtime", version);
+  updateCargoLockPackageVersion("Cargo.lock", "wecode-integrations", version);
 }
 
 const notesPath =
@@ -152,6 +154,6 @@ function buildDownloadGuide() {
 }
 
 function releaseAssetUrl(assetName) {
-  const repo = process.env.GITHUB_REPOSITORY || "duxweb/wecode";
+  const repo = process.env.GITHUB_REPOSITORY || "Voice-2026/WeCode";
   return `https://github.com/${repo}/releases/download/${encodeURIComponent(tagName)}/${encodeURIComponent(assetName)}`;
 }
