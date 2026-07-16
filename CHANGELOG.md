@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [2.0.0-rc.12] - 2026-07-16
+
 ### Added
 
 - Bundled the Product CLI and `wecode-control` Skill inside the macOS app, with a Desktop integration page and safe CLI commands for installing, updating, and removing managed Agent links.
