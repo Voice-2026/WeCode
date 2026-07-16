@@ -208,14 +208,21 @@ fn terminal_pane_agent_button(
     } else {
         "Gateway disabled".to_string()
     };
-    let gateway_models = wecode_runtime::gateway_service::current_gateway_model_catalog()
+    let catalog = wecode_runtime::gateway_service::current_gateway_model_catalog();
+    let gateway_models = catalog
         .claude_code_models()
         .map(|model| {
             (
-                format!("Gateway · {}", model.name),
+                format!("Gateway · Claude · {}", model.name),
                 format!("kiro-gateway-claude-model:{}", model.id),
             )
         })
+        .chain(catalog.codex_cli_models().map(|model| {
+            (
+                format!("Gateway · Codex · {}", model.name),
+                format!("kiro-gateway-codex-model:{}", model.id),
+            )
+        }))
         .collect::<Vec<_>>();
     let text_color = if enabled {
         cx.theme().secondary_foreground

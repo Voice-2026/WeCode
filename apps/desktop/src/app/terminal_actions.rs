@@ -1559,6 +1559,8 @@ impl WeCodeApp {
     ) {
         let launch = if let Some(model) = target.strip_prefix("kiro-gateway-claude-model:") {
             self.kiro_gateway_quick_launch("claude", Some(model))
+        } else if let Some(model) = target.strip_prefix("kiro-gateway-codex-model:") {
+            self.kiro_gateway_quick_launch("codex", Some(model))
         } else {
             match target {
                 "codex" => Some(("Codex".to_string(), "codex".to_string(), None)),
@@ -1618,12 +1620,7 @@ impl WeCodeApp {
             });
         match client {
             "claude" => self.kiro_gateway_claude_launch(&model, None),
-            "codex" => {
-                self.status_message =
-                    "Kiro Gateway Codex is disabled because Kiro does not provide GPT models."
-                        .to_string();
-                None
-            }
+            "codex" => self.kiro_gateway_codex_launch(&model),
             _ => None,
         }
     }
@@ -1656,6 +1653,38 @@ impl WeCodeApp {
             Some(env),
         ))
     }
+
+    fn kiro_gateway_codex_launch(
+        &mut self,
+        model: &str,
+    ) -> Option<(String, String, Option<HashMap<String, String>>)> {
+        let status = GatewayService::global_status();
+        let Some(addr) = status.addr else {
+            self.status_message = if let Some(error) = status.error {
+                format!("Kiro Gateway failed: {error}")
+            } else if status.enabled {
+                "Kiro Gateway is enabled but not listening yet.".to_string()
+            } else {
+                "Enable Kiro Gateway in Settings first.".to_string()
+            };
+            return None;
+        };
+        let catalog = wecode_runtime::gateway_service::current_gateway_model_catalog();
+        let Some(entry) = catalog
+            .model(model)
+            .filter(|entry| entry.compatibility.codex_cli)
+        else {
+            self.status_message = format!("Model '{model}' is not available for Kiro Codex.");
+            return None;
+        };
+        let base_url = format!("http://{addr}/v1");
+        let env = gateway_codex_environment(&self.gateway_settings.config.api_key, &entry.id);
+        Some((
+            format!("Kiro Gateway · Codex · {}", entry.id),
+            gateway_codex_command(&entry.id, &base_url, entry.context_window_tokens),
+            Some(env),
+        ))
+    }
 }
 
 pub(in crate::app) fn gateway_claude_environment(
@@ -1680,6 +1709,46 @@ pub(in crate::app) fn gateway_claude_command(model: &str, resume_id: Option<&str
     if let Some(resume_id) = resume_id.filter(|value| !value.trim().is_empty()) {
         command.push_str(" --resume ");
         command.push_str(&shell_quote(resume_id));
+    }
+    command
+}
+
+pub(in crate::app) fn gateway_codex_environment(
+    api_key: &str,
+    model: &str,
+) -> HashMap<String, String> {
+    HashMap::from([
+        ("WECODE_KIRO_GATEWAY".to_string(), "1".to_string()),
+        ("WECODE_KIRO_GATEWAY_MODEL".to_string(), model.to_string()),
+        (
+            "WECODE_KIRO_GATEWAY_API_KEY".to_string(),
+            api_key.to_string(),
+        ),
+    ])
+}
+
+pub(in crate::app) fn gateway_codex_command(
+    model: &str,
+    base_url: &str,
+    context_window_tokens: u64,
+) -> String {
+    let mut command = format!(
+        "codex --model {} -c {} -c {} -c {} -c {} -c {} -c {}",
+        shell_quote(model),
+        shell_quote("model_provider=\"wecode-kiro\""),
+        shell_quote("model_providers.wecode-kiro.name=\"WeCode Kiro Gateway\""),
+        shell_quote(&format!(
+            "model_providers.wecode-kiro.base_url=\"{base_url}\""
+        )),
+        shell_quote("model_providers.wecode-kiro.env_key=\"WECODE_KIRO_GATEWAY_API_KEY\"",),
+        shell_quote("model_providers.wecode-kiro.wire_api=\"responses\""),
+        shell_quote("model_providers.wecode-kiro.requires_openai_auth=false"),
+    );
+    if context_window_tokens > 0 {
+        command.push_str(" -c ");
+        command.push_str(&shell_quote(&format!(
+            "model_context_window={context_window_tokens}"
+        )));
     }
     command
 }
