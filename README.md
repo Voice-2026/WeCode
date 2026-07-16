@@ -10,20 +10,18 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/duxweb/wecode/releases/latest"><img src="https://img.shields.io/github/v/release/duxweb/wecode?label=release&color=blue" alt="Latest release"></a>
-  <a href="https://github.com/duxweb/wecode/releases"><img src="https://img.shields.io/github/downloads/duxweb/wecode/total?label=downloads&color=brightgreen" alt="Total downloads"></a>
-  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-8250df" alt="Platform">
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/duxweb/wecode?color=orange" alt="License"></a>
-  <a href="https://github.com/duxweb/wecode/stargazers"><img src="https://img.shields.io/github/stars/duxweb/wecode?color=yellow" alt="GitHub stars"></a>
+  <a href="https://github.com/Voice-2026/WeCode/releases/latest"><img src="https://img.shields.io/github/v/release/Voice-2026/WeCode?label=release&color=blue" alt="Latest release"></a>
+  <a href="https://github.com/Voice-2026/WeCode/releases"><img src="https://img.shields.io/github/downloads/Voice-2026/WeCode/total?label=downloads&color=brightgreen" alt="Total downloads"></a>
+  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-8250df" alt="Platform">
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/Voice-2026/WeCode?color=orange" alt="License"></a>
+  <a href="https://github.com/Voice-2026/WeCode/stargazers"><img src="https://img.shields.io/github/stars/Voice-2026/WeCode?color=yellow" alt="GitHub stars"></a>
 </p>
 
 <p align="center">
   <a href="https://wecode.dux.cn">Website</a> &middot;
   <a href="https://wecode.dux.cn/zh-cn/getting-started/">Docs</a> &middot;
-  <a href="https://github.com/duxweb/wecode/releases/latest">Download</a> &middot;
-  <a href="https://github.com/duxweb/wecode-flutter/releases/latest">Mobile</a> &middot;
-  <a href="#contact--support">Contact</a> &middot;
-  <a href="https://github.com/duxweb/wecode/issues">Feedback</a>
+  <a href="https://github.com/Voice-2026/WeCode/releases/latest">Download</a> &middot;
+  <a href="https://github.com/Voice-2026/WeCode/issues">Feedback</a>
 </p>
 
 <p align="center">
@@ -34,12 +32,6 @@
 
 ![WeCode](docs/images/screenshot.png)
 
-https://github.com/user-attachments/assets/cabf21a9-8649-4e65-9e8a-db27ccaccdf3
-
-<p align="center">
-  <a href="https://github.com/user-attachments/assets/cabf21a9-8649-4e65-9e8a-db27ccaccdf3">▶ Watch the demo</a>
-</p>
-
 ## Why WeCode
 
 AI coding CLIs are incredibly powerful — and incredibly easy to lose control of. Real work sprawls across projects, Git worktrees, terminals, sessions, tokens, remote shells, and context you half-remember. **WeCode turns that chaos into one durable, native workspace built for serious AI coding.**
@@ -47,6 +39,7 @@ AI coding CLIs are incredibly powerful — and incredibly easy to lose control o
 | When AI coding gets messy | WeCode gives you |
 | :------------------------ | :-------------- |
 | Every AI CLI has its own state | One project-aware view across Codex, Claude Code, OpenCode, Kiro CLI, Kimi Code, CodeWhale, MiMo Code, and Agy. |
+| External agents need reliable control | A JSON product CLI for projects, worktrees, sessions, models, terminals, and scheduled automations. |
 | Long agent runs are hard to resume | Live status, local history, session restore, and context that follows each worktree. |
 | Parallel tasks collide | A worktree-first model where every task keeps its own terminals, Git state, files, and AI sessions. |
 | Token spend is a black box | Usage by tool, model, project, worktree, and day — no spreadsheets. |
@@ -62,14 +55,14 @@ WeCode is **not** another editor. It's the control plane for developers who live
 macOS — install with [Homebrew](https://brew.sh):
 
 ```bash
-brew install --cask duxweb/tap/wecode
+brew install --cask Voice-2026/tap/wecode
 ```
 
 1. **Open a project.** Git worktrees, project state, and per-project sessions are picked up automatically.
 2. **Start your AI CLI in the built-in terminal** — `codex`, `claude`, `opencode`, and friends. The non-invasive wrapper lights up live status, token tracking, and memory injection with zero configuration.
 3. **Leave the desk.** Pair your phone or a headless host once, then take over the same running session from anywhere.
 
-On Windows, or without Homebrew: see [Download](#download).
+Without Homebrew, see [Download](#download).
 
 ## Your Credentials Never Reach the AI
 
@@ -81,7 +74,7 @@ Agents constantly need servers and databases — but pasting a password into a p
 
 <p align="center"><img src="docs/images/credential-isolation.png" alt="wecode-ssh list shows profile names and hosts only — never passwords"></p>
 
-## AI CLI Support
+## AI CLI Compatibility
 
 WeCode uses non-invasive wrappers and per-tool adapters. It does not write project prompt files or mutate your global AI CLI configuration just to inject WeCode context.
 
@@ -97,6 +90,19 @@ WeCode uses non-invasive wrappers and per-tool adapters. It does not write proje
 | Agy | ✓ | ✓ | ✓ | ✓ | Not injected; no confirmed non-invasive prompt channel |
 
 Environment directives include WeCode memory plus runtime commands such as `wecode-ssh` and `wecode-db`. For unsupported tools, WeCode still tracks sessions where possible, but it will not force prompt injection through project files or user-level config.
+
+## Product CLI & Automations
+
+The bundled `wecode` product CLI lets other agents control the running Desktop through a stable JSON protocol. It can discover projects and models, create or resume sessions, send prompts, manage worktrees and terminals, and operate scheduled automations.
+
+```bash
+wecode app status --json
+wecode session create --project <project-id> --agent <agent-id> --model <model-id> --json
+wecode automation list --json
+wecode automation run --id <automation-id> --json
+```
+
+The included `wecode-control` Skill documents the complete contract for Codex and other external agents. New automation tasks default to **Claude + Kiro** with **Opus 4.8**, while the editor and CLI also support explicit model selection.
 
 ## One Workspace, Every Device
 
@@ -151,38 +157,33 @@ Completely useless. Absolutely essential.
 macOS — install with [Homebrew](https://brew.sh):
 
 ```bash
-brew install --cask duxweb/tap/wecode
+brew install --cask Voice-2026/tap/wecode
 ```
 
 Or download directly:
 
 | Platform | Download |
 | :--- | :--- |
-| macOS · Apple Silicon | [⬇ `wecode-macos-aarch64.dmg`](https://github.com/duxweb/wecode/releases/latest/download/wecode-macos-aarch64.dmg) |
+| macOS · Apple Silicon | [⬇ `wecode-macos-aarch64.dmg`](https://github.com/Voice-2026/WeCode/releases/latest/download/wecode-macos-aarch64.dmg) |
 
 Open the macOS `.dmg` and drag WeCode to Applications. Then open a project, start your AI CLI, and go.
-
-**Mobile app**
-
-Download from the [latest WeCode Mobile release](https://github.com/duxweb/wecode-flutter/releases/latest).
 
 **Headless host (`wecode-agent`)** — Beta, ships with 2.0
 
 macOS / Linux — one line (auto-detects OS/arch, installs as `wecode` on your `PATH`):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/duxweb/wecode/main/apps/agent/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Voice-2026/WeCode/main/apps/agent/scripts/install.sh | sh
 ```
 
 Flags: `--beta` · `--version <x.y.z>` · `--dir <path>` · `--setup` · `--mirror <prefix>` (if GitHub is slow where you are) · `--uninstall`. Or download the binary directly:
 
 | Platform | Download |
 | :--- | :--- |
-| macOS · Apple Silicon | [⬇ `wecode-macos-aarch64`](https://github.com/duxweb/wecode/releases/latest/download/wecode-macos-aarch64) |
-| macOS · Intel | [⬇ `wecode-macos-x86_64`](https://github.com/duxweb/wecode/releases/latest/download/wecode-macos-x86_64) |
-| Linux · arm64 | [⬇ `wecode-linux-aarch64`](https://github.com/duxweb/wecode/releases/latest/download/wecode-linux-aarch64) |
-| Linux · x64 | [⬇ `wecode-linux-x86_64`](https://github.com/duxweb/wecode/releases/latest/download/wecode-linux-x86_64) |
-| Windows · x64 | [⬇ `wecode-windows-x86_64.exe`](https://github.com/duxweb/wecode/releases/latest/download/wecode-windows-x86_64.exe) |
+| macOS · Apple Silicon | [⬇ `wecode-macos-aarch64`](https://github.com/Voice-2026/WeCode/releases/latest/download/wecode-macos-aarch64) |
+| macOS · Intel | [⬇ `wecode-macos-x86_64`](https://github.com/Voice-2026/WeCode/releases/latest/download/wecode-macos-x86_64) |
+| Linux · arm64 | [⬇ `wecode-linux-aarch64`](https://github.com/Voice-2026/WeCode/releases/latest/download/wecode-linux-aarch64) |
+| Linux · x64 | [⬇ `wecode-linux-x86_64`](https://github.com/Voice-2026/WeCode/releases/latest/download/wecode-linux-x86_64) |
 
 Put the binary on your `PATH` as `wecode`, then run `wecode config` → `wecode install` → `wecode qrcode`.
 
@@ -234,15 +235,14 @@ Customize everything in **Settings → Shortcuts**.
 **Desktop app**
 
 - macOS 14.0 (Sonoma) or later
-- Windows 11
 
 **Headless host (`wecode-agent`)**
 
-- macOS, Linux, and Windows (x86_64 and arm64)
+- macOS and Linux (x86_64 and arm64)
 
 ## Feedback
 
-Found a bug or have a feature request? Open an [issue on GitHub](https://github.com/duxweb/wecode/issues).
+Found a bug or have a feature request? Open an [issue on GitHub](https://github.com/Voice-2026/WeCode/issues).
 
 For bug reports, use **Help → Export Diagnostics** and attach the generated `.zip` — it bundles runtime logs, rotated logs, performance summaries, saved app state, invalid-state backups, and matching macOS diagnostic reports when available.
 
@@ -250,41 +250,24 @@ Manual log paths:
 
 - `~/Library/Application Support/WeCode/logs/runtime-rust.log`
 - `~/Library/Application Support/WeCode/logs/performance-summary.json`
-- `%APPDATA%\WeCode\logs\runtime-rust.log`
 
 ---
-
-## Community Support
-
-WeCode recognizes and supports the [LINUX DO](https://linux.do) community.
 
 ## Contributors
 
 Thanks to everyone who has contributed code, issues, testing, and feedback to WeCode.
 
 <p align="center">
-  <a href="https://github.com/duxweb/wecode/graphs/contributors">
-    <img src="https://contrib.rocks/image?repo=duxweb/wecode" alt="WeCode contributors">
+  <a href="https://github.com/Voice-2026/WeCode/graphs/contributors">
+    <img src="https://contrib.rocks/image?repo=Voice-2026/WeCode" alt="WeCode contributors">
   </a>
-</p>
-
-## Contact & Support
-
-Add the author on WeChat, or buy the author a coffee.
-
-<p align="center">
-  <img src="docs/images/wechat-author.png" width="220" alt="Author WeChat QR">
-  &nbsp;&nbsp;&nbsp;
-  <img src="docs/images/wechat-donate.jpg" width="220" alt="WeChat support QR">
-  &nbsp;&nbsp;&nbsp;
-  <img src="docs/images/alipay-donate.jpg" width="220" alt="Alipay support QR">
 </p>
 
 ## GitHub Star Trend
 
 If WeCode ever rescued one of your long agent runs, a ⭐ helps more people find it.
 
-[![Star History Chart](https://api.star-history.com/svg?repos=duxweb/wecode&type=Date)](https://star-history.com/#duxweb/wecode&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=Voice-2026/WeCode&type=Date)](https://star-history.com/#Voice-2026/WeCode&Date)
 
 <p align="center">
   Wanted to be dmux, but that name was taken. So it's WeCode now — which sounds like "Cool Dux" in Chinese.
