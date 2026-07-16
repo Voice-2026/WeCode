@@ -87,6 +87,17 @@ impl WeCodeApp {
             AutomationSelectKind::Agent => {
                 if let Some(agent) = automation_agent_from_value(&value) {
                     self.automation_agent = agent;
+                    match agent {
+                        AutomationAgent::KiroGatewayClaude => {
+                            self.automation_model =
+                                self.gateway_settings.default_claude_model.clone();
+                        }
+                        AutomationAgent::KiroCodex => {
+                            self.automation_model =
+                                self.gateway_settings.default_codex_model.clone();
+                        }
+                        _ => {}
+                    }
                 }
                 self.automation_reuse_session = false;
                 self.invalidate_ui(cx, [UiRegion::WorkspaceBody]);

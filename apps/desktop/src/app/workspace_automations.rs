@@ -14,7 +14,8 @@ mod views;
 use views::*;
 
 use super::terminal_actions::{
-    gateway_claude_command, gateway_claude_environment, quick_gateway_claude_model,
+    gateway_claude_command, gateway_claude_environment, gateway_codex_command,
+    gateway_codex_environment, quick_gateway_claude_model,
 };
 
 const AUTOMATION_OUTPUT_BUFFER_LIMIT: usize = 512 * 1024;
@@ -527,10 +528,14 @@ impl WeCodeApp {
             _ => 1,
         };
         self.automation_agent = definition.agent;
-        self.automation_model = definition
-            .model
-            .clone()
-            .unwrap_or_else(|| quick_gateway_claude_model(&self.state.tool_permissions.kiro_model));
+        self.automation_model =
+            definition
+                .model
+                .clone()
+                .unwrap_or_else(|| match definition.agent {
+                    AutomationAgent::KiroCodex => self.gateway_settings.default_codex_model.clone(),
+                    _ => quick_gateway_claude_model(&self.state.tool_permissions.kiro_model),
+                });
         self.automation_reuse_session = definition.reuse_session
             && definition.workspace_mode == AutomationWorkspaceMode::Existing;
         self.automation_catch_up_grace_seconds = definition.catch_up_grace_seconds;
@@ -777,7 +782,9 @@ impl WeCodeApp {
                 && self.automation_workspace_mode == AutomationWorkspaceMode::Existing,
             host_device_id: project.host_device_id.clone(),
             agent: self.automation_agent,
-            model: (self.automation_agent == AutomationAgent::KiroGatewayClaude)
+            model: self
+                .automation_agent
+                .uses_gateway()
                 .then(|| self.automation_model.clone()),
             prompt: prompt_input.read(cx).value().to_string(),
             precheck_command: Some(precheck_input.read(cx).value().to_string()),
@@ -838,7 +845,7 @@ impl WeCodeApp {
                 service.mark_failed(&plan.run_id, "远程项目的自动任务暂不支持".to_string(), now);
             return;
         }
-        let gateway_launch = if plan.agent == AutomationAgent::KiroGatewayClaude {
+        let gateway_launch = if plan.agent.uses_gateway() {
             let status = GatewayService::global_status();
             let Some(addr) = status.addr else {
                 let reason = if let Some(error) = status.error {
@@ -851,15 +858,35 @@ impl WeCodeApp {
                 let _ = service.mark_failed(&plan.run_id, reason, now);
                 return;
             };
-            let model = plan.model.clone().unwrap_or_else(|| {
-                quick_gateway_claude_model(&self.state.tool_permissions.kiro_model)
+            let model = plan.model.clone().unwrap_or_else(|| match plan.agent {
+                AutomationAgent::KiroCodex => self.gateway_settings.default_codex_model.clone(),
+                _ => quick_gateway_claude_model(&self.state.tool_permissions.kiro_model),
             });
-            let env = gateway_claude_environment(
-                &format!("http://{addr}"),
-                &self.gateway_settings.config.api_key,
-                &model,
-            );
-            Some((model, env))
+            let catalog = wecode_runtime::gateway_service::current_gateway_model_catalog();
+            let compatible = catalog.model(&model).is_some_and(|entry| match plan.agent {
+                AutomationAgent::KiroGatewayClaude => entry.compatibility.claude_code,
+                AutomationAgent::KiroCodex => entry.compatibility.codex_cli,
+                _ => false,
+            });
+            if !compatible {
+                let _ = service.mark_failed(
+                    &plan.run_id,
+                    format!("模型 {model} 不支持当前 Kiro Gateway Agent"),
+                    now,
+                );
+                return;
+            }
+            let env = match plan.agent {
+                AutomationAgent::KiroCodex => {
+                    gateway_codex_environment(&self.gateway_settings.config.api_key, &model)
+                }
+                _ => gateway_claude_environment(
+                    &format!("http://{addr}"),
+                    &self.gateway_settings.config.api_key,
+                    &model,
+                ),
+            };
+            Some((model, format!("http://{addr}/v1"), env))
         } else {
             None
         };
@@ -993,10 +1020,13 @@ impl WeCodeApp {
                             &plan.prompt,
                             plan.resume_session_id.as_deref(),
                             &plan.run_id,
-                            gateway_launch.as_ref().map(|(model, _)| model.as_str()),
+                            gateway_launch.as_ref().map(|(model, _, _)| model.as_str()),
+                            gateway_launch
+                                .as_ref()
+                                .map(|(_, base_url, _)| base_url.as_str()),
                         )
                     )),
-                    env: gateway_launch.as_ref().map(|(_, env)| env.clone()),
+                    env: gateway_launch.as_ref().map(|(_, _, env)| env.clone()),
                     project_id: Some(plan.project_id.clone()),
                     project_name: Some(plan.project_name.clone()),
                     terminal_id: Some(terminal_id.clone()),
@@ -1379,6 +1409,15 @@ impl WeCodeApp {
             );
             return;
         }
+        if definition.agent == AutomationAgent::KiroCodex {
+            self.restore_gateway_codex_session_in_main_split(
+                session_id,
+                definition.model.as_deref(),
+                window,
+                cx,
+            );
+            return;
+        }
         if let Some(session) = self
             .state
             .ai_history
@@ -1464,6 +1503,7 @@ fn automation_agent_command(
     resume_session_id: Option<&str>,
     fresh_session_id: &str,
     gateway_model: Option<&str>,
+    gateway_base_url: Option<&str>,
 ) -> String {
     let prompt = shell_quote(prompt);
     let raw_resume_session_id = resume_session_id;
@@ -1493,6 +1533,25 @@ fn automation_agent_command(
             command.push_str(&prompt);
             command
         }
+        AutomationAgent::KiroCodex => {
+            let model = gateway_model.unwrap_or("gpt-5.6-terra");
+            let base_url = gateway_base_url.unwrap_or("http://127.0.0.1:8989/v1");
+            let context_window_tokens = wecode_runtime::gateway_service::current_gateway_model_catalog()
+                .model(model)
+                .map(|entry| entry.context_window_tokens)
+                .unwrap_or_default();
+            let mut command = gateway_codex_command(model, base_url, context_window_tokens);
+            if let Some(session_id) = resume_session_id {
+                command.push_str(" exec resume --dangerously-bypass-approvals-and-sandbox ");
+                command.push_str(&session_id);
+                command.push(' ');
+                command.push_str(&prompt);
+            } else {
+                command.push_str(" exec --dangerously-bypass-approvals-and-sandbox ");
+                command.push_str(&prompt);
+            }
+            command
+        }
         AutomationAgent::Codex => resume_session_id.map_or_else(
             || format!("codex exec --dangerously-bypass-approvals-and-sandbox {prompt}"),
             |session_id| {
@@ -1517,6 +1576,7 @@ fn automation_session_restore_command(agent: AutomationAgent, session_id: &str) 
     match agent {
         AutomationAgent::Claude => format!("claude --resume {session_id}"),
         AutomationAgent::KiroGatewayClaude => format!("claude --resume {session_id}"),
+        AutomationAgent::KiroCodex => format!("codex resume {session_id}"),
         AutomationAgent::Codex => format!("codex resume {session_id}"),
         AutomationAgent::Kiro => format!("kiro-cli chat --resume-id {session_id}"),
     }
@@ -1563,6 +1623,7 @@ mod tests {
             None,
             "550e8400-e29b-41d4-a716-446655440000",
             None,
+            None,
         );
         assert!(fresh.contains("--session-id 550e8400-e29b-41d4-a716-446655440000"));
         assert!(fresh.contains("--print 'Review changes'"));
@@ -1572,6 +1633,7 @@ mod tests {
             "Continue report",
             Some("session-1"),
             "unused",
+            None,
             None,
         );
         assert!(reused.starts_with("codex exec resume"));
@@ -1583,6 +1645,7 @@ mod tests {
             Some("session-2"),
             "unused",
             None,
+            None,
         );
         assert!(kiro.contains("--resume-id session-2"));
         assert!(kiro.contains("--no-interactive 'Continue report'"));
@@ -1593,6 +1656,7 @@ mod tests {
             None,
             "gateway-session",
             Some("claude-opus-4.8"),
+            None,
         );
         assert!(gateway.contains("--model claude-opus-4-8"));
         assert!(gateway.contains("--session-id gateway-session"));
@@ -1604,10 +1668,23 @@ mod tests {
             Some("gateway session"),
             "unused",
             Some("claude-sonnet-4.6"),
+            None,
         );
         assert!(gateway_reused.contains("--model claude-sonnet-4-6"));
         assert!(gateway_reused.contains("--resume 'gateway session'"));
         assert!(!gateway_reused.contains("--session-id"));
+
+        let codex = automation_agent_command(
+            AutomationAgent::KiroCodex,
+            "Review gateway",
+            Some("codex session"),
+            "unused",
+            Some("gpt-5.6-terra"),
+            Some("http://127.0.0.1:8989/v1"),
+        );
+        assert!(codex.contains("model_provider=\"wecode-kiro\""));
+        assert!(codex.contains("exec resume --dangerously-bypass-approvals-and-sandbox"));
+        assert!(codex.contains("'codex session' 'Review gateway'"));
     }
 
     #[test]
@@ -1622,6 +1699,7 @@ mod tests {
         );
         let models = automation_gateway_model_options(
             &wecode_runtime::gateway_service::GatewayModelCatalog::fallback(),
+            AutomationAgent::KiroGatewayClaude,
             "deepseek-3.2",
         );
         assert!(
@@ -1630,6 +1708,16 @@ mod tests {
                 .any(|option| option.value == "claude-opus-4.8")
         );
         assert!(models.iter().any(|option| option.value == "deepseek-3.2"));
+        let codex_models = automation_gateway_model_options(
+            &wecode_runtime::gateway_service::GatewayModelCatalog::fallback(),
+            AutomationAgent::KiroCodex,
+            "gpt-5.6-terra",
+        );
+        assert!(
+            codex_models
+                .iter()
+                .any(|option| option.value == "gpt-5.6-terra")
+        );
 
         let env = gateway_claude_environment(
             "http://127.0.0.1:9090",

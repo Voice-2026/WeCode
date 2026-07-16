@@ -364,18 +364,29 @@ fn print_agents(data: &Value) {
         .into_iter()
         .flatten()
     {
+        let installed = agent
+            .get("installed")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let gateway_required = agent
+            .pointer("/gateway/required")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let gateway_online = agent
+            .pointer("/gateway/online")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let availability = if !installed {
+            "unavailable"
+        } else if gateway_required && !gateway_online {
+            "gateway-offline"
+        } else {
+            "available"
+        };
         println!(
             "{}\t{}\t{}\t{}",
             agent.get("id").and_then(Value::as_str).unwrap_or("-"),
-            if agent
-                .get("installed")
-                .and_then(Value::as_bool)
-                .unwrap_or(false)
-            {
-                "installed"
-            } else {
-                "unavailable"
-            },
+            availability,
             agent
                 .get("configuredModel")
                 .and_then(Value::as_str)

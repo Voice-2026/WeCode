@@ -1286,6 +1286,25 @@ impl WeCodeApp {
         self.launch_command_in_main_split_internal(title, command, env, Some(window), cx);
     }
 
+    pub(in crate::app) fn restore_gateway_codex_session_in_main_split(
+        &mut self,
+        resume_id: &str,
+        configured_model: Option<&str>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let model = configured_model
+            .map(str::to_string)
+            .unwrap_or_else(|| self.gateway_settings.default_codex_model.clone());
+        let Some((title, mut command, env)) = self.kiro_gateway_codex_launch(&model) else {
+            self.invalidate_terminal_workspace(cx);
+            return;
+        };
+        command.push_str(" resume ");
+        command.push_str(&shell_quote(resume_id));
+        self.launch_command_in_main_split_internal(title, command, env, Some(window), cx);
+    }
+
     pub(in crate::app) fn restore_ai_session_with_gateway_in_current_terminal(
         &mut self,
         session: &AISessionSummary,
@@ -1692,39 +1711,18 @@ pub(in crate::app) fn gateway_claude_environment(
     api_key: &str,
     model: &str,
 ) -> HashMap<String, String> {
-    HashMap::from([
-        ("WECODE_KIRO_GATEWAY".to_string(), "1".to_string()),
-        ("WECODE_KIRO_GATEWAY_MODEL".to_string(), model.to_string()),
-        ("ANTHROPIC_API_KEY".to_string(), api_key.to_string()),
-        ("ANTHROPIC_BASE_URL".to_string(), base_url.to_string()),
-    ])
+    wecode_runtime::gateway_service::gateway_claude_environment(base_url, api_key, model)
 }
 
 pub(in crate::app) fn gateway_claude_command(model: &str, resume_id: Option<&str>) -> String {
-    let cli_model = model.replace('.', "-");
-    let mut command = format!(
-        "claude --permission-mode bypassPermissions --model {}",
-        shell_quote(&cli_model)
-    );
-    if let Some(resume_id) = resume_id.filter(|value| !value.trim().is_empty()) {
-        command.push_str(" --resume ");
-        command.push_str(&shell_quote(resume_id));
-    }
-    command
+    wecode_runtime::gateway_service::gateway_claude_command(model, resume_id)
 }
 
 pub(in crate::app) fn gateway_codex_environment(
     api_key: &str,
     model: &str,
 ) -> HashMap<String, String> {
-    HashMap::from([
-        ("WECODE_KIRO_GATEWAY".to_string(), "1".to_string()),
-        ("WECODE_KIRO_GATEWAY_MODEL".to_string(), model.to_string()),
-        (
-            "WECODE_KIRO_GATEWAY_API_KEY".to_string(),
-            api_key.to_string(),
-        ),
-    ])
+    wecode_runtime::gateway_service::gateway_codex_environment(api_key, model)
 }
 
 pub(in crate::app) fn gateway_codex_command(
@@ -1732,25 +1730,7 @@ pub(in crate::app) fn gateway_codex_command(
     base_url: &str,
     context_window_tokens: u64,
 ) -> String {
-    let mut command = format!(
-        "codex --model {} -c {} -c {} -c {} -c {} -c {} -c {}",
-        shell_quote(model),
-        shell_quote("model_provider=\"wecode-kiro\""),
-        shell_quote("model_providers.wecode-kiro.name=\"WeCode Kiro Gateway\""),
-        shell_quote(&format!(
-            "model_providers.wecode-kiro.base_url=\"{base_url}\""
-        )),
-        shell_quote("model_providers.wecode-kiro.env_key=\"WECODE_KIRO_GATEWAY_API_KEY\"",),
-        shell_quote("model_providers.wecode-kiro.wire_api=\"responses\""),
-        shell_quote("model_providers.wecode-kiro.requires_openai_auth=false"),
-    );
-    if context_window_tokens > 0 {
-        command.push_str(" -c ");
-        command.push_str(&shell_quote(&format!(
-            "model_context_window={context_window_tokens}"
-        )));
-    }
-    command
+    wecode_runtime::gateway_service::gateway_codex_command(model, base_url, context_window_tokens)
 }
 
 pub(in crate::app) fn gateway_resume_claude_model(

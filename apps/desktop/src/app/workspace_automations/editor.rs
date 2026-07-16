@@ -108,14 +108,18 @@ impl WeCodeApp {
         let agent_options = [
             ("claude", "Claude"),
             ("kiro_gateway_claude", "Claude + Kiro"),
+            ("kiro_gateway_codex", "Codex + Kiro"),
             ("codex", "Codex"),
             ("kiro", "Kiro"),
         ]
         .into_iter()
         .map(|(value, label)| SelectOption::new(value, label))
         .collect::<Vec<_>>();
-        let model_options =
-            automation_gateway_model_options(&self.gateway_model_catalog, &self.automation_model);
+        let model_options = automation_gateway_model_options(
+            &self.gateway_model_catalog,
+            self.automation_agent,
+            &self.automation_model,
+        );
         let schedule_options = [
             ("hourly", "每小时"),
             ("daily", "每天"),
@@ -139,6 +143,7 @@ impl WeCodeApp {
         let agent_label = match self.automation_agent {
             AutomationAgent::Claude => "Claude",
             AutomationAgent::KiroGatewayClaude => "Claude + Kiro",
+            AutomationAgent::KiroCodex => "Codex + Kiro",
             AutomationAgent::Codex => "Codex",
             AutomationAgent::Kiro => "Kiro",
         };
@@ -326,7 +331,7 @@ impl WeCodeApp {
                                 cx,
                             ))
                             .when(
-                                self.automation_agent == AutomationAgent::KiroGatewayClaude,
+                                self.automation_agent.uses_gateway(),
                                 |this| {
                                     this.child(form_control_field(
                                         "模型",

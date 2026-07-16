@@ -21,6 +21,7 @@
 //! write this section via [`ConfigStore`] and call [`GatewayService::restart`]
 //! when the user toggles or edits the configuration.
 
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -143,6 +144,75 @@ pub async fn refresh_gateway_model_catalog(
         .get_or_init(|| Mutex::new(catalog.clone()))
         .lock() = catalog.clone();
     Ok(catalog)
+}
+
+pub fn gateway_claude_environment(
+    base_url: &str,
+    api_key: &str,
+    model: &str,
+) -> HashMap<String, String> {
+    HashMap::from([
+        ("WECODE_KIRO_GATEWAY".to_string(), "1".to_string()),
+        ("WECODE_KIRO_GATEWAY_MODEL".to_string(), model.to_string()),
+        ("ANTHROPIC_API_KEY".to_string(), api_key.to_string()),
+        ("ANTHROPIC_BASE_URL".to_string(), base_url.to_string()),
+    ])
+}
+
+pub fn gateway_claude_command(model: &str, resume_id: Option<&str>) -> String {
+    let cli_model = model.replace('.', "-");
+    let mut command = format!(
+        "claude --permission-mode bypassPermissions --model {}",
+        shell_quote(&cli_model)
+    );
+    if let Some(resume_id) = resume_id.filter(|value| !value.trim().is_empty()) {
+        command.push_str(" --resume ");
+        command.push_str(&shell_quote(resume_id));
+    }
+    command
+}
+
+pub fn gateway_codex_environment(api_key: &str, model: &str) -> HashMap<String, String> {
+    HashMap::from([
+        ("WECODE_KIRO_GATEWAY".to_string(), "1".to_string()),
+        ("WECODE_KIRO_GATEWAY_MODEL".to_string(), model.to_string()),
+        (
+            "WECODE_KIRO_GATEWAY_API_KEY".to_string(),
+            api_key.to_string(),
+        ),
+    ])
+}
+
+pub fn gateway_codex_command(model: &str, base_url: &str, context_window_tokens: u64) -> String {
+    let mut command = format!(
+        "codex --model {} -c {} -c {} -c {} -c {} -c {} -c {}",
+        shell_quote(model),
+        shell_quote("model_provider=\"wecode-kiro\""),
+        shell_quote("model_providers.wecode-kiro.name=\"WeCode Kiro Gateway\""),
+        shell_quote(&format!(
+            "model_providers.wecode-kiro.base_url=\"{base_url}\""
+        )),
+        shell_quote("model_providers.wecode-kiro.env_key=\"WECODE_KIRO_GATEWAY_API_KEY\""),
+        shell_quote("model_providers.wecode-kiro.wire_api=\"responses\""),
+        shell_quote("model_providers.wecode-kiro.requires_openai_auth=false"),
+    );
+    if context_window_tokens > 0 {
+        command.push_str(" -c ");
+        command.push_str(&shell_quote(&format!(
+            "model_context_window={context_window_tokens}"
+        )));
+    }
+    command
+}
+
+fn shell_quote(value: &str) -> String {
+    if value
+        .chars()
+        .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.'))
+    {
+        return value.to_string();
+    }
+    format!("'{}'", value.replace('\'', "'\\''"))
 }
 
 /// Owns a running gateway instance. Dropping it (or calling [`stop`]) shuts the

@@ -154,6 +154,7 @@ fn automation_list_agent_label(agent: AutomationAgent) -> &'static str {
     match agent {
         AutomationAgent::Claude => "Claude",
         AutomationAgent::KiroGatewayClaude => "Claude + Kiro",
+        AutomationAgent::KiroCodex => "Codex + Kiro",
         AutomationAgent::Codex => "Codex",
         AutomationAgent::Kiro => "Kiro",
     }
@@ -219,6 +220,7 @@ pub(super) fn automation_agent_value(agent: AutomationAgent) -> &'static str {
     match agent {
         AutomationAgent::Claude => "claude",
         AutomationAgent::KiroGatewayClaude => "kiro_gateway_claude",
+        AutomationAgent::KiroCodex => "kiro_gateway_codex",
         AutomationAgent::Codex => "codex",
         AutomationAgent::Kiro => "kiro",
     }
@@ -243,6 +245,7 @@ pub(super) fn automation_agent_from_value(value: &str) -> Option<AutomationAgent
     match value.trim() {
         "claude" => Some(AutomationAgent::Claude),
         "kiro_gateway_claude" => Some(AutomationAgent::KiroGatewayClaude),
+        "kiro_gateway_codex" => Some(AutomationAgent::KiroCodex),
         "codex" => Some(AutomationAgent::Codex),
         "kiro" => Some(AutomationAgent::Kiro),
         _ => None,
@@ -251,10 +254,14 @@ pub(super) fn automation_agent_from_value(value: &str) -> Option<AutomationAgent
 
 pub(super) fn automation_gateway_model_options(
     catalog: &wecode_runtime::gateway_service::GatewayModelCatalog,
+    agent: AutomationAgent,
     selected: &str,
 ) -> Vec<SelectOption> {
-    let mut options = catalog
-        .claude_code_models()
+    let models: Box<dyn Iterator<Item = _>> = match agent {
+        AutomationAgent::KiroCodex => Box::new(catalog.codex_cli_models()),
+        _ => Box::new(catalog.claude_code_models()),
+    };
+    let mut options = models
         .map(|model| SelectOption::new(model.id.clone(), SharedString::from(model.name.clone())))
         .collect::<Vec<_>>();
     let selected = selected.trim();
