@@ -11,11 +11,9 @@ const root = process.cwd();
 const version = requiredEnv("RELEASE_VERSION").replace(/^v/, "");
 const token = requiredEnv("HOMEBREW_TAP_TOKEN");
 const artifactsDir = process.env.RELEASE_ARTIFACTS_DIR || path.join(root, "release-artifacts");
-const tapRepo = process.env.HOMEBREW_TAP_REPO || "duxweb/homebrew-tap";
+const tapRepo = process.env.HOMEBREW_TAP_REPO || "Voice-2026/homebrew-tap";
 const armDmgPath = findFormalDmg(artifactsDir, "aarch64");
-const intelDmgPath = findFormalDmg(artifactsDir, "x86_64");
 const armSha256 = sha256File(armDmgPath);
-const intelSha256 = sha256File(intelDmgPath);
 const tapDir = fs.mkdtempSync(path.join(os.tmpdir(), "wecode-homebrew-tap-"));
 
 try {
@@ -26,7 +24,6 @@ try {
     "apps/desktop/scripts/release/render-homebrew-cask.mjs",
     version,
     armSha256,
-    intelSha256,
     caskPath,
   ]);
 

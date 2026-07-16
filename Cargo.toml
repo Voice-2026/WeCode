@@ -8,6 +8,7 @@ members = [
     "crates/wecode-ai-sessions",
     "crates/wecode-gateway",
     "crates/wecode-git",
+    "crates/wecode-integrations",
     "crates/wecode-im-bridge",
     "crates/wecode-llm",
     "crates/wecode-memory",

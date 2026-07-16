@@ -9,10 +9,13 @@ Use `wecode` as the only product-control boundary. Do not read or mutate WeCode'
 
 ## Establish the control surface
 
-1. Resolve `wecode` from `PATH`. If it is unavailable, report that the Product CLI must be installed; do not substitute the repository's debug binary unless the user explicitly asks for local development testing.
-2. Run `wecode app status --json` before every control workflow.
-3. Require `ok=true` and inspect `data.capabilities`. Do not call a capability the running Desktop instance does not advertise.
-4. Use `--json` for every command. Parse the response envelope instead of terminal prose.
+1. Resolve `wecode` from `PATH`. If it is unavailable on macOS, ask the user to open WeCode Desktop's **Settings > Integrations** and install the bundled CLI. Do not substitute the repository's debug binary unless the user explicitly asks for local development testing.
+2. Run `wecode integration status --json` when checking whether this Skill is current or installed for another Agent.
+3. Run `wecode app status --json` before every product-control workflow.
+4. Require `ok=true` and inspect `data.capabilities`. Do not call a capability the running Desktop instance does not advertise.
+5. Use `--json` for every command. Parse the response envelope instead of terminal prose.
+
+Installing, updating, or removing an integration writes to an external Agent's Skill directory. Show the target paths and obtain explicit user confirmation before calling `integration install`, `integration update`, or `integration uninstall` with `--confirm`. Never replace an unmanaged `wecode-control` installation.
 
 Read [references/cli-contract.md](references/cli-contract.md) when exact commands, fields, error codes, or destructive-operation rules are needed.
 

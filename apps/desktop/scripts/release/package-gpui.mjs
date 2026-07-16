@@ -49,6 +49,7 @@ function packageMacos() {
   fs.copyFileSync(binaryPath, path.join(macosDir, appName));
   fs.copyFileSync(path.join(desktopAssetsRoot, "icons", "icon.icns"), path.join(resourcesDir, "AppIcon.icns"));
   stageRuntimeAssets(path.join(resourcesDir, "runtime-root"));
+  stageProductIntegrations(resourcesDir);
   fs.writeFileSync(path.join(contentsDir, "Info.plist"), macosInfoPlist(), "utf8");
 
   const signingIdentity = macosSigningIdentity();
@@ -208,6 +209,26 @@ function stageRuntimeAssets(destination) {
   });
   materializeSymlinks(destination);
   assertRuntimeBootstrapAssets(destination);
+}
+
+function stageProductIntegrations(resourcesDir, agentBinaryPath = releaseBinaryPath("", "wecode-agent")) {
+  const cliDir = path.join(resourcesDir, "bin");
+  const skillsDir = path.join(resourcesDir, "skills");
+  const skillSource = path.join(root, "skills", "wecode-control");
+  const skillDestination = path.join(skillsDir, "wecode-control");
+  if (!fs.existsSync(path.join(skillSource, "SKILL.md"))) {
+    throw new Error(`Bundled Skill not found: ${skillSource}`);
+  }
+  fs.mkdirSync(cliDir, { recursive: true });
+  fs.copyFileSync(agentBinaryPath, path.join(cliDir, "wecode"));
+  fs.chmodSync(path.join(cliDir, "wecode"), 0o755);
+  fs.rmSync(skillDestination, { recursive: true, force: true });
+  fs.cpSync(skillSource, skillDestination, {
+    recursive: true,
+    dereference: true,
+    preserveTimestamps: true,
+  });
+  materializeSymlinks(skillDestination);
 }
 
 function materializeSymlinks(rootPath) {
@@ -606,6 +627,10 @@ export function __testWindowsNsisScript(packageDir, installerPath) {
 
 export function __testStageRuntimeAssets(destination) {
   stageRuntimeAssets(destination);
+}
+
+export function __testStageProductIntegrations(resourcesDir, agentBinaryPath) {
+  stageProductIntegrations(resourcesDir, agentBinaryPath);
 }
 
 export function __testPackageWindows() {

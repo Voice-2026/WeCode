@@ -26,7 +26,7 @@ assert.match(notes, /## Downloads \/ 下载说明/);
 assert.match(notes, /\| File \/ 文件 \| Usage \| 用途 \|/);
 assert.match(
   notes,
-  /\| \[`wecode-1\.8\.0-macos-aarch64\.dmg`\]\(https:\/\/github\.com\/duxweb\/wecode\/releases\/download\/v1\.8\.0\/wecode-1\.8\.0-macos-aarch64\.dmg\) \| Apple Silicon Mac stable release \| Apple Silicon Mac 正式版本 \|/,
+  /\| \[`wecode-1\.8\.0-macos-aarch64\.dmg`\]\(https:\/\/github\.com\/Voice-2026\/WeCode\/releases\/download\/v1\.8\.0\/wecode-1\.8\.0-macos-aarch64\.dmg\) \| Apple Silicon Mac stable release \| Apple Silicon Mac 正式版本 \|/,
 );
 assert.doesNotMatch(notes, /macos-x86_64/);
 assert.doesNotMatch(notes, /windows/i);

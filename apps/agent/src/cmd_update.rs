@@ -9,13 +9,13 @@ use std::time::Duration;
 
 use crate::{cmd_service, cmd_start, runstate};
 
-const LATEST_RELEASE_API: &str = "https://api.github.com/repos/duxweb/wecode/releases/latest";
-const RELEASES_API: &str = "https://api.github.com/repos/duxweb/wecode/releases";
+const LATEST_RELEASE_API: &str = "https://api.github.com/repos/Voice-2026/WeCode/releases/latest";
+const RELEASES_API: &str = "https://api.github.com/repos/Voice-2026/WeCode/releases";
 const STABLE_MANIFEST_URL: &str =
-    "https://raw.githubusercontent.com/duxweb/wecode/main/updates/stable/latest.json";
+    "https://raw.githubusercontent.com/Voice-2026/WeCode/main/updates/stable/latest.json";
 const BETA_MANIFEST_URL: &str =
-    "https://raw.githubusercontent.com/duxweb/wecode/main/updates/beta/latest.json";
-const REPO_DOWNLOAD_BASE: &str = "https://github.com/duxweb/wecode/releases/download";
+    "https://raw.githubusercontent.com/Voice-2026/WeCode/main/updates/beta/latest.json";
+const REPO_DOWNLOAD_BASE: &str = "https://github.com/Voice-2026/WeCode/releases/download";
 const USER_AGENT: &str = "wecode-agent-updater";
 
 #[derive(Deserialize)]
@@ -175,12 +175,11 @@ fn release_from_manifest_version(version: &str, channel: Channel) -> Result<Rele
 }
 
 fn agent_assets_for_version(version: &str, tag_name: &str) -> Vec<Asset> {
-    ["macos", "linux", "windows"]
+    ["macos", "linux"]
         .into_iter()
         .flat_map(|os| {
             ["aarch64", "x86_64"]
                 .into_iter()
-                .filter(move |arch| !(os == "windows" && *arch == "aarch64"))
                 .flat_map(move |arch| agent_asset_names(version, os, arch))
         })
         .map(|name| Asset {
@@ -191,10 +190,9 @@ fn agent_assets_for_version(version: &str, tag_name: &str) -> Vec<Asset> {
 }
 
 fn agent_asset_names(version: &str, os: &str, arch: &str) -> Vec<String> {
-    let extension = if os == "windows" { ".exe" } else { "" };
     vec![
-        format!("wecode-agent-{version}-{os}-{arch}{extension}"),
-        format!("wecode-{os}-{arch}{extension}"),
+        format!("wecode-agent-{version}-{os}-{arch}"),
+        format!("wecode-{os}-{arch}"),
     ]
 }
 
@@ -326,7 +324,7 @@ mod tests {
         assert!(release.assets.iter().any(|asset| {
             asset.browser_download_url
                 == format!(
-                    "https://github.com/duxweb/wecode/releases/download/v2.0.0-beta.10/{expected}"
+                    "https://github.com/Voice-2026/WeCode/releases/download/v2.0.0-beta.10/{expected}"
                 )
         }));
     }

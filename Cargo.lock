@@ -11146,6 +11146,7 @@ dependencies = [
  "serde_json",
  "url",
  "uuid",
+ "wecode-integrations",
  "wecode-runtime",
  "wecode-terminal-core",
  "windows-sys 0.61.2",
@@ -11174,6 +11175,7 @@ dependencies = [
  "wecode-ai-history",
  "wecode-ai-sessions",
  "wecode-git",
+ "wecode-integrations",
  "wecode-memory",
  "wecode-protocol",
  "wecode-remote-transport",
@@ -11262,6 +11264,14 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "wecode-integrations"
+version = "2.0.0-beta.6"
+dependencies = [
+ "serde",
+ "sha2 0.10.9",
 ]
 
 [[package]]

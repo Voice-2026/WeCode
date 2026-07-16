@@ -93,7 +93,9 @@ WeCode は非侵襲の wrapper とツールごとの adapter を使います。W
 
 ## Product CLI と自動タスク
 
-内蔵の `wecode` Product CLI は、安定した JSON protocol を通じて外部 Agent から実行中の Desktop を制御できます。プロジェクトとモデルの検索、セッションの作成・再開、prompt 送信、worktree・terminal・定期自動タスクの管理に対応します。
+macOS App には `wecode` Product CLI と `wecode-control` Skill が同梱されています。Homebrew では CLI が自動的に公開され、DMG では **設定 > Integrations** から有効化できます。同じ画面で、検出された Codex、Claude Code、Kiro に既存の非管理コピーを上書きせず Skill をインストールできます。
+
+Product CLI は、安定した JSON protocol を通じて外部 Agent から実行中の Desktop を制御できます。プロジェクトとモデルの検索、セッションの作成・再開、prompt 送信、worktree・terminal・定期自動タスクの管理に対応します。
 
 ```bash
 wecode app status --json
@@ -102,7 +104,7 @@ wecode automation list --json
 wecode automation run --id <automation-id> --json
 ```
 
-同梱の `wecode-control` Skill に、Codex などの外部 Agent 向け完全な制御 contract を記載しています。新しい自動タスクは既定で **Claude + Kiro** と **Opus 4.8** を使用し、editor と CLI の両方でモデルを選択できます。
+同梱の `wecode-control` Skill に、Codex などの外部 Agent 向け完全な制御 contract を記載しています。`wecode integration status --json` でインストール状態を確認できます。新しい自動タスクは既定で **Claude + Kiro** と **Opus 4.8** を使用し、editor と CLI の両方でモデルを選択できます。
 
 ## ひとつのワークスペース、すべてのデバイス
 

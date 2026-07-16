@@ -123,7 +123,7 @@ jobs:
 
       - name: Build
         shell: bash
-        run: cargo build --release --target "${CARGO_BUILD_TARGET}"
+        run: cargo build --release --target "${CARGO_BUILD_TARGET}" -p wecode -p wecode-agent
 
       - name: Stage built binary
         shell: bash
@@ -131,6 +131,7 @@ jobs:
           rm -rf dist/binary
           mkdir -p dist/binary
           cp "target/${CARGO_BUILD_TARGET}/release/wecode" dist/binary/wecode
+          cp "target/${CARGO_BUILD_TARGET}/release/wecode-agent" dist/binary/wecode-agent
 
       - name: Upload built binary
         uses: actions/upload-artifact@v4
@@ -203,7 +204,9 @@ jobs:
         run: |
           mkdir -p "target/${CARGO_BUILD_TARGET}/release"
           cp dist/binary/wecode "target/${CARGO_BUILD_TARGET}/release/wecode"
+          cp dist/binary/wecode-agent "target/${CARGO_BUILD_TARGET}/release/wecode-agent"
           chmod +x "target/${CARGO_BUILD_TARGET}/release/wecode"
+          chmod +x "target/${CARGO_BUILD_TARGET}/release/wecode-agent"
 
       - name: Package
         shell: bash

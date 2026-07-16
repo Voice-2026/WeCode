@@ -4,6 +4,11 @@
 
 ## [Unreleased]
 
+### 新增
+
+- macOS App 现已内置产品 CLI 与 `wecode-control` Skill，并提供桌面集成设置和安全的 CLI 命令，用于安装、更新与移除由 WeCode 管理的 Agent 链接。
+- 通过 Homebrew 安装后会自动提供内置的 `wecode` 命令。
+
 ## [2.0.0-rc.11] - 2026-07-16
 
 ### 新增

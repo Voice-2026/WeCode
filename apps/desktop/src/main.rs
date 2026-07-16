@@ -226,6 +226,14 @@ fn open_main_window(
                 app.observe_automation_selects(window, cx);
             });
             view.update(cx, |app, cx| app.start_runtime_event_loop(cx));
+            let integration_view = view.clone();
+            view.update(cx, |_app, cx| {
+                cx.defer(move |cx| {
+                    let _ = integration_view.update(cx, |app, cx| {
+                        app.maybe_offer_integration_setup(cx);
+                    });
+                });
+            });
             // Attach any remote-hosted terminals restored at boot now that the
             // entity exists (the async attach chokepoint needs a Context<Self>).
             view.update(cx, |app, cx| app.attach_boot_pending_terminals(cx));

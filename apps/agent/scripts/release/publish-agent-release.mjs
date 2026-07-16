@@ -9,7 +9,7 @@ const root = process.cwd();
 const dryRun = process.argv.includes("--dry-run");
 const version = requiredEnv("RELEASE_VERSION");
 const tagName = process.env.RELEASE_TAG || `v${version}`;
-const repo = process.env.GITHUB_REPOSITORY || "duxweb/wecode";
+const repo = process.env.GITHUB_REPOSITORY || "Voice-2026/WeCode";
 const artifactsDir = process.env.RELEASE_ARTIFACTS_DIR || path.join(root, "release-artifacts");
 
 const assets = collectAgentAssets(artifactsDir);
@@ -55,9 +55,9 @@ function walk(dir) {
 
 function isAgentAsset(name) {
   return (
-    new RegExp(`^wecode-agent-${escapeRegExp(version)}-(macos|linux|windows)-(aarch64|x86_64)(?:\\.exe)?$`).test(
+    new RegExp(`^wecode-agent-${escapeRegExp(version)}-(macos|linux)-(aarch64|x86_64)$`).test(
       name,
-    ) || /^wecode-(macos|linux|windows)-(aarch64|x86_64)(?:\.exe)?$/.test(name)
+    ) || /^wecode-(macos|linux)-(aarch64|x86_64)$/.test(name)
   );
 }
 

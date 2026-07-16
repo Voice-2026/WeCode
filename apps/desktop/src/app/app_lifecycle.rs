@@ -302,6 +302,7 @@ impl WeCodeApp {
             toast_message: None,
             toast_revision: 0,
             pending_restart_language: None,
+            integration_action_in_flight: false,
             desktop_pet_window: None,
             settings_window: None,
             about_window: None,
