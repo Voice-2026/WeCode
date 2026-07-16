@@ -38,10 +38,11 @@ pub(super) struct CodexParsedState {
     /// The session's approval policy from the latest `turn_context`. `never`
     /// means no command approval can block, so a pending call is codex working.
     pub(super) approval_policy: Option<String>,
-    /// Most recent `function_call` and its `function_call_output`. While a
-    /// command/patch is blocked on approval the call is written with no output,
-    /// so `last_function_call_at > last_function_output_at` is the pending-call
-    /// signature behind `needsInput` detection.
+    /// Most recent tool call and its output. Codex rollouts use
+    /// `function_call` for legacy tools and `custom_tool_call` for current
+    /// tools. While a command/patch is blocked on approval the call is written
+    /// with no output, so `last_function_call_at > last_function_output_at` is
+    /// the pending-call signature behind `needsInput` detection.
     pub(super) last_function_call_at: Option<f64>,
     pub(super) last_function_output_at: Option<f64>,
     last_user_message_at: Option<f64>,
@@ -247,12 +248,14 @@ fn parse_codex_runtime_line(
     if row_type == Some("response_item") {
         let at = timestamp.or(state.updated_at);
         match payload.payload_type.as_deref() {
-            Some("function_call") if payload.name.as_deref() != Some("update_plan") => {
+            Some("function_call" | "custom_tool_call")
+                if payload.name.as_deref() != Some("update_plan") =>
+            {
                 if at > state.last_function_call_at {
                     state.last_function_call_at = at;
                 }
             }
-            Some("function_call_output") => {
+            Some("function_call_output" | "custom_tool_call_output") => {
                 if at > state.last_function_output_at {
                     state.last_function_output_at = at;
                 }
@@ -618,6 +621,53 @@ mod tests {
             line(serde_json::json!({
                 "timestamp": "2026-01-01T00:00:03Z", "type": "response_item",
                 "payload": {"type": "function_call_output", "call_id": "c1"}
+            })),
+        ];
+        let state = parse_codex_runtime_lines(lines.into_iter(), Some("/tmp/p"), None, None)
+            .expect("codex state");
+
+        assert!(!state.pending_function_call());
+        assert!(!state.needs_user_input(1_000_000.0));
+    }
+
+    #[test]
+    fn pending_custom_tool_call_under_promptable_policy_is_a_wait() {
+        let lines = vec![
+            line(serde_json::json!({
+                "timestamp": "2026-01-01T00:00:00Z", "type": "turn_context",
+                "payload": {"approval_policy": "on-request", "cwd": "/tmp/p"}
+            })),
+            line(serde_json::json!({
+                "timestamp": "2026-01-01T00:00:01Z", "type": "event_msg",
+                "payload": {"type": "task_started"}
+            })),
+            line(serde_json::json!({
+                "timestamp": "2026-01-01T00:00:02Z", "type": "response_item",
+                "payload": {"type": "custom_tool_call", "name": "exec", "call_id": "c1", "input": "{}"}
+            })),
+        ];
+        let state = parse_codex_runtime_lines(lines.into_iter(), Some("/tmp/p"), None, None)
+            .expect("codex state");
+
+        assert!(state.pending_function_call());
+        let call_at = state.last_function_call_at.expect("call timestamp");
+        assert!(state.needs_user_input(call_at + NEEDS_INPUT_IDLE_SECONDS + 0.5));
+    }
+
+    #[test]
+    fn answered_custom_tool_call_is_not_a_wait() {
+        let lines = vec![
+            line(serde_json::json!({
+                "timestamp": "2026-01-01T00:00:01Z", "type": "event_msg",
+                "payload": {"type": "task_started"}
+            })),
+            line(serde_json::json!({
+                "timestamp": "2026-01-01T00:00:02Z", "type": "response_item",
+                "payload": {"type": "custom_tool_call", "name": "exec", "call_id": "c1", "input": "{}"}
+            })),
+            line(serde_json::json!({
+                "timestamp": "2026-01-01T00:00:03Z", "type": "response_item",
+                "payload": {"type": "custom_tool_call_output", "call_id": "c1"}
             })),
         ];
         let state = parse_codex_runtime_lines(lines.into_iter(), Some("/tmp/p"), None, None)

@@ -30,17 +30,21 @@ pub fn detect_screen_signal(
     if region.trim().is_empty() {
         return ScreenSignal::Unknown;
     }
-    if pattern_sets
+    let running = pattern_sets
         .iter()
-        .any(|patterns| matches_any(&region, patterns.running))
-    {
-        return ScreenSignal::Running;
-    }
-    if pattern_sets
+        .any(|patterns| matches_any(&region, patterns.running));
+    let waiting = pattern_sets
         .iter()
-        .any(|patterns| matches_any(&region, patterns.waiting))
-    {
+        .any(|patterns| matches_any(&region, patterns.waiting));
+
+    // Codex approval dialogs use "press enter to confirm or esc to cancel".
+    // The latter fragment also resembles a busy footer, so this explicit
+    // confirmation action must win when both signal classes are present.
+    if waiting && (!running || region.contains("press enter to confirm")) {
         return ScreenSignal::Waiting;
+    }
+    if running {
+        return ScreenSignal::Running;
     }
     ScreenSignal::Unknown
 }
@@ -108,8 +112,8 @@ mod tests {
         );
         assert_eq!(
             detect_screen_signal("press enter to confirm or esc to cancel", COMMON),
-            ScreenSignal::Running,
-            "esc-to-cancel footer reads as busy, not waiting"
+            ScreenSignal::Waiting,
+            "the explicit confirmation action wins over esc-to-cancel"
         );
         assert_eq!(
             detect_screen_signal("△ Permission required to run command", COMMON),

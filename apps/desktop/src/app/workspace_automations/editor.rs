@@ -36,6 +36,9 @@ impl WeCodeApp {
         let Some(agent_select) = self.automation_agent_select.as_ref() else {
             return div().into_any_element();
         };
+        let Some(model_select) = self.automation_model_select.as_ref() else {
+            return div().into_any_element();
+        };
         let Some(schedule_select) = self.automation_schedule_select.as_ref() else {
             return div().into_any_element();
         };
@@ -102,10 +105,16 @@ impl WeCodeApp {
             .into_iter()
             .map(|branch| SelectOption::new(branch.clone(), SharedString::from(branch)))
             .collect::<Vec<_>>();
-        let agent_options = [("claude", "Claude"), ("codex", "Codex"), ("kiro", "Kiro")]
-            .into_iter()
-            .map(|(value, label)| SelectOption::new(value, label))
-            .collect::<Vec<_>>();
+        let agent_options = [
+            ("claude", "Claude"),
+            ("kiro_gateway_claude", "Claude + Kiro"),
+            ("codex", "Codex"),
+            ("kiro", "Kiro"),
+        ]
+        .into_iter()
+        .map(|(value, label)| SelectOption::new(value, label))
+        .collect::<Vec<_>>();
+        let model_options = automation_gateway_model_options(&self.automation_model);
         let schedule_options = [
             ("hourly", "每小时"),
             ("daily", "每天"),
@@ -128,6 +137,7 @@ impl WeCodeApp {
             .unwrap_or("未选择项目");
         let agent_label = match self.automation_agent {
             AutomationAgent::Claude => "Claude",
+            AutomationAgent::KiroGatewayClaude => "Claude + Kiro",
             AutomationAgent::Codex => "Codex",
             AutomationAgent::Kiro => "Kiro",
         };
@@ -175,6 +185,13 @@ impl WeCodeApp {
             agent_select,
             agent_options,
             automation_agent_value(self.automation_agent),
+            window,
+            cx,
+        );
+        sync_select_state(
+            model_select,
+            model_options,
+            &self.automation_model,
             window,
             cx,
         );
@@ -307,6 +324,22 @@ impl WeCodeApp {
                                 ),
                                 cx,
                             ))
+                            .when(
+                                self.automation_agent == AutomationAgent::KiroGatewayClaude,
+                                |this| {
+                                    this.child(form_control_field(
+                                        "模型",
+                                        ui_select(
+                                            model_select,
+                                            "选择模型",
+                                            relative(1.0),
+                                            px(300.0),
+                                            false,
+                                        ),
+                                        cx,
+                                    ))
+                                },
+                            )
                             .child(form_control_field(
                                 "会话",
                                 segmented_control(

@@ -7,6 +7,7 @@ enum AutomationSelectKind {
     Workspace,
     Branch,
     Agent,
+    Model,
     Schedule,
     Grace,
 }
@@ -33,6 +34,10 @@ impl WeCodeApp {
             (
                 AutomationSelectKind::Agent,
                 self.automation_agent_select.clone(),
+            ),
+            (
+                AutomationSelectKind::Model,
+                self.automation_model_select.clone(),
             ),
             (
                 AutomationSelectKind::Schedule,
@@ -83,6 +88,11 @@ impl WeCodeApp {
                 if let Some(agent) = automation_agent_from_value(&value) {
                     self.automation_agent = agent;
                 }
+                self.automation_reuse_session = false;
+                self.invalidate_ui(cx, [UiRegion::WorkspaceBody]);
+            }
+            AutomationSelectKind::Model => {
+                self.automation_model = value;
                 self.automation_reuse_session = false;
                 self.invalidate_ui(cx, [UiRegion::WorkspaceBody]);
             }

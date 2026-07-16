@@ -87,15 +87,41 @@ pub struct RuntimeService {
     remote_host: Arc<RemoteHostRuntime>,
     remote_controllers: Arc<crate::remote::RemoteControllerManager>,
     host_browser_proxy: Arc<crate::host_browser::HostBrowserProxy>,
+    automation_dispatch_sender:
+        Arc<Mutex<Option<flume::Sender<crate::automation::AutomationRunPlan>>>>,
 }
 
 impl RuntimeService {
+    pub(crate) fn support_dir(&self) -> &std::path::Path {
+        &self.support_dir
+    }
+
     pub fn terminal_manager(&self) -> Arc<TerminalManager> {
         self.remote_host.terminal_manager()
     }
 
     pub fn ai_runtime_bridge(&self) -> Arc<AIRuntimeBridge> {
         Arc::clone(&self.ai_runtime)
+    }
+
+    pub fn set_automation_dispatch_sender(
+        &self,
+        sender: flume::Sender<crate::automation::AutomationRunPlan>,
+    ) {
+        *self.automation_dispatch_sender.lock().unwrap() = Some(sender);
+    }
+
+    pub(crate) fn dispatch_automation_plan(
+        &self,
+        plan: crate::automation::AutomationRunPlan,
+    ) -> Result<(), String> {
+        self.automation_dispatch_sender
+            .lock()
+            .map_err(|_| "automation dispatch channel is unavailable".to_string())?
+            .as_ref()
+            .ok_or_else(|| "automation dispatch channel is unavailable".to_string())?
+            .send(plan)
+            .map_err(|_| "automation dispatch channel is closed".to_string())
     }
 }
 

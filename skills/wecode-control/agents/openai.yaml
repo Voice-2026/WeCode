@@ -1,0 +1,4 @@
+interface:
+  display_name: "WeCode Control"
+  short_description: "Control WeCode projects, sessions, terminals, and automations"
+  default_prompt: "Use $wecode-control to inspect WeCode and safely control an Agent session."

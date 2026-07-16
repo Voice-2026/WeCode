@@ -1268,6 +1268,24 @@ impl WeCodeApp {
         true
     }
 
+    pub(in crate::app) fn restore_gateway_claude_session_in_main_split(
+        &mut self,
+        resume_id: &str,
+        configured_model: Option<&str>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let model = configured_model
+            .map(quick_gateway_claude_model)
+            .unwrap_or_else(|| quick_gateway_claude_model(&self.state.tool_permissions.kiro_model));
+        let Some((title, command, env)) = self.kiro_gateway_claude_launch(&model, Some(resume_id))
+        else {
+            self.invalidate_terminal_workspace(cx);
+            return;
+        };
+        self.launch_command_in_main_split_internal(title, command, env, Some(window), cx);
+    }
+
     pub(in crate::app) fn restore_ai_session_with_gateway_in_current_terminal(
         &mut self,
         session: &AISessionSummary,
@@ -1643,23 +1661,30 @@ impl WeCodeApp {
             return None;
         };
         let claude_model = quick_gateway_claude_model(model);
-        let mut env = HashMap::new();
-        env.insert("WECODE_KIRO_GATEWAY".to_string(), "1".to_string());
-        env.insert(
-            "WECODE_KIRO_GATEWAY_MODEL".to_string(),
-            claude_model.clone(),
+        let env = gateway_claude_environment(
+            &format!("http://{addr}"),
+            &self.gateway_settings.config.api_key,
+            &claude_model,
         );
-        env.insert(
-            "ANTHROPIC_API_KEY".to_string(),
-            self.gateway_settings.config.api_key.clone(),
-        );
-        env.insert("ANTHROPIC_BASE_URL".to_string(), format!("http://{addr}"));
         Some((
             format!("Kiro Gateway · Claude · {claude_model}"),
             gateway_claude_command(&claude_model, resume_id),
             Some(env),
         ))
     }
+}
+
+pub(in crate::app) fn gateway_claude_environment(
+    base_url: &str,
+    api_key: &str,
+    model: &str,
+) -> HashMap<String, String> {
+    HashMap::from([
+        ("WECODE_KIRO_GATEWAY".to_string(), "1".to_string()),
+        ("WECODE_KIRO_GATEWAY_MODEL".to_string(), model.to_string()),
+        ("ANTHROPIC_API_KEY".to_string(), api_key.to_string()),
+        ("ANTHROPIC_BASE_URL".to_string(), base_url.to_string()),
+    ])
 }
 
 pub(in crate::app) fn gateway_claude_command(model: &str, resume_id: Option<&str>) -> String {
@@ -1706,7 +1731,7 @@ fn quick_gateway_model(model: &str) -> String {
     }
 }
 
-fn quick_gateway_claude_model(model: &str) -> String {
+pub(in crate::app) fn quick_gateway_claude_model(model: &str) -> String {
     let model = model.trim();
     if model.is_empty() || model == "auto" || model.starts_with("gpt-") {
         "claude-opus-4.8".to_string()

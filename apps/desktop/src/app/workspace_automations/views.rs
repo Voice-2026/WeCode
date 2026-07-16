@@ -153,6 +153,7 @@ pub(super) fn automation_list_schedule_label(schedule: &AutomationSchedule) -> S
 fn automation_list_agent_label(agent: AutomationAgent) -> &'static str {
     match agent {
         AutomationAgent::Claude => "Claude",
+        AutomationAgent::KiroGatewayClaude => "Claude + Kiro",
         AutomationAgent::Codex => "Codex",
         AutomationAgent::Kiro => "Kiro",
     }
@@ -217,6 +218,7 @@ pub(super) fn automation_template_button(
 pub(super) fn automation_agent_value(agent: AutomationAgent) -> &'static str {
     match agent {
         AutomationAgent::Claude => "claude",
+        AutomationAgent::KiroGatewayClaude => "kiro_gateway_claude",
         AutomationAgent::Codex => "codex",
         AutomationAgent::Kiro => "kiro",
     }
@@ -240,10 +242,40 @@ pub(super) fn automation_workspace_mode_from_value(value: &str) -> Option<Automa
 pub(super) fn automation_agent_from_value(value: &str) -> Option<AutomationAgent> {
     match value.trim() {
         "claude" => Some(AutomationAgent::Claude),
+        "kiro_gateway_claude" => Some(AutomationAgent::KiroGatewayClaude),
         "codex" => Some(AutomationAgent::Codex),
         "kiro" => Some(AutomationAgent::Kiro),
         _ => None,
     }
+}
+
+pub(super) fn automation_gateway_model_options(selected: &str) -> Vec<SelectOption> {
+    let mut options = [
+        ("claude-haiku-4.5", "Claude Haiku 4.5"),
+        ("claude-sonnet-4.6", "Claude Sonnet 4.6"),
+        ("claude-opus-4.6", "Claude Opus 4.6"),
+        ("claude-opus-4.7", "Claude Opus 4.7"),
+        ("claude-opus-4.8", "Claude Opus 4.8"),
+        ("deepseek-3.2", "DeepSeek 3.2"),
+        ("glm-5", "GLM 5"),
+        ("minimax-m2.5", "MiniMax M2.5"),
+        ("qwen3-coder-next", "Qwen3 Coder Next"),
+    ]
+    .into_iter()
+    .map(|(value, label)| SelectOption::new(value, label))
+    .collect::<Vec<_>>();
+    let selected = selected.trim();
+    if !selected.is_empty()
+        && !options
+            .iter()
+            .any(|option| option.value.as_str() == selected)
+    {
+        options.push(SelectOption::new(
+            selected.to_string(),
+            SharedString::from(selected.to_string()),
+        ));
+    }
+    options
 }
 
 pub(super) fn automation_schedule_preset_value(preset: AutomationSchedulePreset) -> &'static str {
@@ -430,6 +462,14 @@ pub(super) fn automation_overview(
             } else {
                 format!("固定工作区 · {}", definition.workspace_name)
             },
+            cx,
+        ))
+        .child(automation_info_card(
+            "智能体",
+            definition.model.as_ref().map_or_else(
+                || definition.agent.label().to_string(),
+                |model| format!("{} · {model}", definition.agent.label()),
+            ),
             cx,
         ))
         .child(automation_info_card(

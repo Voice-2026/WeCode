@@ -94,6 +94,7 @@ impl RuntimeService {
             remote_host,
             remote_controllers: Arc::new(crate::remote::RemoteControllerManager::new(support_dir)),
             host_browser_proxy: Arc::new(crate::host_browser::HostBrowserProxy::new()),
+            automation_dispatch_sender: Arc::new(Mutex::new(None)),
         }
     }
 }

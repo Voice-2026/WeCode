@@ -3,6 +3,9 @@ use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
+pub mod local_control;
+pub use local_control::*;
+
 pub const REMOTE_PROTOCOL_VERSION: &str = "v3.2";
 pub const REMOTE_TERMINAL_BUFFER_MAX_CHARS: usize = 200_000;
 pub const REMOTE_TERMINAL_BUFFER_CHUNK_CHARS: usize = 16_384;
