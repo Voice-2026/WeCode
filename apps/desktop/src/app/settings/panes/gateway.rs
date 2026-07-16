@@ -1,13 +1,16 @@
 use super::widgets::*;
 use super::*;
 use wecode_runtime::gateway_service::{
-    CredentialSource, GatewayRuntimeStatus, GatewayService, GatewaySettings,
+    CredentialSource, GatewayModelCatalog, GatewayRuntimeStatus, GatewayService, GatewaySettings,
     kiro_app_credentials_path,
 };
 
 pub(super) fn settings_gateway_pane(
     settings: &GatewaySettings,
     _gateway_service: &GatewayService,
+    catalog: &GatewayModelCatalog,
+    refreshing_models: bool,
+    model_error: Option<&str>,
     language: &str,
     window: &mut Window,
     cx: &mut Context<WeCodeApp>,
@@ -160,6 +163,32 @@ pub(super) fn settings_gateway_pane(
         settings_card(
             Some(settings_text(
                 language,
+                "settings.gateway.section.models",
+                "Models",
+            )),
+            Some(settings_text(
+                language,
+                "settings.gateway.section.models.description",
+                "Refresh the catalog from Kiro CLI and choose defaults for each client.",
+            )),
+            model_rows(
+                settings,
+                catalog,
+                refreshing_models,
+                model_error,
+                language,
+                window,
+                cx,
+            ),
+            cx,
+        )
+        .into_any_element(),
+    );
+
+    cards.push(
+        settings_card(
+            Some(settings_text(
+                language,
                 "settings.gateway.section.credentials",
                 "Credentials",
             )),
@@ -171,6 +200,140 @@ pub(super) fn settings_gateway_pane(
     );
 
     settings_form(cards).into_any_element()
+}
+
+fn model_rows(
+    settings: &GatewaySettings,
+    catalog: &GatewayModelCatalog,
+    refreshing: bool,
+    error: Option<&str>,
+    language: &str,
+    window: &mut Window,
+    cx: &mut Context<WeCodeApp>,
+) -> Vec<AnyElement> {
+    let stale = catalog.is_stale_now();
+    let status = if let Some(error) = error {
+        settings_status_tag(format!("Failed · {error}"), theme::RED)
+    } else if stale {
+        settings_status_tag(
+            format!("{} models · Stale", catalog.models.len()),
+            theme::ORANGE,
+        )
+    } else {
+        settings_status_tag(
+            format!("{} models · {}", catalog.models.len(), catalog.source),
+            theme::GREEN,
+        )
+    };
+    let claude_options = catalog
+        .claude_code_models()
+        .map(|model| (model.id.clone(), SharedString::from(model.name.clone())))
+        .collect();
+    let codex_options = catalog
+        .codex_cli_models()
+        .map(|model| (model.id.clone(), SharedString::from(model.name.clone())))
+        .collect();
+
+    let mut rows = vec![
+        settings_row(
+            settings_text(language, "settings.gateway.models.status", "Catalog"),
+            Some(format!(
+                "Last refreshed: {}",
+                catalog.refreshed_at.to_rfc3339()
+            )),
+            div()
+                .flex()
+                .items_center()
+                .justify_end()
+                .gap(px(8.0))
+                .child(status)
+                .child(settings_small_button_state(
+                    "settings-gateway-models-refresh",
+                    if refreshing {
+                        "Refreshing..."
+                    } else {
+                        "Refresh"
+                    },
+                    refreshing,
+                    refreshing,
+                    cx,
+                    |app, _event, _window, cx| app.refresh_gateway_models(cx),
+                ))
+                .into_any_element(),
+        )
+        .into_any_element(),
+        settings_row(
+            settings_text(
+                language,
+                "settings.gateway.models.default_claude",
+                "Claude Code Default",
+            ),
+            None,
+            settings_select_impl(
+                "settings-gateway-default-claude-model",
+                &settings.default_claude_model,
+                claude_options,
+                window,
+                cx,
+                language,
+                |app, value, _window, cx| app.set_gateway_default_claude_model(value, cx),
+            ),
+        )
+        .into_any_element(),
+        settings_row(
+            settings_text(
+                language,
+                "settings.gateway.models.default_codex",
+                "Codex CLI Default",
+            ),
+            None,
+            settings_select_impl(
+                "settings-gateway-default-codex-model",
+                &settings.default_codex_model,
+                codex_options,
+                window,
+                cx,
+                language,
+                |app, value, _window, cx| app.set_gateway_default_codex_model(value, cx),
+            ),
+        )
+        .into_any_element(),
+    ];
+    for model in &catalog.models {
+        let clients = match (
+            model.compatibility.claude_code,
+            model.compatibility.codex_cli,
+        ) {
+            (true, true) => "Claude Code · Codex CLI",
+            (true, false) => "Claude Code",
+            (false, true) => "Codex CLI",
+            (false, false) => "Not enabled",
+        };
+        let detail = if model.description.is_empty() {
+            format!("{} context tokens", model.context_window_tokens)
+        } else {
+            format!(
+                "{} · {} context tokens",
+                model.description, model.context_window_tokens
+            )
+        };
+        rows.push(
+            settings_row(
+                model.name.clone(),
+                Some(detail),
+                settings_status_tag(
+                    format!("{} · {}×", clients, model.rate_multiplier),
+                    if model.compatibility.claude_code || model.compatibility.codex_cli {
+                        theme::GREEN
+                    } else {
+                        theme::TEXT_DIM
+                    },
+                ),
+            )
+            .into_any_element(),
+        );
+    }
+    rows
 }
 
 fn gateway_status(enabled: bool, status: GatewayRuntimeStatus, language: &str) -> AnyElement {

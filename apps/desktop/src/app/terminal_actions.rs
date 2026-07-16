@@ -279,7 +279,7 @@ impl WeCodeApp {
 
     pub(in crate::app) fn create_terminal_with_quick_agent(
         &mut self,
-        target: &'static str,
+        target: &str,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -1286,6 +1286,25 @@ impl WeCodeApp {
         self.launch_command_in_main_split_internal(title, command, env, Some(window), cx);
     }
 
+    pub(in crate::app) fn restore_gateway_codex_session_in_main_split(
+        &mut self,
+        resume_id: &str,
+        configured_model: Option<&str>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let model = configured_model
+            .map(str::to_string)
+            .unwrap_or_else(|| self.gateway_settings.default_codex_model.clone());
+        let Some((title, mut command, env)) = self.kiro_gateway_codex_launch(&model) else {
+            self.invalidate_terminal_workspace(cx);
+            return;
+        };
+        command.push_str(" resume ");
+        command.push_str(&shell_quote(resume_id));
+        self.launch_command_in_main_split_internal(title, command, env, Some(window), cx);
+    }
+
     pub(in crate::app) fn restore_ai_session_with_gateway_in_current_terminal(
         &mut self,
         session: &AISessionSummary,
@@ -1553,44 +1572,26 @@ impl WeCodeApp {
 
     pub(in crate::app) fn launch_quick_agent(
         &mut self,
-        target: &'static str,
+        target: &str,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let launch = match target {
-            "codex" => Some(("Codex".to_string(), "codex".to_string(), None)),
-            "claude" => Some(("Claude Code".to_string(), "claude".to_string(), None)),
-            "kiro" => Some(("Kiro".to_string(), "kiro-cli".to_string(), None)),
-            "kiro-gateway-claude" => {
-                self.kiro_gateway_quick_launch("claude", Some("claude-opus-4.8"))
+        let launch = if let Some(model) = target.strip_prefix("kiro-gateway-claude-model:") {
+            self.kiro_gateway_quick_launch("claude", Some(model))
+        } else if let Some(model) = target.strip_prefix("kiro-gateway-codex-model:") {
+            self.kiro_gateway_quick_launch("codex", Some(model))
+        } else {
+            match target {
+                "codex" => Some(("Codex".to_string(), "codex".to_string(), None)),
+                "claude" => Some(("Claude Code".to_string(), "claude".to_string(), None)),
+                "kiro" => Some(("Kiro".to_string(), "kiro-cli".to_string(), None)),
+                "kiro-gateway-claude" => {
+                    let model = self.gateway_settings.default_claude_model.clone();
+                    self.kiro_gateway_quick_launch("claude", Some(&model))
+                }
+                "kiro-gateway-codex" => self.kiro_gateway_quick_launch("codex", None),
+                _ => None,
             }
-            "kiro-gateway-claude-haiku-4-5" => {
-                self.kiro_gateway_quick_launch("claude", Some("claude-haiku-4.5"))
-            }
-            "kiro-gateway-claude-sonnet-4-6" => {
-                self.kiro_gateway_quick_launch("claude", Some("claude-sonnet-4.6"))
-            }
-            "kiro-gateway-claude-opus-4-6" => {
-                self.kiro_gateway_quick_launch("claude", Some("claude-opus-4.6"))
-            }
-            "kiro-gateway-claude-opus-4-7" => {
-                self.kiro_gateway_quick_launch("claude", Some("claude-opus-4.7"))
-            }
-            "kiro-gateway-claude-opus-4-8" => {
-                self.kiro_gateway_quick_launch("claude", Some("claude-opus-4.8"))
-            }
-            "kiro-gateway-claude-deepseek-3-2" => {
-                self.kiro_gateway_quick_launch("claude", Some("deepseek-3.2"))
-            }
-            "kiro-gateway-claude-glm-5" => self.kiro_gateway_quick_launch("claude", Some("glm-5")),
-            "kiro-gateway-claude-minimax-m2-5" => {
-                self.kiro_gateway_quick_launch("claude", Some("minimax-m2.5"))
-            }
-            "kiro-gateway-claude-qwen3-coder-next" => {
-                self.kiro_gateway_quick_launch("claude", Some("qwen3-coder-next"))
-            }
-            "kiro-gateway-codex" => self.kiro_gateway_quick_launch("codex", None),
-            _ => None,
         };
         let Some((title, command, env)) = launch else {
             if self.status_message.is_empty() {
@@ -1631,15 +1632,14 @@ impl WeCodeApp {
         };
         let model = model_override
             .map(str::to_string)
-            .unwrap_or_else(|| quick_gateway_model(&self.state.tool_permissions.kiro_model));
+            .unwrap_or_else(|| match client {
+                "claude" => self.gateway_settings.default_claude_model.clone(),
+                "codex" => self.gateway_settings.default_codex_model.clone(),
+                _ => quick_gateway_model(&self.state.tool_permissions.kiro_model),
+            });
         match client {
             "claude" => self.kiro_gateway_claude_launch(&model, None),
-            "codex" => {
-                self.status_message =
-                    "Kiro Gateway Codex is disabled because Kiro does not provide GPT models."
-                        .to_string();
-                None
-            }
+            "codex" => self.kiro_gateway_codex_launch(&model),
             _ => None,
         }
     }
@@ -1667,8 +1667,41 @@ impl WeCodeApp {
             &claude_model,
         );
         Some((
-            format!("Kiro Gateway · Claude · {claude_model}"),
+            format!("Claude Agent · Kiro Provider · {claude_model}"),
             gateway_claude_command(&claude_model, resume_id),
+            Some(env),
+        ))
+    }
+
+    fn kiro_gateway_codex_launch(
+        &mut self,
+        model: &str,
+    ) -> Option<(String, String, Option<HashMap<String, String>>)> {
+        let status = GatewayService::global_status();
+        let Some(addr) = status.addr else {
+            self.status_message = if let Some(error) = status.error {
+                format!("Kiro Gateway failed: {error}")
+            } else if status.enabled {
+                "Kiro Gateway is enabled but not listening yet.".to_string()
+            } else {
+                "Enable Kiro Gateway in Settings first.".to_string()
+            };
+            return None;
+        };
+        let catalog = wecode_runtime::gateway_service::current_gateway_model_catalog();
+        let Some(entry) = catalog
+            .model(model)
+            .filter(|entry| entry.compatibility.codex_cli)
+        else {
+            self.status_message =
+                format!("Model '{model}' is not available for Codex with Kiro Provider.");
+            return None;
+        };
+        let base_url = format!("http://{addr}/v1");
+        let env = gateway_codex_environment(&self.gateway_settings.config.api_key, &entry.id);
+        Some((
+            format!("Codex Agent · Kiro Provider · {}", entry.id),
+            gateway_codex_command(&entry.id, &base_url, entry.context_window_tokens),
             Some(env),
         ))
     }
@@ -1679,25 +1712,26 @@ pub(in crate::app) fn gateway_claude_environment(
     api_key: &str,
     model: &str,
 ) -> HashMap<String, String> {
-    HashMap::from([
-        ("WECODE_KIRO_GATEWAY".to_string(), "1".to_string()),
-        ("WECODE_KIRO_GATEWAY_MODEL".to_string(), model.to_string()),
-        ("ANTHROPIC_API_KEY".to_string(), api_key.to_string()),
-        ("ANTHROPIC_BASE_URL".to_string(), base_url.to_string()),
-    ])
+    wecode_runtime::gateway_service::gateway_claude_environment(base_url, api_key, model)
 }
 
 pub(in crate::app) fn gateway_claude_command(model: &str, resume_id: Option<&str>) -> String {
-    let cli_model = model.replace('.', "-");
-    let mut command = format!(
-        "claude --permission-mode bypassPermissions --model {}",
-        shell_quote(&cli_model)
-    );
-    if let Some(resume_id) = resume_id.filter(|value| !value.trim().is_empty()) {
-        command.push_str(" --resume ");
-        command.push_str(&shell_quote(resume_id));
-    }
-    command
+    wecode_runtime::gateway_service::gateway_claude_command(model, resume_id)
+}
+
+pub(in crate::app) fn gateway_codex_environment(
+    api_key: &str,
+    model: &str,
+) -> HashMap<String, String> {
+    wecode_runtime::gateway_service::gateway_codex_environment(api_key, model)
+}
+
+pub(in crate::app) fn gateway_codex_command(
+    model: &str,
+    base_url: &str,
+    context_window_tokens: u64,
+) -> String {
+    wecode_runtime::gateway_service::gateway_codex_command(model, base_url, context_window_tokens)
 }
 
 pub(in crate::app) fn gateway_resume_claude_model(

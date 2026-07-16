@@ -600,6 +600,7 @@ mod tests {
             tool: tool.to_string(),
             ai_session_id: Some("session-1".to_string()),
             model: None,
+            provider: None,
             state: "idle".to_string(),
             status: "idle".to_string(),
             is_running: false,

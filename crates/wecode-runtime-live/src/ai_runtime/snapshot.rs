@@ -17,6 +17,8 @@ pub struct AISessionSnapshot {
     pub ai_session_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
     pub state: String,
     pub status: String,
     pub is_running: bool,

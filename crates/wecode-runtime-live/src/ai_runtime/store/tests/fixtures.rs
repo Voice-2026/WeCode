@@ -135,6 +135,7 @@ pub(super) fn test_binding(
         external_session_id: None,
         transcript_path: None,
         model: None,
+        provider: None,
         updated_at: started_at,
     }
 }

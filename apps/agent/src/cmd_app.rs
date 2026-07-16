@@ -167,6 +167,7 @@ fn exit_code_for_error(code: &str) -> i32 {
         | "TERMINAL_NOT_FOUND"
         | "AUTOMATION_NOT_FOUND"
         | "AGENT_NOT_FOUND"
+        | "MODEL_NOT_AVAILABLE"
         | "AMBIGUOUS_TARGET" => EXIT_NOT_FOUND,
         "OPERATION_FAILED"
         | "DEFAULT_WORKTREE_PROTECTED"
@@ -175,11 +176,13 @@ fn exit_code_for_error(code: &str) -> i32 {
         | "TERMINAL_NOT_RUNNING"
         | "AUTOMATION_ACTIVE_RUN"
         | "AUTOMATION_DISPATCH_UNAVAILABLE"
+        | "GATEWAY_OFFLINE"
         | "SERVER_BUSY"
         | "RESPONSE_TOO_LARGE" => EXIT_CONFLICT,
         "CONFIRMATION_REQUIRED" => EXIT_CONFIRMATION_REQUIRED,
         "UNSUPPORTED_PROTOCOL"
         | "METHOD_NOT_FOUND"
+        | "MODEL_CLIENT_INCOMPATIBLE"
         | "UNSUPPORTED_CAPABILITY"
         | "AGENT_UNAVAILABLE" => EXIT_PROTOCOL,
         _ => EXIT_INTERNAL,
@@ -323,6 +326,12 @@ mod tests {
         );
         assert_eq!(exit_code_for_error("UNSUPPORTED_PROTOCOL"), EXIT_PROTOCOL);
         assert_eq!(exit_code_for_error("INTERNAL_ERROR"), EXIT_INTERNAL);
+        assert_eq!(exit_code_for_error("MODEL_NOT_AVAILABLE"), EXIT_NOT_FOUND);
+        assert_eq!(exit_code_for_error("GATEWAY_OFFLINE"), EXIT_CONFLICT);
+        assert_eq!(
+            exit_code_for_error("MODEL_CLIENT_INCOMPATIBLE"),
+            EXIT_PROTOCOL
+        );
     }
 
     #[test]

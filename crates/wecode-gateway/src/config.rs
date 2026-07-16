@@ -239,6 +239,7 @@ impl Default for GatewayConfig {
 /// endpoint has no /ListAvailableModels).
 pub const FALLBACK_MODELS: &[&str] = &[
     "auto",
+    "claude-sonnet-5",
     "claude-sonnet-4",
     "claude-sonnet-4.5",
     "claude-sonnet-4.6",
@@ -246,11 +247,15 @@ pub const FALLBACK_MODELS: &[&str] = &[
     "claude-opus-4.5",
     "claude-opus-4.6",
     "claude-opus-4.7",
+    "claude-opus-4.8",
     "deepseek-3.2",
     "glm-5",
     "minimax-m2.1",
     "minimax-m2.5",
     "qwen3-coder-next",
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna",
 ];
 
 pub fn kiro_refresh_url(region: &str) -> String {

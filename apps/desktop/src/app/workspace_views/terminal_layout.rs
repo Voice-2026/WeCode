@@ -1043,6 +1043,22 @@ fn terminal_pane_agent_button(
             "Gateway disabled",
         )
     };
+    let catalog = wecode_runtime::gateway_service::current_gateway_model_catalog();
+    let gateway_models = catalog
+        .claude_code_models()
+        .map(|model| {
+            (
+                format!("Gateway · Claude · {}", model.name),
+                format!("kiro-gateway-claude-model:{}", model.id),
+            )
+        })
+        .chain(catalog.codex_cli_models().map(|model| {
+            (
+                format!("Gateway · Codex · {}", model.name),
+                format!("kiro-gateway-codex-model:{}", model.id),
+            )
+        }))
+        .collect::<Vec<_>>();
     let text_color = if enabled {
         cx.theme().secondary_foreground
     } else {
@@ -1094,68 +1110,14 @@ fn terminal_pane_agent_button(
                 ))
                 .separator();
             if gateway_ready {
-                menu = menu
-                    .item(quick_agent_menu_item(
+                for (label, target) in &gateway_models {
+                    menu = menu.item(quick_agent_menu_item(
                         app_entity.clone(),
-                        "Kiro Gateway · Claude · Opus 4.8",
+                        label.clone(),
                         HeroIconName::ServerStack,
-                        "kiro-gateway-claude",
-                    ))
-                    .separator()
-                    .item(quick_agent_menu_item(
-                        app_entity.clone(),
-                        "Gateway · Haiku 4.5",
-                        HeroIconName::ServerStack,
-                        "kiro-gateway-claude-haiku-4-5",
-                    ))
-                    .item(quick_agent_menu_item(
-                        app_entity.clone(),
-                        "Gateway · Sonnet 4.6",
-                        HeroIconName::ServerStack,
-                        "kiro-gateway-claude-sonnet-4-6",
-                    ))
-                    .item(quick_agent_menu_item(
-                        app_entity.clone(),
-                        "Gateway · Opus 4.6",
-                        HeroIconName::ServerStack,
-                        "kiro-gateway-claude-opus-4-6",
-                    ))
-                    .item(quick_agent_menu_item(
-                        app_entity.clone(),
-                        "Gateway · Opus 4.7",
-                        HeroIconName::ServerStack,
-                        "kiro-gateway-claude-opus-4-7",
-                    ))
-                    .item(quick_agent_menu_item(
-                        app_entity.clone(),
-                        "Gateway · Opus 4.8",
-                        HeroIconName::ServerStack,
-                        "kiro-gateway-claude-opus-4-8",
-                    ))
-                    .item(quick_agent_menu_item(
-                        app_entity.clone(),
-                        "Gateway · DeepSeek 3.2",
-                        HeroIconName::ServerStack,
-                        "kiro-gateway-claude-deepseek-3-2",
-                    ))
-                    .item(quick_agent_menu_item(
-                        app_entity.clone(),
-                        "Gateway · GLM 5",
-                        HeroIconName::ServerStack,
-                        "kiro-gateway-claude-glm-5",
-                    ))
-                    .item(quick_agent_menu_item(
-                        app_entity.clone(),
-                        "Gateway · MiniMax M2.5",
-                        HeroIconName::ServerStack,
-                        "kiro-gateway-claude-minimax-m2-5",
-                    ))
-                    .item(quick_agent_menu_item(
-                        app_entity.clone(),
-                        "Gateway · Qwen3 Coder",
-                        HeroIconName::ServerStack,
-                        "kiro-gateway-claude-qwen3-coder-next",
+                        target.clone(),
                     ));
+                }
             } else {
                 menu = menu.item(
                     PopupMenuItem::new(gateway_hint.clone())
@@ -1170,15 +1132,16 @@ fn terminal_pane_agent_button(
 
 fn quick_agent_menu_item(
     app_entity: gpui::Entity<WeCodeApp>,
-    label: &'static str,
+    label: impl Into<SharedString>,
     icon: HeroIconName,
-    target: &'static str,
+    target: impl Into<String>,
 ) -> PopupMenuItem {
-    PopupMenuItem::new(label)
+    let target = target.into();
+    PopupMenuItem::new(label.into())
         .icon(icon)
         .on_click(move |_, window, cx| {
             cx.update_entity(&app_entity, |app, app_cx| {
-                app.launch_quick_agent(target, window, app_cx);
+                app.launch_quick_agent(&target, window, app_cx);
             });
         })
 }

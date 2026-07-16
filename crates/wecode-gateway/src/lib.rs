@@ -7,6 +7,7 @@ pub mod config;
 pub mod convert;
 pub mod error;
 pub mod mcp;
+pub mod model_catalog;
 pub mod model_resolver;
 pub mod routes;
 pub mod thinking;
@@ -51,12 +52,20 @@ fn build_http_client() -> reqwest::Client {
 
 /// Start the gateway server bound to the configured host/port.
 pub async fn start(config: GatewayConfig) -> Result<GatewayHandle, GatewayError> {
+    start_with_model_catalog(config, model_catalog::GatewayModelCatalog::fallback()).await
+}
+
+pub async fn start_with_model_catalog(
+    config: GatewayConfig,
+    model_catalog: model_catalog::GatewayModelCatalog,
+) -> Result<GatewayHandle, GatewayError> {
     let config = Arc::new(config);
     let http = build_http_client();
     let accounts = accounts::AccountManager::from_config(&config, http)?;
 
     let state = routes::AppState {
         config: config.clone(),
+        model_catalog: Arc::new(model_catalog),
         accounts,
         truncation: Arc::new(truncation::TruncationStore::default()),
     };

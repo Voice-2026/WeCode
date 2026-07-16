@@ -28,6 +28,8 @@ pub struct AIRuntimeBinding {
     pub transcript_path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
     #[serde(default)]
     pub updated_at: f64,
 }
@@ -75,6 +77,7 @@ impl AIRuntimeBinding {
         self.external_session_id = normalized_string(self.external_session_id.as_deref());
         self.transcript_path = normalized_string(self.transcript_path.as_deref());
         self.model = normalized_string(self.model.as_deref());
+        self.provider = normalized_string(self.provider.as_deref());
         if self.updated_at <= 0.0 {
             self.updated_at = self.launch_started_at;
         }
@@ -241,6 +244,7 @@ mod tests {
             external_session_id: None,
             transcript_path: None,
             model: None,
+            provider: None,
             updated_at: 10.0,
         }
         .normalized()

@@ -371,16 +371,68 @@ impl WeCodeApp {
 
     pub(super) fn reload_gateway_settings_from_disk(&mut self, cx: &mut Context<Self>) {
         let settings = GatewaySettings::load(self.state.support_dir.clone());
+        let catalog = wecode_runtime::gateway_service::load_gateway_model_catalog(
+            self.state.support_dir.clone(),
+        );
         let changed = serde_json::to_value(&self.gateway_settings).ok()
             != serde_json::to_value(&settings).ok();
+        let catalog_changed = self.gateway_model_catalog != catalog;
         self.gateway_settings = settings;
-        if changed && self.window_mode == AppWindowMode::Main {
+        self.gateway_model_catalog = catalog;
+        if (changed || catalog_changed) && self.window_mode == AppWindowMode::Main {
             self.gateway_service = self
                 .gateway_service
                 .restart_from_support_dir(self.state.support_dir.clone());
             self.runtime_trace("settings", "gateway settings reloaded");
             self.invalidate_ui_region(cx, UiRegion::Root);
         }
+    }
+
+    pub(super) fn refresh_gateway_models(&mut self, cx: &mut Context<Self>) {
+        if self.gateway_models_refreshing {
+            return;
+        }
+        self.gateway_models_refreshing = true;
+        self.gateway_models_error = None;
+        self.status_message = "refreshing Kiro models".to_string();
+        self.invalidate_ui_region(cx, UiRegion::Root);
+
+        let support_dir = self.state.support_dir.clone();
+        let refresh = wecode_runtime::async_runtime::spawn(
+            wecode_runtime::gateway_service::refresh_gateway_model_catalog(support_dir.clone()),
+        );
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            let result = refresh
+                .await
+                .unwrap_or_else(|error| Err(format!("model refresh task failed: {error}")));
+            let _ = this.update(cx, |app, cx| {
+                app.gateway_models_refreshing = false;
+                match result {
+                    Ok(catalog) => {
+                        let count = catalog.models.len();
+                        app.gateway_model_catalog = catalog;
+                        if app.window_mode == AppWindowMode::Main {
+                            app.gateway_service = app
+                                .gateway_service
+                                .restart_from_support_dir(support_dir.clone());
+                        }
+                        app.gateway_models_error = None;
+                        app.status_message = format!("refreshed {count} Kiro models");
+                        let revision = publish_settings_update();
+                        publish_child_window_update(ChildWindowUpdateKind::Settings);
+                        if revision > 0 {
+                            app.settings_seen_revision = revision;
+                        }
+                    }
+                    Err(error) => {
+                        app.gateway_models_error = Some(error.clone());
+                        app.status_message = format!("failed to refresh Kiro models: {error}");
+                    }
+                }
+                app.invalidate_ui_region(cx, UiRegion::Root);
+            });
+        })
+        .detach();
     }
 
     pub(super) fn set_gateway_enabled(&mut self, enabled: bool, cx: &mut Context<Self>) {
@@ -434,6 +486,42 @@ impl WeCodeApp {
         let mut settings = self.gateway_settings.clone();
         settings.config.region = region;
         self.save_gateway_settings("set_gateway_region", settings, cx);
+    }
+
+    pub(super) fn set_gateway_default_claude_model(
+        &mut self,
+        model: String,
+        cx: &mut Context<Self>,
+    ) {
+        if !self
+            .gateway_model_catalog
+            .model(&model)
+            .is_some_and(|model| model.compatibility.claude_code)
+            || self.gateway_settings.default_claude_model == model
+        {
+            return;
+        }
+        let mut settings = self.gateway_settings.clone();
+        settings.default_claude_model = model;
+        self.save_gateway_settings("set_gateway_default_claude_model", settings, cx);
+    }
+
+    pub(super) fn set_gateway_default_codex_model(
+        &mut self,
+        model: String,
+        cx: &mut Context<Self>,
+    ) {
+        if !self
+            .gateway_model_catalog
+            .model(&model)
+            .is_some_and(|model| model.compatibility.codex_cli)
+            || self.gateway_settings.default_codex_model == model
+        {
+            return;
+        }
+        let mut settings = self.gateway_settings.clone();
+        settings.default_codex_model = model;
+        self.save_gateway_settings("set_gateway_default_codex_model", settings, cx);
     }
 
     pub(super) fn set_gateway_credential_source(&mut self, source: String, cx: &mut Context<Self>) {

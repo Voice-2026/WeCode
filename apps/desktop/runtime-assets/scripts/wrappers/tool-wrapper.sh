@@ -732,6 +732,11 @@ write_runtime_binding() {
       print -rn -- "\"terminalInstanceId\":null,"
     fi
     print -rn -- "\"tool\":\"$(json_escape "${tool_name}")\","
+    if [[ -n "${WECODE_AI_PROVIDER_ID:-}" ]]; then
+      print -rn -- "\"provider\":\"$(json_escape "${WECODE_AI_PROVIDER_ID}")\","
+    else
+      print -rn -- "\"provider\":null,"
+    fi
     print -rn -- "\"projectId\":\"$(json_escape "${DMUX_PROJECT_ID}")\","
     print -rn -- "\"projectName\":\"$(json_escape "${DMUX_PROJECT_NAME:-Workspace}")\","
     print -rn -- "\"projectPath\":\"$(json_escape "${DMUX_PROJECT_PATH:-}")\","

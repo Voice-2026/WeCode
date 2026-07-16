@@ -71,6 +71,7 @@ pub enum AutomationWorkspaceMode {
 pub enum AutomationAgent {
     Claude,
     KiroGatewayClaude,
+    KiroCodex,
     Codex,
     Kiro,
 }
@@ -80,6 +81,7 @@ impl AutomationAgent {
         match self {
             Self::Claude => "Claude Code",
             Self::KiroGatewayClaude => "Claude + Kiro",
+            Self::KiroCodex => "Codex Agent · Kiro Provider",
             Self::Codex => "Codex",
             Self::Kiro => "Kiro",
         }
@@ -89,6 +91,7 @@ impl AutomationAgent {
         match self {
             Self::Claude => "claude",
             Self::KiroGatewayClaude => "kiro_gateway_claude",
+            Self::KiroCodex => "kiro_gateway_codex",
             Self::Codex => "codex",
             Self::Kiro => "kiro",
         }
@@ -97,13 +100,17 @@ impl AutomationAgent {
     pub fn tool_name(self) -> &'static str {
         match self {
             Self::Claude | Self::KiroGatewayClaude => "claude",
-            Self::Codex => "codex",
+            Self::Codex | Self::KiroCodex => "codex",
             Self::Kiro => "kiro",
         }
     }
 
     pub fn uses_claude_runtime(self) -> bool {
         matches!(self, Self::Claude | Self::KiroGatewayClaude)
+    }
+
+    pub fn uses_gateway(self) -> bool {
+        matches!(self, Self::KiroGatewayClaude | Self::KiroCodex)
     }
 }
 
@@ -422,6 +429,8 @@ pub struct AutomationRun {
     pub reuse_session: bool,
     #[serde(default)]
     pub agent: Option<AutomationAgent>,
+    #[serde(default)]
+    pub model: Option<String>,
     #[serde(default)]
     pub output_snapshot: Option<AutomationOutputSnapshot>,
     #[serde(default)]
@@ -1065,6 +1074,7 @@ fn new_run(
         base_branch: definition.base_branch.clone(),
         reuse_session: definition.reuse_session,
         agent: Some(definition.agent),
+        model: definition.model.clone(),
         output_snapshot: None,
         precheck_result: None,
         run_number,
@@ -1115,14 +1125,16 @@ fn run_plan(definition: &AutomationDefinition, run: &AutomationRun) -> Automatio
 }
 
 fn normalize_automation_model(agent: AutomationAgent, model: Option<String>) -> Option<String> {
-    if agent != AutomationAgent::KiroGatewayClaude {
-        return None;
-    }
+    let fallback = match agent {
+        AutomationAgent::KiroGatewayClaude => "claude-sonnet-5",
+        AutomationAgent::KiroCodex => "gpt-5.6-terra",
+        _ => return None,
+    };
     Some(
         model
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty())
-            .unwrap_or_else(|| "claude-opus-4.8".to_string()),
+            .unwrap_or_else(|| fallback.to_string()),
     )
 }
 
@@ -1141,6 +1153,7 @@ fn reusable_session_id(
             run.automation_id == definition.id
                 && run.workspace_id == definition.workspace_id
                 && run.agent == Some(definition.agent)
+                && run.model == definition.model
                 && run
                     .ai_session_id
                     .as_deref()
@@ -1559,11 +1572,22 @@ mod tests {
         );
         assert_eq!(
             normalize_automation_model(agent, None),
-            Some("claude-opus-4.8".to_string())
+            Some("claude-sonnet-5".to_string())
         );
         assert_eq!(
             normalize_automation_model(AutomationAgent::Claude, Some("ignored".to_string())),
             None
+        );
+
+        let codex = AutomationAgent::KiroCodex;
+        assert_eq!(serde_json::to_string(&codex).unwrap(), "\"kiro_codex\"");
+        assert_eq!(codex.id(), "kiro_gateway_codex");
+        assert_eq!(codex.tool_name(), "codex");
+        assert!(codex.uses_gateway());
+        assert!(!codex.uses_claude_runtime());
+        assert_eq!(
+            normalize_automation_model(codex, None),
+            Some("gpt-5.6-terra".to_string())
         );
     }
 

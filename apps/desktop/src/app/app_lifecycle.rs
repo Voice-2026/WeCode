@@ -47,7 +47,12 @@ impl WeCodeApp {
         let task_session_sort =
             TaskSessionSort::from_setting(&runtime_service.ai_session_list_sort());
         let gateway_settings = GatewaySettings::load(state.support_dir.clone());
-        let gateway_service = GatewayService::start(gateway_settings.clone());
+        let gateway_model_catalog =
+            wecode_runtime::gateway_service::load_gateway_model_catalog(state.support_dir.clone());
+        let gateway_service = GatewayService::start_with_catalog(
+            gateway_settings.clone(),
+            gateway_model_catalog.clone(),
+        );
         let _ = runtime_service.recover_interrupted_memory_extraction_queue();
         let power_sync_error = runtime_service.start_power_settings_sync().err();
         state.power = runtime_service.power_summary(&state.settings.sleep_mode);
@@ -215,7 +220,9 @@ impl WeCodeApp {
         let automation_branch_select = new_select_state(Vec::new(), "", window, cx);
         let automation_agent_select =
             new_select_state(Vec::new(), "kiro_gateway_claude", window, cx);
-        let automation_model_select = new_select_state(Vec::new(), "claude-opus-4.8", window, cx);
+        let automation_default_model = gateway_settings.default_claude_model.clone();
+        let automation_model_select =
+            new_select_state(Vec::new(), &automation_default_model, window, cx);
         let automation_schedule_select = new_select_state(Vec::new(), "daily", window, cx);
         let automation_grace_select = new_select_state(
             Vec::new(),
@@ -264,7 +271,7 @@ impl WeCodeApp {
             automation_schedule_select: Some(automation_schedule_select),
             automation_grace_select: Some(automation_grace_select),
             automation_agent: AutomationAgent::KiroGatewayClaude,
-            automation_model: "claude-opus-4.8".to_string(),
+            automation_model: automation_default_model,
             automation_project_id,
             automation_workspace_id,
             automation_workspace_mode: AutomationWorkspaceMode::Existing,
@@ -275,6 +282,9 @@ impl WeCodeApp {
             automation_weekday: 1,
             gateway_settings,
             gateway_service,
+            gateway_model_catalog,
+            gateway_models_refreshing: false,
+            gateway_models_error: None,
             window_appearance: window.appearance(),
             main_window_fullscreen: window.is_fullscreen(),
             main_window_lost_to_external_app: false,
@@ -603,6 +613,9 @@ impl WeCodeApp {
     /// after the entity is created, when a `Context<Self>` is available to drive
     /// the async attach chokepoint. A no-op for the common local-only boot.
     pub fn attach_boot_pending_terminals(&mut self, cx: &mut Context<Self>) {
+        if self.gateway_model_catalog.is_stale_now() {
+            self.refresh_gateway_models(cx);
+        }
         if self.boot_pending_terminals.is_empty() {
             return;
         }

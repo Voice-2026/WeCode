@@ -1599,7 +1599,7 @@ mod tests {
         let created_data = created.data.unwrap();
         let created_id = created_data["automationId"].as_str().unwrap().to_string();
         assert_eq!(created_data["agentId"], "kiro_gateway_claude");
-        assert_eq!(created_data["model"], "claude-opus-4.8");
+        assert_eq!(created_data["model"], "claude-sonnet-5");
 
         let updated = dispatch(
             LocalControlRequest {

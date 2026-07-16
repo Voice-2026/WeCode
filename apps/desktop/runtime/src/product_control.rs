@@ -1,6 +1,6 @@
 use serde_json::{Value, json};
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     io::Read,
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -53,7 +53,7 @@ struct AgentSpec {
     supports_full_access: bool,
 }
 
-const AGENTS: [AgentSpec; 8] = [
+const AGENTS: [AgentSpec; 10] = [
     AgentSpec {
         id: "codex",
         name: "Codex",
@@ -68,6 +68,24 @@ const AGENTS: [AgentSpec; 8] = [
         name: "Claude Code",
         command: "claude",
         aliases: &["claude"],
+        supports_model: true,
+        supports_resume: true,
+        supports_full_access: true,
+    },
+    AgentSpec {
+        id: "kiro-claude",
+        name: "Claude Agent · Kiro Provider",
+        command: "claude",
+        aliases: &["claude"],
+        supports_model: true,
+        supports_resume: true,
+        supports_full_access: true,
+    },
+    AgentSpec {
+        id: "kiro-codex",
+        name: "Codex Agent · Kiro Provider",
+        command: "codex",
+        aliases: &["codex"],
         supports_model: true,
         supports_resume: true,
         supports_full_access: true,
@@ -130,6 +148,8 @@ const AGENTS: [AgentSpec; 8] = [
 
 pub fn agent_list(service: &RuntimeService) -> Value {
     let settings = service.sync_tool_permissions();
+    let gateway_settings = crate::gateway_service::GatewaySettings::load(service.support_dir());
+    let gateway_status = crate::gateway_service::GatewayService::global_status();
     let executables = AGENTS
         .iter()
         .map(|agent| find_executable(agent.aliases))
@@ -152,14 +172,24 @@ pub fn agent_list(service: &RuntimeService) -> Value {
         .zip(executables)
         .zip(versions)
         .map(|((agent, executable), version)| {
+            let gateway_required = gateway_client(agent).is_some();
+            let gateway_online = gateway_status.addr.is_some();
             json!({
                 "id": agent.id,
                 "name": agent.name,
                 "installed": executable.is_some(),
+                "available": executable.is_some() && (!gateway_required || gateway_online),
                 "executable": executable.map(|path| path.display().to_string()),
                 "version": version,
-                "configuredModel": configured_model(&settings, agent.id),
+                "configuredModel": configured_agent_model(&settings, &gateway_settings, agent.id),
                 "permissionMode": configured_permission(&settings, agent.id),
+                "gateway": {
+                    "required": gateway_required,
+                    "enabled": gateway_status.enabled,
+                    "online": gateway_online,
+                    "address": gateway_status.addr.map(|addr| addr.to_string()),
+                    "error": gateway_status.error.clone(),
+                },
                 "capabilities": {
                     "create": true,
                     "resume": agent.supports_resume,
@@ -178,6 +208,40 @@ pub fn agent_list(service: &RuntimeService) -> Value {
 
 pub fn model_list(service: &RuntimeService, agent_id: &str) -> Result<Value, ProductControlError> {
     let agent = agent_spec(agent_id)?;
+    if let Some(client) = gateway_client(agent) {
+        let catalog = crate::gateway_service::current_gateway_model_catalog();
+        let gateway_settings = crate::gateway_service::GatewaySettings::load(service.support_dir());
+        let default_model = gateway_default_model(&gateway_settings, client);
+        let models = catalog
+            .models
+            .iter()
+            .filter(|model| gateway_model_compatible(model, client))
+            .map(|model| {
+                json!({
+                    "id": model.id,
+                    "name": model.name,
+                    "description": model.description,
+                    "source": catalog.source,
+                    "configured": model.id == default_model,
+                    "contextWindowTokens": model.context_window_tokens,
+                    "rateMultiplier": model.rate_multiplier,
+                    "rateUnit": model.rate_unit,
+                    "experimental": model.description.to_ascii_lowercase().contains("experimental"),
+                })
+            })
+            .collect::<Vec<_>>();
+        return Ok(json!({
+            "agentId": agent.id,
+            "models": models,
+            "defaultModel": default_model,
+            "supportsModelOverride": true,
+            "discovery": "kiro-catalog",
+            "source": catalog.source,
+            "refreshedAt": catalog.refreshed_at.to_rfc3339(),
+            "stale": catalog.is_stale_now(),
+            "schemaVersion": catalog.schema_version,
+        }));
+    }
     let settings = service.sync_tool_permissions();
     let model = configured_model(&settings, agent.id);
     let models = model
@@ -261,7 +325,9 @@ pub fn session_list(
                 "terminalId": Value::Null,
                 "externalSessionId": session.external_session_id,
                 "title": session.title,
-                "agentId": canonical_agent_id(&session.source),
+                "agentId": history_runtime_agent_id(&session.source, session.last_model.as_deref()),
+                "providerId": history_provider_id(&session.source, session.last_model.as_deref()),
+                "providerName": history_provider_id(&session.source, session.last_model.as_deref()).map(provider_name),
                 "model": session.last_model,
                 "status": "completed",
                 "updatedAt": session.last_seen_at,
@@ -287,9 +353,17 @@ pub fn session_create(
     let agent = agent_spec(agent_id)?;
     ensure_agent_installed(agent)?;
     let settings = service.sync_tool_permissions();
-    let model = validate_model(agent, &settings, model)?;
     let permission = validate_permission(agent, &settings, permission_mode)?;
-    let command = create_command(agent, model.as_deref(), &permission);
+    let (command, env, model) = if let Some(client) = gateway_client(agent) {
+        prepare_gateway_session(service, agent, client, model, None, &permission)?
+    } else {
+        let model = validate_model(agent, &settings, model)?;
+        (
+            create_command(agent, model.as_deref(), &permission),
+            None,
+            model,
+        )
+    };
     launch_session(
         service,
         &project,
@@ -297,6 +371,8 @@ pub fn session_create(
         &cwd,
         agent,
         command,
+        env,
+        model.as_deref(),
     )
 }
 
@@ -307,7 +383,7 @@ pub fn session_resume(
 ) -> Result<Value, ProductControlError> {
     let (project, session) = find_history_session(service, session_id, project_id)?;
     ensure_local_project(service, &project)?;
-    let agent_id = canonical_agent_id(&session.source);
+    let agent_id = history_agent_id(&session.source, session.last_model.as_deref());
     let agent = agent_spec(&agent_id)?;
     if !agent.supports_resume {
         return Err(ProductControlError::new(
@@ -324,7 +400,28 @@ pub fn session_resume(
         ));
     }
     ensure_agent_installed(agent)?;
-    let command = crate::ai_history::session_restore_command(&session);
+    let permission = configured_permission(&service.sync_tool_permissions(), agent.id);
+    let (command, env, model) = if let Some(client) = gateway_client(agent) {
+        let resume_id = session
+            .external_session_id
+            .as_deref()
+            .filter(|id| !id.trim().is_empty())
+            .unwrap_or(&session.session_key);
+        prepare_gateway_session(
+            service,
+            agent,
+            client,
+            session.last_model.as_deref(),
+            Some(resume_id),
+            &permission,
+        )?
+    } else {
+        (
+            crate::ai_history::session_restore_command(&session),
+            None,
+            session.last_model.clone(),
+        )
+    };
     launch_session(
         service,
         &project,
@@ -332,6 +429,8 @@ pub fn session_resume(
         &project.path,
         agent,
         command,
+        env,
+        model.as_deref(),
     )
 }
 
@@ -427,7 +526,9 @@ pub fn session_status(
         "projectName": project.name,
         "externalSessionId": session.external_session_id,
         "title": session.title,
-        "agentId": canonical_agent_id(&session.source),
+        "agentId": history_runtime_agent_id(&session.source, session.last_model.as_deref()),
+        "providerId": history_provider_id(&session.source, session.last_model.as_deref()),
+        "providerName": history_provider_id(&session.source, session.last_model.as_deref()).map(provider_name),
         "model": session.last_model,
         "status": "completed",
         "updatedAt": session.last_seen_at,
@@ -748,14 +849,12 @@ pub fn automation_create(
         params.worktree_id.as_deref(),
     )?;
     let agent = automation_agent(params.agent_id.as_deref())?;
-    let model = if agent == crate::automation::AutomationAgent::KiroGatewayClaude {
-        Some(
-            params
-                .model
-                .clone()
-                .filter(|model| !model.trim().is_empty())
-                .unwrap_or_else(|| "claude-opus-4.8".to_string()),
-        )
+    let model = if agent.uses_gateway() {
+        Some(validate_automation_gateway_model(
+            service,
+            agent,
+            params.model.as_deref(),
+        )?)
     } else {
         None
     };
@@ -830,12 +929,12 @@ pub fn automation_update(
         .agent_id
         .as_deref()
         .map_or(Ok(current.agent), |agent| automation_agent(Some(agent)))?;
-    let model = if agent == crate::automation::AutomationAgent::KiroGatewayClaude {
-        params
-            .model
-            .clone()
-            .or(current.model.clone())
-            .or_else(|| Some("claude-opus-4.8".to_string()))
+    let model = if agent.uses_gateway() {
+        Some(validate_automation_gateway_model(
+            service,
+            agent,
+            params.model.as_deref().or(current.model.as_deref()),
+        )?)
     } else {
         None
     };
@@ -883,6 +982,40 @@ pub fn automation_update(
     Ok(automation_value(&definition, &updated.runs))
 }
 
+fn validate_automation_gateway_model(
+    service: &RuntimeService,
+    agent: crate::automation::AutomationAgent,
+    requested: Option<&str>,
+) -> Result<String, ProductControlError> {
+    let settings = crate::gateway_service::GatewaySettings::load(service.support_dir());
+    let (client, default_model) = match agent {
+        crate::automation::AutomationAgent::KiroCodex => {
+            ("codex", settings.default_codex_model.as_str())
+        }
+        _ => ("claude", settings.default_claude_model.as_str()),
+    };
+    let requested = requested
+        .map(str::trim)
+        .filter(|model| !model.is_empty())
+        .unwrap_or(default_model);
+    let catalog = crate::gateway_service::current_gateway_model_catalog();
+    let Some(model) = catalog.model(requested) else {
+        return Err(ProductControlError::new(
+            "MODEL_NOT_AVAILABLE",
+            "the requested automation model is not present in the current Kiro catalog",
+            json!({ "agentId": agent.id(), "model": requested }),
+        ));
+    };
+    if !gateway_model_compatible(model, client) {
+        return Err(ProductControlError::new(
+            "MODEL_CLIENT_INCOMPATIBLE",
+            "the requested automation model is not compatible with this Agent",
+            json!({ "agentId": agent.id(), "model": requested }),
+        ));
+    }
+    Ok(model.id.clone())
+}
+
 fn automation_agent(
     agent_id: Option<&str>,
 ) -> Result<crate::automation::AutomationAgent, ProductControlError> {
@@ -891,11 +1024,14 @@ fn automation_agent(
         "kiro_gateway_claude" | "claude+kiro" | "claude-kiro" => {
             Ok(crate::automation::AutomationAgent::KiroGatewayClaude)
         }
+        "kiro_gateway_codex" | "kiro-codex" | "codex+kiro" | "codex-kiro" => {
+            Ok(crate::automation::AutomationAgent::KiroCodex)
+        }
         "codex" => Ok(crate::automation::AutomationAgent::Codex),
         "kiro" => Ok(crate::automation::AutomationAgent::Kiro),
         value => Err(ProductControlError::new(
             "INVALID_PARAMS",
-            "automation Agent must be claude, kiro_gateway_claude, codex, or kiro",
+            "automation Agent must be claude, kiro_gateway_claude, kiro_gateway_codex, codex, or kiro",
             json!({ "agentId": value }),
         )),
     }
@@ -1173,6 +1309,8 @@ fn launch_session(
     cwd: &str,
     agent: &AgentSpec,
     command: String,
+    env: Option<HashMap<String, String>>,
+    model: Option<&str>,
 ) -> Result<Value, ProductControlError> {
     let permissions = service.sync_tool_permissions();
     let terminal_id = service
@@ -1181,6 +1319,7 @@ fn launch_session(
             TerminalPtyConfig {
                 cwd: Some(cwd.to_string()),
                 command: Some(command),
+                env,
                 project_id: Some(project.id.clone()),
                 project_name: Some(project.name.clone()),
                 worktree_id: Some(worktree_id.to_string()),
@@ -1208,6 +1347,7 @@ fn launch_session(
         "projectName": project.name,
         "worktreeId": worktree_id,
         "agentId": agent.id,
+        "model": model,
         "status": "starting",
         "canSend": false,
         "canResume": false,
@@ -1350,7 +1490,9 @@ fn active_session_value(
         "terminalId": terminal.id,
         "externalSessionId": runtime.and_then(|session| session.ai_session_id.clone()),
         "title": runtime.map(|session| session.session_title.clone()).unwrap_or_else(|| terminal.title.clone()),
-        "agentId": runtime.map(|session| canonical_agent_id(&session.tool)).or_else(|| terminal.tool.as_deref().map(canonical_agent_id)),
+        "agentId": terminal.tool.as_deref().map(canonical_agent_id).or_else(|| runtime.map(|session| canonical_agent_id(&session.tool))),
+        "providerId": runtime.and_then(|session| session.provider.clone()),
+        "providerName": runtime.and_then(|session| session.provider.as_deref().map(provider_name)),
         "model": runtime.and_then(|session| session.model.clone()),
         "status": status,
         "updatedAt": runtime.map(|session| session.updated_at),
@@ -1416,8 +1558,9 @@ fn agent_screen_accepts_prompt(screen: &str) -> bool {
     if normalized.chars().count() < 8 {
         return false;
     }
-    const STARTUP_GATES: [&str; 9] = [
+    const STARTUP_GATES: [&str; 11] = [
         "press enter to continue",
+        "press enter to confirm or esc to go back",
         "continue anyway? [y/n]",
         "sign in with chatgpt",
         "finish signing in via your browser",
@@ -1426,6 +1569,7 @@ fn agent_screen_accepts_prompt(screen: &str) -> bool {
         "starting mcp server",
         "starting mcp servers",
         "booting mcp server",
+        "hooks need review",
     ];
     !STARTUP_GATES.iter().any(|gate| normalized.contains(gate))
 }
@@ -1455,6 +1599,8 @@ fn runtime_only_session_value(session: &crate::ai_runtime::AISessionSnapshot) ->
         "externalSessionId": session.ai_session_id,
         "title": session.session_title,
         "agentId": canonical_agent_id(&session.tool),
+        "providerId": session.provider,
+        "providerName": session.provider.as_deref().map(provider_name),
         "model": session.model,
         "status": runtime_status(session),
         "updatedAt": session.updated_at,
@@ -1474,6 +1620,130 @@ fn runtime_status(session: &crate::ai_runtime::AISessionSnapshot) -> &'static st
         "idle" => "starting",
         _ => "unknown",
     }
+}
+
+fn gateway_client(agent: &AgentSpec) -> Option<&'static str> {
+    match agent.id {
+        "kiro-claude" => Some("claude"),
+        "kiro-codex" => Some("codex"),
+        _ => None,
+    }
+}
+
+fn gateway_default_model<'a>(
+    settings: &'a crate::gateway_service::GatewaySettings,
+    client: &str,
+) -> &'a str {
+    match client {
+        "codex" => &settings.default_codex_model,
+        _ => &settings.default_claude_model,
+    }
+}
+
+fn gateway_model_compatible(model: &crate::gateway_service::GatewayModel, client: &str) -> bool {
+    match client {
+        "codex" => model.compatibility.codex_cli,
+        _ => model.compatibility.claude_code,
+    }
+}
+
+fn configured_agent_model(
+    tool_settings: &ToolPermissionsSummary,
+    gateway_settings: &crate::gateway_service::GatewaySettings,
+    agent_id: &str,
+) -> Option<String> {
+    match agent_id {
+        "kiro-claude" => Some(gateway_settings.default_claude_model.clone()),
+        "kiro-codex" => Some(gateway_settings.default_codex_model.clone()),
+        _ => configured_model(tool_settings, agent_id),
+    }
+}
+
+fn prepare_gateway_session(
+    service: &RuntimeService,
+    agent: &AgentSpec,
+    client: &str,
+    requested_model: Option<&str>,
+    resume_id: Option<&str>,
+    permission: &str,
+) -> Result<(String, Option<HashMap<String, String>>, Option<String>), ProductControlError> {
+    let status = crate::gateway_service::GatewayService::global_status();
+    let Some(addr) = status.addr else {
+        return Err(ProductControlError::new(
+            "GATEWAY_OFFLINE",
+            "Kiro Gateway is not listening",
+            json!({
+                "agentId": agent.id,
+                "enabled": status.enabled,
+                "reason": status.error,
+            }),
+        ));
+    };
+    let settings = crate::gateway_service::GatewaySettings::load(service.support_dir());
+    let requested = requested_model
+        .map(str::trim)
+        .filter(|model| !model.is_empty())
+        .unwrap_or_else(|| gateway_default_model(&settings, client));
+    let catalog = crate::gateway_service::current_gateway_model_catalog();
+    let Some(model) = catalog.model(requested) else {
+        return Err(ProductControlError::new(
+            "MODEL_NOT_AVAILABLE",
+            "the requested model is not present in the current Kiro catalog",
+            json!({ "agentId": agent.id, "model": requested }),
+        ));
+    };
+    if !gateway_model_compatible(model, client) {
+        return Err(ProductControlError::new(
+            "MODEL_CLIENT_INCOMPATIBLE",
+            "the requested model is not enabled for this Kiro Gateway Agent",
+            json!({ "agentId": agent.id, "model": requested }),
+        ));
+    }
+    let (mut command, env) = match client {
+        "codex" => {
+            let command = crate::gateway_service::gateway_codex_command(
+                &model.id,
+                &format!("http://{addr}/v1"),
+                model.context_window_tokens,
+            );
+            let mut command = apply_gateway_permission(command, client, permission);
+            command.push_str(" --disable hooks");
+            (
+                command,
+                crate::gateway_service::gateway_codex_environment(
+                    &settings.config.api_key,
+                    &model.id,
+                ),
+            )
+        }
+        _ => {
+            let command = crate::gateway_service::gateway_claude_command(&model.id, resume_id);
+            (
+                apply_gateway_permission(command, client, permission),
+                crate::gateway_service::gateway_claude_environment(
+                    &format!("http://{addr}"),
+                    &settings.config.api_key,
+                    &model.id,
+                ),
+            )
+        }
+    };
+    if client == "codex" {
+        if let Some(resume_id) = resume_id.filter(|id| !id.trim().is_empty()) {
+            command.push_str(" resume ");
+            command.push_str(&shell_quote(resume_id));
+        }
+    }
+    Ok((command, Some(env), Some(model.id.clone())))
+}
+
+fn apply_gateway_permission(mut command: String, client: &str, permission: &str) -> String {
+    if client == "codex" && permission == "fullAccess" {
+        command.push_str(" --dangerously-bypass-approvals-and-sandbox");
+    } else if client == "claude" && permission != "fullAccess" {
+        command = command.replace(" --permission-mode bypassPermissions", "");
+    }
+    command
 }
 
 fn create_command(agent: &AgentSpec, model: Option<&str>, permission: &str) -> String {
@@ -1552,8 +1822,8 @@ fn configured_model(settings: &ToolPermissionsSummary, agent_id: &str) -> Option
 
 fn configured_permission(settings: &ToolPermissionsSummary, agent_id: &str) -> String {
     match agent_id {
-        "codex" => &settings.codex,
-        "claude" => &settings.claude_code,
+        "codex" | "kiro-codex" => &settings.codex,
+        "claude" | "kiro-claude" => &settings.claude_code,
         "agy" => &settings.agy,
         "opencode" => &settings.opencode,
         "kiro" => &settings.kiro,
@@ -1677,7 +1947,11 @@ fn parse_agent_version(bytes: &[u8]) -> Option<String> {
 
 fn canonical_agent_id(source: &str) -> String {
     let source = source.to_ascii_lowercase();
-    if source.contains("claude") {
+    if matches!(source.as_str(), "kiro-claude" | "kiro_gateway_claude") {
+        "kiro-claude"
+    } else if matches!(source.as_str(), "kiro-codex" | "kiro_gateway_codex") {
+        "kiro-codex"
+    } else if source.contains("claude") {
         "claude"
     } else if source.contains("opencode") {
         "opencode"
@@ -1695,6 +1969,44 @@ fn canonical_agent_id(source: &str) -> String {
         "codex"
     }
     .to_string()
+}
+
+fn history_agent_id(source: &str, model: Option<&str>) -> String {
+    let canonical = canonical_agent_id(source);
+    let catalog = crate::gateway_service::current_gateway_model_catalog();
+    if canonical == "codex"
+        && model
+            .and_then(|model| catalog.model(model))
+            .is_some_and(|model| model.compatibility.codex_cli)
+    {
+        "kiro-codex".to_string()
+    } else {
+        canonical
+    }
+}
+
+fn history_runtime_agent_id(source: &str, model: Option<&str>) -> String {
+    match history_agent_id(source, model).as_str() {
+        "kiro-codex" => "codex".to_string(),
+        "kiro-claude" => "claude".to_string(),
+        agent_id => agent_id.to_string(),
+    }
+}
+
+fn history_provider_id(source: &str, model: Option<&str>) -> Option<&'static str> {
+    matches!(
+        history_agent_id(source, model).as_str(),
+        "kiro-codex" | "kiro-claude"
+    )
+    .then_some("kiro")
+}
+
+fn provider_name(provider_id: &str) -> String {
+    if provider_id.eq_ignore_ascii_case("kiro") {
+        "Kiro".to_string()
+    } else {
+        provider_id.to_string()
+    }
 }
 
 fn history_session_can_resume(session: &AISessionSummary) -> bool {
@@ -1720,7 +2032,7 @@ fn resume_identifier_is_reliable(agent_id: &str, identifier: &str) -> bool {
     }
     // Some Codex history rows retain the rollout JSONL path instead of the
     // conversation UUID. `codex resume` does not accept that path as an ID.
-    agent_id != "codex"
+    !matches!(agent_id, "codex" | "kiro-codex")
         || (!identifier.contains('/')
             && !identifier.contains('\\')
             && !identifier.ends_with(".jsonl"))
@@ -1765,6 +2077,49 @@ mod tests {
     }
 
     #[test]
+    fn kiro_gateway_agents_remain_distinct_from_personal_agents() {
+        let claude = agent_spec("kiro-claude").unwrap();
+        let codex = agent_spec("kiro-codex").unwrap();
+        assert_eq!(gateway_client(claude), Some("claude"));
+        assert_eq!(gateway_client(codex), Some("codex"));
+        assert_eq!(canonical_agent_id("kiro_gateway_claude"), "kiro-claude");
+        assert_eq!(canonical_agent_id("kiro_gateway_codex"), "kiro-codex");
+        assert_eq!(history_runtime_agent_id("kiro-codex", None), "codex");
+        assert_eq!(history_provider_id("kiro-codex", None), Some("kiro"));
+
+        let catalog = crate::gateway_service::GatewayModelCatalog::fallback();
+        assert!(gateway_model_compatible(
+            catalog.model("claude-sonnet-5").unwrap(),
+            "claude"
+        ));
+        assert!(!gateway_model_compatible(
+            catalog.model("claude-sonnet-5").unwrap(),
+            "codex"
+        ));
+        assert!(gateway_model_compatible(
+            catalog.model("gpt-5.6-terra").unwrap(),
+            "codex"
+        ));
+
+        assert_eq!(
+            apply_gateway_permission(
+                "claude --permission-mode bypassPermissions --model claude-sonnet-5".to_string(),
+                "claude",
+                "default",
+            ),
+            "claude --model claude-sonnet-5"
+        );
+        assert!(
+            apply_gateway_permission(
+                "codex --model gpt-5.6-terra".to_string(),
+                "codex",
+                "fullAccess",
+            )
+            .ends_with("--dangerously-bypass-approvals-and-sandbox")
+        );
+    }
+
+    #[test]
     fn codex_resume_rejects_rollout_paths_but_accepts_session_ids() {
         assert!(resume_identifier_is_reliable(
             "codex",
@@ -1774,6 +2129,23 @@ mod tests {
             "codex",
             "/Users/example/.codex/sessions/rollout.jsonl"
         ));
+        assert!(!resume_identifier_is_reliable(
+            "kiro-codex",
+            "/Users/example/.codex/sessions/rollout.jsonl"
+        ));
+    }
+
+    #[test]
+    fn legacy_codex_history_uses_kiro_provider_only_for_compatible_models() {
+        assert_eq!(
+            history_agent_id("codex", Some("gpt-5.6-terra")),
+            "kiro-codex"
+        );
+        assert_eq!(history_agent_id("codex", Some("gpt-5.5")), "codex");
+        assert_eq!(
+            history_agent_id("kiro-codex", Some("gpt-5.6-terra")),
+            "kiro-codex"
+        );
     }
 
     #[test]
@@ -1792,6 +2164,9 @@ mod tests {
         ));
         assert!(!agent_screen_accepts_prompt(
             "Starting MCP servers (1/2): codex_apps"
+        ));
+        assert!(!agent_screen_accepts_prompt(
+            "Hooks need review\n5 hooks are new or changed.\nPress enter to confirm or esc to go back"
         ));
         assert!(!agent_screen_accepts_prompt(
             "Finish signing in via your browser"

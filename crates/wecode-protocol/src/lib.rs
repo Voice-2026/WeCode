@@ -169,6 +169,8 @@ pub struct RemoteAISessionSummary {
     pub tool: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
     /// Last-seen time (epoch seconds).
     pub time: f64,
     /// Total tokens (the "size" of the session).
@@ -206,6 +208,8 @@ pub struct RemoteAICurrentSession {
     pub tool: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
     #[serde(default)]
     pub status: String,
     #[serde(default, rename = "isRunning")]

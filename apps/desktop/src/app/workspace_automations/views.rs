@@ -154,6 +154,7 @@ fn automation_list_agent_label(agent: AutomationAgent) -> &'static str {
     match agent {
         AutomationAgent::Claude => "Claude",
         AutomationAgent::KiroGatewayClaude => "Claude + Kiro",
+        AutomationAgent::KiroCodex => "Codex Agent · Kiro Provider",
         AutomationAgent::Codex => "Codex",
         AutomationAgent::Kiro => "Kiro",
     }
@@ -219,6 +220,7 @@ pub(super) fn automation_agent_value(agent: AutomationAgent) -> &'static str {
     match agent {
         AutomationAgent::Claude => "claude",
         AutomationAgent::KiroGatewayClaude => "kiro_gateway_claude",
+        AutomationAgent::KiroCodex => "kiro_gateway_codex",
         AutomationAgent::Codex => "codex",
         AutomationAgent::Kiro => "kiro",
     }
@@ -243,27 +245,25 @@ pub(super) fn automation_agent_from_value(value: &str) -> Option<AutomationAgent
     match value.trim() {
         "claude" => Some(AutomationAgent::Claude),
         "kiro_gateway_claude" => Some(AutomationAgent::KiroGatewayClaude),
+        "kiro_gateway_codex" => Some(AutomationAgent::KiroCodex),
         "codex" => Some(AutomationAgent::Codex),
         "kiro" => Some(AutomationAgent::Kiro),
         _ => None,
     }
 }
 
-pub(super) fn automation_gateway_model_options(selected: &str) -> Vec<SelectOption> {
-    let mut options = [
-        ("claude-haiku-4.5", "Claude Haiku 4.5"),
-        ("claude-sonnet-4.6", "Claude Sonnet 4.6"),
-        ("claude-opus-4.6", "Claude Opus 4.6"),
-        ("claude-opus-4.7", "Claude Opus 4.7"),
-        ("claude-opus-4.8", "Claude Opus 4.8"),
-        ("deepseek-3.2", "DeepSeek 3.2"),
-        ("glm-5", "GLM 5"),
-        ("minimax-m2.5", "MiniMax M2.5"),
-        ("qwen3-coder-next", "Qwen3 Coder Next"),
-    ]
-    .into_iter()
-    .map(|(value, label)| SelectOption::new(value, label))
-    .collect::<Vec<_>>();
+pub(super) fn automation_gateway_model_options(
+    catalog: &wecode_runtime::gateway_service::GatewayModelCatalog,
+    agent: AutomationAgent,
+    selected: &str,
+) -> Vec<SelectOption> {
+    let models: Box<dyn Iterator<Item = _>> = match agent {
+        AutomationAgent::KiroCodex => Box::new(catalog.codex_cli_models()),
+        _ => Box::new(catalog.claude_code_models()),
+    };
+    let mut options = models
+        .map(|model| SelectOption::new(model.id.clone(), SharedString::from(model.name.clone())))
+        .collect::<Vec<_>>();
     let selected = selected.trim();
     if !selected.is_empty()
         && !options

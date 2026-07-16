@@ -87,6 +87,8 @@ impl WeCodeApp {
         let pet_sprite_paths =
             pet_sprite_path_cache(&runtime.source_root, &state.support_dir, &pet_catalog);
         let gateway_settings = GatewaySettings::load(state.support_dir.clone());
+        let gateway_model_catalog =
+            wecode_runtime::gateway_service::load_gateway_model_catalog(state.support_dir.clone());
         let gateway_service = GatewayService::inactive();
         let automation_project_id = state
             .selected_project
@@ -141,7 +143,7 @@ impl WeCodeApp {
             automation_schedule_select: None,
             automation_grace_select: None,
             automation_agent: AutomationAgent::KiroGatewayClaude,
-            automation_model: "claude-opus-4.8".to_string(),
+            automation_model: gateway_settings.default_claude_model.clone(),
             automation_project_id,
             automation_workspace_id,
             automation_workspace_mode: AutomationWorkspaceMode::Existing,
@@ -152,6 +154,9 @@ impl WeCodeApp {
             automation_weekday: 1,
             gateway_settings,
             gateway_service,
+            gateway_model_catalog,
+            gateway_models_refreshing: false,
+            gateway_models_error: None,
             window_appearance: WindowAppearance::Dark,
             main_window_fullscreen: false,
             main_window_lost_to_external_app: false,
