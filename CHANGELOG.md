@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [2.0.0-rc.11] - 2026-07-16
+
+### Added
+
+- Added product CLI commands for listing, creating, updating, running, pausing, and resuming scheduled automations, with matching local-control protocol capabilities.
+- Added the `wecode-control` skill so external agents can inspect and control WeCode sessions, models, workspaces, and automations through the product CLI.
+- Added model selection for Claude + Kiro automations, defaulting new tasks to Claude + Kiro with Opus 4.8.
+
+### Changed
+
+- Expanded the automation editor to the full available width and increased the task prompt editor height.
+- Limited desktop pull-request validation and releases to macOS; Windows remains out of the current product scope.
+- Simplified pull-request CI to compile checks and release-script tests, leaving release builds and packaging to the tag workflow.
+
 ## [2.0.0-rc.10] - 2026-07-14
 
 ### Added
