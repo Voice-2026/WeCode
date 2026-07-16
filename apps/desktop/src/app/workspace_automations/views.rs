@@ -154,7 +154,7 @@ fn automation_list_agent_label(agent: AutomationAgent) -> &'static str {
     match agent {
         AutomationAgent::Claude => "Claude",
         AutomationAgent::KiroGatewayClaude => "Claude + Kiro",
-        AutomationAgent::KiroCodex => "Codex + Kiro",
+        AutomationAgent::KiroCodex => "Codex Agent · Kiro Provider",
         AutomationAgent::Codex => "Codex",
         AutomationAgent::Kiro => "Kiro",
     }

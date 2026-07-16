@@ -217,6 +217,7 @@ pub(in crate::ai_runtime::store) fn apply_hook_unlocked(
         ai_session_id,
         model: normalized_string(event.model.as_deref())
             .or_else(|| base.and_then(|session| session.model.clone())),
+        provider: base.and_then(|session| session.provider.clone()),
         state: state.to_string(),
         status: status_for_runtime_state(state).to_string(),
         is_running: state == "responding",

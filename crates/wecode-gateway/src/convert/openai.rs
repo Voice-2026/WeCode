@@ -6,6 +6,10 @@ use super::anthropic::extract_images_from_content;
 use super::kiro::{build_kiro_payload, BuildParams};
 use super::{ThinkingConfig, ToolCallSpec, ToolResult, UnifiedMessage, UnifiedTool};
 use crate::config::GatewayConfig;
+
+/// Codex is the agent runtime. Kiro supplies the model behind the gateway but
+/// must not replace the agent identity exposed to the user.
+pub const CODEX_AGENT_BASE_INSTRUCTIONS: &str = "You are Codex, a coding agent running in the Codex CLI, a terminal-based coding assistant. Codex is the agent runtime. The selected model is supplied through the Kiro provider; Kiro is only the model provider, not the agent. When asked who you are, identify yourself as Codex and do not identify yourself as Kiro or as a Kiro agent.";
 use crate::model_resolver::resolve_model_id;
 
 fn content_to_text(content: &Value) -> String {
@@ -280,16 +284,22 @@ pub fn responses_to_kiro(
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
+    let mut system_instructions = CODEX_AGENT_BASE_INSTRUCTIONS.to_string();
     if let Some(instructions) = request.get("instructions") {
         let instructions = instructions.as_str().ok_or_else(|| {
             crate::error::GatewayError::InvalidRequest(
                 "Responses instructions must be a string".into(),
             )
         })?;
-        if !instructions.is_empty() {
-            messages.push(serde_json::json!({ "role": "system", "content": instructions }));
+        if !instructions.is_empty() && instructions != CODEX_AGENT_BASE_INSTRUCTIONS {
+            system_instructions.push_str("\n\n");
+            system_instructions.push_str(instructions);
         }
     }
+    messages.push(serde_json::json!({
+        "role": "system",
+        "content": system_instructions
+    }));
 
     match request.get("input") {
         Some(Value::String(text)) => {
@@ -512,6 +522,14 @@ mod tests {
             state["currentMessage"]["userInputMessage"]["modelId"],
             "gpt-5.6-terra"
         );
+        assert!(state["currentMessage"]["userInputMessage"]["content"]
+            .as_str()
+            .unwrap()
+            .contains("You are Codex"));
+        assert!(state["currentMessage"]["userInputMessage"]["content"]
+            .as_str()
+            .unwrap()
+            .contains("Kiro is only the model provider"));
         assert!(state["currentMessage"]["userInputMessage"]["content"]
             .as_str()
             .unwrap()

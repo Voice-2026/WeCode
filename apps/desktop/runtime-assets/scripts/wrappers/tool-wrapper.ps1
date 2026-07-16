@@ -454,6 +454,7 @@ function Write-Runtime-Binding([string]$ExternalSessionId, [string]$Model, [stri
       terminalId = $env:DMUX_SESSION_ID
       terminalInstanceId = if ([string]::IsNullOrWhiteSpace($env:DMUX_SESSION_INSTANCE_ID)) { $null } else { $env:DMUX_SESSION_INSTANCE_ID }
       tool = $Tool
+      provider = if ([string]::IsNullOrWhiteSpace($env:WECODE_AI_PROVIDER_ID)) { $null } else { $env:WECODE_AI_PROVIDER_ID }
       projectId = $env:DMUX_PROJECT_ID
       projectName = if ([string]::IsNullOrWhiteSpace($env:DMUX_PROJECT_NAME)) { "Workspace" } else { $env:DMUX_PROJECT_NAME }
       projectPath = if ([string]::IsNullOrWhiteSpace($env:DMUX_PROJECT_PATH)) { $null } else { $env:DMUX_PROJECT_PATH }

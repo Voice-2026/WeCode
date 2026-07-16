@@ -373,6 +373,7 @@ fn codex_wrapper_writes_resume_session_id_to_runtime_binding() {
         .env("DMUX_PROJECT_NAME", "Project")
         .env("DMUX_PROJECT_PATH", dir.join("project"))
         .env("DMUX_SESSION_TITLE", "Codex")
+        .env("WECODE_AI_PROVIDER_ID", "kiro")
         .env("DMUX_RUNTIME_EVENT_DIR", dir.join("events"))
         .env("DMUX_AI_RUNTIME_BINDING_DIR", &binding_dir)
         .env_remove("DMUX_ACTIVE_AI_RESOLVED_PATH")
@@ -391,6 +392,8 @@ fn codex_wrapper_writes_resume_session_id_to_runtime_binding() {
         binding["externalSessionId"].as_str(),
         Some("019f0c1b-f835-7c33-a4f4-3e737d2fbf90")
     );
+    assert_eq!(binding["tool"].as_str(), Some("codex"));
+    assert_eq!(binding["provider"].as_str(), Some("kiro"));
     assert!(binding["launchStartedAt"].as_f64().is_some());
     fs::remove_dir_all(dir).unwrap();
 }

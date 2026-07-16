@@ -342,6 +342,7 @@ mod tests {
             tool: "Claude".to_string(),
             ai_session_id: None,
             model: None,
+            provider: None,
             state: state.to_string(),
             project_name: "Demo".to_string(),
             session_title: "Implement feature".to_string(),

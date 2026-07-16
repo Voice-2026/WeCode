@@ -81,7 +81,7 @@ impl AutomationAgent {
         match self {
             Self::Claude => "Claude Code",
             Self::KiroGatewayClaude => "Claude + Kiro",
-            Self::KiroCodex => "Codex + Kiro",
+            Self::KiroCodex => "Codex Agent · Kiro Provider",
             Self::Codex => "Codex",
             Self::Kiro => "Kiro",
         }

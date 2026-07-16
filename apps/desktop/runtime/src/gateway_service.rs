@@ -154,6 +154,10 @@ pub fn gateway_claude_environment(
     HashMap::from([
         ("WECODE_KIRO_GATEWAY".to_string(), "1".to_string()),
         ("WECODE_KIRO_GATEWAY_MODEL".to_string(), model.to_string()),
+        ("WECODE_AI_AGENT_ID".to_string(), "claude".to_string()),
+        ("WECODE_AI_PROVIDER_ID".to_string(), "kiro".to_string()),
+        ("WECODE_AI_PROVIDER_NAME".to_string(), "Kiro".to_string()),
+        ("WECODE_AI_MODEL_ID".to_string(), model.to_string()),
         ("ANTHROPIC_API_KEY".to_string(), api_key.to_string()),
         ("ANTHROPIC_BASE_URL".to_string(), base_url.to_string()),
     ])
@@ -176,6 +180,10 @@ pub fn gateway_codex_environment(api_key: &str, model: &str) -> HashMap<String, 
     HashMap::from([
         ("WECODE_KIRO_GATEWAY".to_string(), "1".to_string()),
         ("WECODE_KIRO_GATEWAY_MODEL".to_string(), model.to_string()),
+        ("WECODE_AI_AGENT_ID".to_string(), "codex".to_string()),
+        ("WECODE_AI_PROVIDER_ID".to_string(), "kiro".to_string()),
+        ("WECODE_AI_PROVIDER_NAME".to_string(), "Kiro".to_string()),
+        ("WECODE_AI_MODEL_ID".to_string(), model.to_string()),
         (
             "WECODE_KIRO_GATEWAY_API_KEY".to_string(),
             api_key.to_string(),
@@ -188,7 +196,7 @@ pub fn gateway_codex_command(model: &str, base_url: &str, context_window_tokens:
         "codex --model {} -c {} -c {} -c {} -c {} -c {} -c {} -c {}",
         shell_quote(model),
         shell_quote("model_provider=\"wecode-kiro\""),
-        shell_quote("model_providers.wecode-kiro.name=\"WeCode Kiro Gateway\""),
+        shell_quote("model_providers.wecode-kiro.name=\"Kiro\""),
         shell_quote(&format!(
             "model_providers.wecode-kiro.base_url=\"{base_url}\""
         )),
@@ -203,6 +211,8 @@ pub fn gateway_codex_command(model: &str, base_url: &str, context_window_tokens:
             "model_context_window={context_window_tokens}"
         )));
     }
+    command.push_str(" -c ");
+    command.push_str(&shell_quote("service_tier=\"default\""));
     command
 }
 
@@ -340,12 +350,21 @@ impl Drop for GatewayService {
 
 #[cfg(test)]
 mod tests {
-    use super::gateway_codex_command;
+    use super::{gateway_codex_command, gateway_codex_environment};
 
     #[test]
     fn codex_gateway_command_disables_interactive_update_prompt() {
         let command = gateway_codex_command("gpt-5.6-terra", "http://127.0.0.1:18989/v1", 272_000);
         assert!(command.contains("check_for_update_on_startup=false"));
         assert!(command.contains("model_provider=\"wecode-kiro\""));
+        assert!(command.contains("model_providers.wecode-kiro.name=\"Kiro\""));
+        assert!(command.starts_with("codex --model gpt-5.6-terra"));
+        assert!(command.contains("service_tier=\"default\""));
+
+        let env = gateway_codex_environment("secret", "gpt-5.6-terra");
+        assert_eq!(env["WECODE_AI_AGENT_ID"], "codex");
+        assert_eq!(env["WECODE_AI_PROVIDER_ID"], "kiro");
+        assert_eq!(env["WECODE_AI_PROVIDER_NAME"], "Kiro");
+        assert_eq!(env["WECODE_AI_MODEL_ID"], "gpt-5.6-terra");
     }
 }

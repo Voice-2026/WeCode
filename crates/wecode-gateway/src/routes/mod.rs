@@ -121,7 +121,7 @@ fn codex_model_info(model: &GatewayModel, index: usize) -> serde_json::Value {
         "priority": 100 - index as i32,
         "availability_nux": null,
         "upgrade": null,
-        "base_instructions": "",
+        "base_instructions": crate::convert::openai::CODEX_AGENT_BASE_INSTRUCTIONS,
         "support_verbosity": false,
         "default_verbosity": null,
         "apply_patch_tool_type": null,
@@ -185,6 +185,14 @@ mod tests {
         assert_eq!(info["slug"], "gpt-5.6-luna");
         assert_eq!(info["shell_type"], "unified_exec");
         assert_eq!(info["supports_reasoning_summaries"], true);
+        assert!(info["base_instructions"]
+            .as_str()
+            .unwrap()
+            .contains("You are Codex"));
+        assert!(info["base_instructions"]
+            .as_str()
+            .unwrap()
+            .contains("Kiro is only the model provider"));
         assert_eq!(info["use_responses_lite"], false);
         assert_eq!(info["context_window"], 272_000);
     }

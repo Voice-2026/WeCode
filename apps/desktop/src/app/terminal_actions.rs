@@ -1667,7 +1667,7 @@ impl WeCodeApp {
             &claude_model,
         );
         Some((
-            format!("Kiro Gateway · Claude · {claude_model}"),
+            format!("Claude Agent · Kiro Provider · {claude_model}"),
             gateway_claude_command(&claude_model, resume_id),
             Some(env),
         ))
@@ -1693,13 +1693,14 @@ impl WeCodeApp {
             .model(model)
             .filter(|entry| entry.compatibility.codex_cli)
         else {
-            self.status_message = format!("Model '{model}' is not available for Kiro Codex.");
+            self.status_message =
+                format!("Model '{model}' is not available for Codex with Kiro Provider.");
             return None;
         };
         let base_url = format!("http://{addr}/v1");
         let env = gateway_codex_environment(&self.gateway_settings.config.api_key, &entry.id);
         Some((
-            format!("Kiro Gateway · Codex · {}", entry.id),
+            format!("Codex Agent · Kiro Provider · {}", entry.id),
             gateway_codex_command(&entry.id, &base_url, entry.context_window_tokens),
             Some(env),
         ))

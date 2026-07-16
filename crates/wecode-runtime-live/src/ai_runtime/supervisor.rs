@@ -965,6 +965,7 @@ mod tests {
             external_session_id: None,
             transcript_path: None,
             model: None,
+            provider: None,
             updated_at: now_seconds(),
         });
 

@@ -117,11 +117,17 @@ pub struct AISessionSummary {
 
 impl From<AISessionSummary> for wecode_protocol::RemoteAISessionSummary {
     fn from(summary: AISessionSummary) -> Self {
+        let provider = matches!(
+            summary.source.as_str(),
+            "kiro-codex" | "kiro_gateway_codex" | "kiro-claude" | "kiro_gateway_claude"
+        )
+        .then(|| "kiro".to_string());
         Self {
             id: summary.id,
             title: summary.title,
             tool: summary.source,
             model: summary.last_model,
+            provider,
             time: summary.last_seen_at,
             size: summary.total_tokens,
             usage_amounts: summary

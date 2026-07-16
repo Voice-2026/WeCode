@@ -160,6 +160,7 @@ fn runtime_session(terminal_id: &str) -> AIRuntimeSessionSummary {
         tool: String::new(),
         ai_session_id: None,
         model: None,
+        provider: None,
         state: "running".to_string(),
         project_name: "Project".to_string(),
         session_title: "Session".to_string(),

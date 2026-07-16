@@ -1153,6 +1153,7 @@ mod tests {
             tool: "codex".to_string(),
             ai_session_id: None,
             model: None,
+            provider: None,
             state: state.to_string(),
             project_name: "WeCode".to_string(),
             session_title: "Session".to_string(),

@@ -108,7 +108,7 @@ impl WeCodeApp {
         let agent_options = [
             ("claude", "Claude"),
             ("kiro_gateway_claude", "Claude + Kiro"),
-            ("kiro_gateway_codex", "Codex + Kiro"),
+            ("kiro_gateway_codex", "Codex Agent · Kiro Provider"),
             ("codex", "Codex"),
             ("kiro", "Kiro"),
         ]
@@ -143,7 +143,7 @@ impl WeCodeApp {
         let agent_label = match self.automation_agent {
             AutomationAgent::Claude => "Claude",
             AutomationAgent::KiroGatewayClaude => "Claude + Kiro",
-            AutomationAgent::KiroCodex => "Codex + Kiro",
+            AutomationAgent::KiroCodex => "Codex Agent · Kiro Provider",
             AutomationAgent::Codex => "Codex",
             AutomationAgent::Kiro => "Kiro",
         };

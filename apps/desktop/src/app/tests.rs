@@ -844,11 +844,16 @@ mod tests {
         assert!(command.contains("wire_api=\"responses\""));
         assert!(command.contains("env_key=\"WECODE_KIRO_GATEWAY_API_KEY\""));
         assert!(command.contains("model_context_window=272000"));
+        assert!(command.contains("service_tier=\"default\""));
         assert!(!command.contains("secret-key"));
 
         let env = gateway_codex_environment("secret-key", "gpt-5.6-terra");
         assert_eq!(env["WECODE_KIRO_GATEWAY_API_KEY"], "secret-key");
         assert_eq!(env["WECODE_KIRO_GATEWAY_MODEL"], "gpt-5.6-terra");
+        assert_eq!(env["WECODE_AI_AGENT_ID"], "codex");
+        assert_eq!(env["WECODE_AI_PROVIDER_ID"], "kiro");
+        assert_eq!(env["WECODE_AI_PROVIDER_NAME"], "Kiro");
+        assert_eq!(env["WECODE_AI_MODEL_ID"], "gpt-5.6-terra");
         assert!(!env.contains_key("OPENAI_API_KEY"));
         assert!(!env.contains_key("OPENAI_BASE_URL"));
     }

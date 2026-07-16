@@ -74,7 +74,7 @@ const AGENTS: [AgentSpec; 10] = [
     },
     AgentSpec {
         id: "kiro-claude",
-        name: "Kiro Claude",
+        name: "Claude Agent · Kiro Provider",
         command: "claude",
         aliases: &["claude"],
         supports_model: true,
@@ -83,7 +83,7 @@ const AGENTS: [AgentSpec; 10] = [
     },
     AgentSpec {
         id: "kiro-codex",
-        name: "Kiro Codex",
+        name: "Codex Agent · Kiro Provider",
         command: "codex",
         aliases: &["codex"],
         supports_model: true,
@@ -325,7 +325,9 @@ pub fn session_list(
                 "terminalId": Value::Null,
                 "externalSessionId": session.external_session_id,
                 "title": session.title,
-                "agentId": history_agent_id(&session.source, session.last_model.as_deref()),
+                "agentId": history_runtime_agent_id(&session.source, session.last_model.as_deref()),
+                "providerId": history_provider_id(&session.source, session.last_model.as_deref()),
+                "providerName": history_provider_id(&session.source, session.last_model.as_deref()).map(provider_name),
                 "model": session.last_model,
                 "status": "completed",
                 "updatedAt": session.last_seen_at,
@@ -524,7 +526,9 @@ pub fn session_status(
         "projectName": project.name,
         "externalSessionId": session.external_session_id,
         "title": session.title,
-        "agentId": history_agent_id(&session.source, session.last_model.as_deref()),
+        "agentId": history_runtime_agent_id(&session.source, session.last_model.as_deref()),
+        "providerId": history_provider_id(&session.source, session.last_model.as_deref()),
+        "providerName": history_provider_id(&session.source, session.last_model.as_deref()).map(provider_name),
         "model": session.last_model,
         "status": "completed",
         "updatedAt": session.last_seen_at,
@@ -1487,6 +1491,8 @@ fn active_session_value(
         "externalSessionId": runtime.and_then(|session| session.ai_session_id.clone()),
         "title": runtime.map(|session| session.session_title.clone()).unwrap_or_else(|| terminal.title.clone()),
         "agentId": terminal.tool.as_deref().map(canonical_agent_id).or_else(|| runtime.map(|session| canonical_agent_id(&session.tool))),
+        "providerId": runtime.and_then(|session| session.provider.clone()),
+        "providerName": runtime.and_then(|session| session.provider.as_deref().map(provider_name)),
         "model": runtime.and_then(|session| session.model.clone()),
         "status": status,
         "updatedAt": runtime.map(|session| session.updated_at),
@@ -1593,6 +1599,8 @@ fn runtime_only_session_value(session: &crate::ai_runtime::AISessionSnapshot) ->
         "externalSessionId": session.ai_session_id,
         "title": session.session_title,
         "agentId": canonical_agent_id(&session.tool),
+        "providerId": session.provider,
+        "providerName": session.provider.as_deref().map(provider_name),
         "model": session.model,
         "status": runtime_status(session),
         "updatedAt": session.updated_at,
@@ -1977,6 +1985,30 @@ fn history_agent_id(source: &str, model: Option<&str>) -> String {
     }
 }
 
+fn history_runtime_agent_id(source: &str, model: Option<&str>) -> String {
+    match history_agent_id(source, model).as_str() {
+        "kiro-codex" => "codex".to_string(),
+        "kiro-claude" => "claude".to_string(),
+        agent_id => agent_id.to_string(),
+    }
+}
+
+fn history_provider_id(source: &str, model: Option<&str>) -> Option<&'static str> {
+    matches!(
+        history_agent_id(source, model).as_str(),
+        "kiro-codex" | "kiro-claude"
+    )
+    .then_some("kiro")
+}
+
+fn provider_name(provider_id: &str) -> String {
+    if provider_id.eq_ignore_ascii_case("kiro") {
+        "Kiro".to_string()
+    } else {
+        provider_id.to_string()
+    }
+}
+
 fn history_session_can_resume(session: &AISessionSummary) -> bool {
     let agent_id = canonical_agent_id(&session.source);
     let supports_resume = agent_spec(&agent_id)
@@ -2052,6 +2084,8 @@ mod tests {
         assert_eq!(gateway_client(codex), Some("codex"));
         assert_eq!(canonical_agent_id("kiro_gateway_claude"), "kiro-claude");
         assert_eq!(canonical_agent_id("kiro_gateway_codex"), "kiro-codex");
+        assert_eq!(history_runtime_agent_id("kiro-codex", None), "codex");
+        assert_eq!(history_provider_id("kiro-codex", None), Some("kiro"));
 
         let catalog = crate::gateway_service::GatewayModelCatalog::fallback();
         assert!(gateway_model_compatible(
