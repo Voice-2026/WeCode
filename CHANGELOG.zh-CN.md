@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [2.0.0-rc.13] - 2026-07-17
+
 ### 修复
 
 - 修复 Homebrew 安装后的产品 CLI 路径识别，`wecode integration status` 现在可通过命令符号链接定位内置 Skill，并正确显示 CLI 已安装且由 WeCode 管理。
