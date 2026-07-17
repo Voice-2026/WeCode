@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [2.0.0-rc.13] - 2026-07-17
+
 ### Fixed
 
 - Fixed Homebrew-installed Product CLI discovery so `wecode integration status` resolves the bundled Skill through the command symlink and reports the CLI as installed and managed.
